@@ -3,8 +3,7 @@ import { parseProfile1Document, parseProfile1ReaderViews, profile1CriticMarkupRo
 import type { ExecutionBudgetId } from '../src/revision.js'
 
 const budget: ExecutionBudgetId = Object.freeze({
-  limitsProfile: 'desktop-v1',
-  accountingSchema: 'syntax-accounting-1'
+  limitsProfile: 'desktop-v1'
 })
 
 const sources = [

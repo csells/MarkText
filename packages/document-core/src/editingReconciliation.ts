@@ -81,7 +81,7 @@ function ordinaryIntervalReconciliation(
 }
 
 /** Relate sparse deletions by retained source intervals, including hidden syntax. */
-export function sparseDeletionReconciliation(
+function sparseDeletionReconciliation(
   core: DocumentCore, previous: DocumentRevision, inputs: readonly DocumentSourceEdit[], commit: DocumentCommit
 ): readonly DocumentSourceEdit[] | undefined {
   const applied = commit.change.appliedEdits

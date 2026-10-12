@@ -5,16 +5,16 @@ import type {
   Profile1SyntaxGraph,
   Profile1SyntaxNode,
   Profile1SyntaxNodeKind,
-  SourceOffset,
   SourceOwner,
   SourceOwnershipIndex,
   SourceOwnershipRun,
   SourceRange
 } from '../../revision.js'
 import type {
-  Profile1SyntaxAccountingEventKindV1,
-  Profile1SyntaxAccountingRecorderV1
+  Profile1SyntaxAccountingEventKind,
+  Profile1SyntaxAccountingRecorder
 } from './syntaxAccounting.js'
+import { sameRange, sourceRange } from './sourceRanges.js'
 
 export interface SyntaxSourceIdentity {
   readonly key: string
@@ -57,80 +57,6 @@ export interface Profile1SyntaxIdentityRegistry {
   readonly referenceTargets: (nodeId: NodeId) => readonly NodeId[]
   readonly finishOwnership: (source: string) => SourceOwnershipIndex
   readonly finish: () => Profile1SyntaxGraph
-}
-
-/**
- * Identity authority for intrinsic grammar inspection that will not publish a
- * revision. It preserves unique parser-issued NodeIds and object interning,
- * while deliberately retaining no graph, edge, ownership, or reference
- * ledgers that only a materialized document can consume.
- */
-export function createProfile1SyntaxInspectionRegistry(
-  sourceLength: number
-): Profile1SyntaxIdentityRegistry {
-  let nextNode = 1
-  const root = 'p1:0' as NodeId
-  const interned = new Map<string, object>()
-  const unavailable = (): never => {
-    throw new Error('Inspection syntax identity cannot materialize a graph')
-  }
-  return Object.freeze({
-    root,
-    emitNode: Object.freeze((
-      _kind: Profile1SyntaxNodeKind,
-      source: SyntaxSourceIdentity,
-      _semanticKey: string
-    ): NodeId => {
-      if (
-        source.range.start < 0 ||
-        source.range.end < source.range.start ||
-        source.range.end > sourceLength
-      ) {
-        throw new Error('Profile 1 inspection identity is outside source')
-      }
-      const nodeId = `p1:${String(nextNode)}` as NodeId
-      nextNode += 1
-      return nodeId
-    }),
-    emitEdge: Object.freeze((): void => {}),
-    internObject: Object.freeze(<Value extends object>(
-      nodeId: NodeId,
-      objectKey: string,
-      create: () => Value
-    ): Value => {
-      const key = `${nodeId}\u0000${objectKey}`
-      const existing = interned.get(key)
-      if (existing !== undefined) return existing as Value
-      const value = create()
-      interned.set(key, value)
-      return value
-    }),
-    emitOwnership: Object.freeze((): void => {}),
-    emitDefinition: Object.freeze((): void => {}),
-    emitReference: Object.freeze((): void => {}),
-    emitFootnoteDefinition: Object.freeze((): void => {}),
-    emitFootnoteReference: Object.freeze((): void => {}),
-    resolveFootnoteReference: Object.freeze((): void => {}),
-    referenceTargets: Object.freeze((): readonly NodeId[] =>
-      Object.freeze([])),
-    finishOwnership: Object.freeze(unavailable),
-    finish: Object.freeze(unavailable)
-  })
-}
-
-function sourceOffset(value: number): SourceOffset {
-  return value as SourceOffset
-}
-
-function sourceRange(start: number, end: number): SourceRange {
-  return Object.freeze({
-    start: sourceOffset(start),
-    end: sourceOffset(end)
-  })
-}
-
-function sameRange(left: SourceRange, right: SourceRange): boolean {
-  return left.start === right.start && left.end === right.end
 }
 
 function sameOwner(left: SourceOwner, right: SourceOwner): boolean {
@@ -186,7 +112,7 @@ export function defineNodeId<Value extends object>(
  */
 export function createProfile1SyntaxIdentityRegistry(
   sourceLength: number,
-  accounting?: Profile1SyntaxAccountingRecorderV1
+  accounting?: Profile1SyntaxAccountingRecorder
 ): Profile1SyntaxIdentityRegistry {
   const nodes: Profile1SyntaxNode[] = []
   // Keyed by kind first, so a lookup hashes the semantic key as the caller
@@ -249,7 +175,7 @@ export function createProfile1SyntaxIdentityRegistry(
     nodes.push(node)
     ofKind.set(semanticKey, node)
     nodeById.set(nodeId, node)
-    const accountingKind: Profile1SyntaxAccountingEventKindV1 =
+    const accountingKind: Profile1SyntaxAccountingEventKind =
       kind === 'addition' ||
       kind === 'deletion' ||
       kind === 'substitution' ||

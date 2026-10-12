@@ -62,7 +62,7 @@ it.each([
   { markdown: '# pasted', expected: 'before pastedafter\n', caret: 13 },
   { markdown: '- pasted', expected: 'before \n\n- pastedafter\n', caret: 17 },
   { markdown: '| a | b |\n| - | - |\n| c | d |', expected: 'before \n\n| a   | b      |\n| --- | ------ |\n| c   | dafter |\n', caret: 52 },
-  // Owner decision (plan 0012 G24): unlike upstream, the imported table keeps
+  // Owner decision: unlike upstream, the imported table keeps
   // text beyond its header's columns.
   { markdown: '| a | b |\n| - | - |\n| c | d | extra \\| {++x++} |\n| e | f |', expected: 'before \n\n| a   | b      |\n| --- | ------ |\n| c   | d      | extra \\| {++x++} |\n| e   | fafter |\n', caret: 88 }
 ])('retains native imported $markdown merge behavior', ({ markdown, expected, caret }) => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
 
-// Plan 0012 G35: Enter and a soft break are planned from the paragraphs
+// Enter and a soft break are planned from the paragraphs
 // around the caret, and tracked breaks are proved by reparsing only those
 // paragraphs, once a regional edit has left the revision without its
 // document parse. Each regional plan must be the one the document parse

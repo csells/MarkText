@@ -133,8 +133,8 @@ describe('Markup editing at the end of a suggestion inside a cell', () => {
 
 describe('typing in a suggested column', () => {
   // The column's cells are whole-cell Additions, whose openers begin their
-  // cells. An empty cell's text starts after the space that follows its pipe
-  // (plan 0012 G24), which here is inside the Addition, so typing there extends
+  // cells. An empty cell's text starts after the space that follows its pipe,
+  // which here is inside the Addition, so typing there extends
   // it rather than opening a suggestion that would cut the column's cells apart.
   const source = 'away\n\n| a{++a++} |{++     |++} aa |\n| :--- |{++ --- |++} ---: |\n| aa |{++     |++} aa |\n'
   const options = { autoPairBracket: true, autoPairQuote: true, autoPairMarkdownSyntax: true, tabSize: 4 }

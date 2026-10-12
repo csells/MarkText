@@ -938,11 +938,11 @@ describe('document-core facade', () => {
     const nextSource = `B\n\n${negativeSource}`
     const incrementalCore = createDocumentCore()
     const initial = incrementalCore.open(initialSource, { footnotes: true })
-    const reopened = incrementalCore.reopen(initial, nextSource, [{
+    const reopened = incrementalCore.apply(initial, [{
       start: 0,
       end: 1,
       insert: 'B'
-    }])
+    }]).revision
     const fullCore = createDocumentCore()
     const full = fullCore.open(nextSource, { footnotes: true })
     expect(observableRevision(incrementalCore, reopened))
@@ -1035,11 +1035,11 @@ describe('document-core facade', () => {
     const editStart = initialSource.indexOf('abc')
     const incrementalCore = createDocumentCore()
     const initial = incrementalCore.open(initialSource)
-    const reopened = incrementalCore.reopen(initial, nextSource, [{
+    const reopened = incrementalCore.apply(initial, [{
       start: editStart,
       end: editStart + 3,
       insert: '++}'
-    }])
+    }]).revision
     const fullCore = createDocumentCore()
     const full = fullCore.open(nextSource)
 
@@ -1242,11 +1242,11 @@ describe('document-core facade', () => {
       .toThrow(/does not belong to this revision/)
 
     const nextSource = `${source}!`
-    const reopened = core.reopen(revision, nextSource, [{
+    const reopened = core.apply(revision, [{
       start: source.length,
       end: source.length,
       insert: '!'
-    }])
+    }]).revision
     expect(reopened.source).toBe(nextSource)
   })
 
@@ -1625,7 +1625,7 @@ describe('document-core facade', () => {
       range: { start: 786_433, end: 786_433 },
       metadata: { limit: '524288', observed: '524289' }
     })
-  }, 30_000)
+  })
 
   it('opens malformed syntax past the former 1,024-diagnostic cap', () => {
     // Stray markers are ordinary text upstream, so their count never refuses
@@ -1656,7 +1656,7 @@ describe('document-core facade', () => {
     const opened = incrementalCore.open(source)
     const openedMarkup = incrementalCore.project(opened, 'markup')
     const before = inspectDocumentCore(incrementalCore).intrinsicSourceUnits
-    const reopened = incrementalCore.reopen(opened, nextSource, edits)
+    const reopened = incrementalCore.apply(opened, edits).revision
     const spent =
       inspectDocumentCore(incrementalCore).intrinsicSourceUnits - before
     const fullCore = createDocumentCore()
@@ -1752,7 +1752,7 @@ describe('document-core facade', () => {
       openedComment
     )
 
-    const reopened = incrementalCore.reopen(opened, nextSource, [edit])
+    const reopened = incrementalCore.apply(opened, [edit]).revision
     const reopenedComment = reopened.annotations[0]
     const fullCore = createDocumentCore()
     const full = fullCore.open(nextSource)
@@ -1793,18 +1793,13 @@ describe('document-core facade', () => {
     expect(core.project(reopened, 'revised').markdown).toBe(nextSource)
   })
 
-  it('rejects mismatched and invalid edits without changing the previous revision', () => {
+  it('rejects invalid edits without changing the previous revision', () => {
     const source = 'alpha {++beta++} omega'
     const core = createDocumentCore()
     const previous = core.open(source)
     const before = observableRevision(core, previous)
 
-    expect(() => core.reopen(
-      previous,
-      'alpha {++BETA++} omega',
-      [{ start: 9, end: 13, insert: 'wrong' }]
-    )).toThrow(/does not match/i)
-    expect(() => core.reopen(previous, source, [
+    expect(() => core.apply(previous, [
       { start: 2, end: 5, insert: 'x' },
       { start: 4, end: 6, insert: 'y' }
     ])).toThrow(/invalid/i)
@@ -1812,35 +1807,32 @@ describe('document-core facade', () => {
     expect(observableRevision(core, previous)).toEqual(before)
 
     const validSource = 'alpha {++BETA++} omega'
-    const reopened = core.reopen(
+    const reopened = core.apply(
       previous,
-      validSource,
       [{ start: 9, end: 13, insert: 'BETA' }]
-    )
+    ).revision
 
     expect(reopened.source).toBe(validSource)
     expect(core.project(reopened, 'revised').markdown)
       .toBe('alpha BETA omega')
   })
 
-  it('rejects branched or interleaved reopen attempts', () => {
+  it('rejects branched or interleaved edits', () => {
     const core = createDocumentCore()
     const first = core.open('first\n\nMIDDLE\n\nTAIL\n')
     const second = core.open('# second\n\nMIDDLE\n\nTAIL\n')
 
     expect(core.project(first, 'original').markdown)
       .toBe('first\n\nMIDDLE\n\nTAIL\n')
-    expect(() => core.reopen(
+    expect(() => core.apply(
       first,
-      'first\n\nMIDDLE\n\ntail\n',
       [{ start: 15, end: 19, insert: 'tail' }]
     )).toThrow(/current core revision/i)
 
-    const current = core.reopen(
+    const current = core.apply(
       second,
-      '# second\n\nMIDDLE\n\ntail\n',
       [{ start: 18, end: 22, insert: 'tail' }]
-    )
+    ).revision
     expect(current.source).toBe('# second\n\nMIDDLE\n\ntail\n')
   })
 
@@ -1851,20 +1843,19 @@ describe('document-core facade', () => {
     const start = source.indexOf('tail')
     const depth = 16_385
     const overLimit = `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}`
-    const rejectedSource = `${source.slice(0, start)}${overLimit}\n`
 
-    expect(() => core.reopen(current, rejectedSource, [{
+    expect(() => core.apply(current, [{
       start,
       end: start + 4,
       insert: overLimit
     }])).toThrow('CM_RESOURCE_CM_DEPTH_EXCEEDED')
 
     const acceptedSource = 'head\n\nTAIL\n'
-    const reopened = core.reopen(current, acceptedSource, [{
+    const reopened = core.apply(current, [{
       start,
       end: start + 4,
       insert: 'TAIL'
-    }])
+    }]).revision
     const fullCore = createDocumentCore()
     const full = fullCore.open(acceptedSource)
     expect(observableRevision(core, reopened)).toEqual(observableRevision(

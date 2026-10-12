@@ -27,7 +27,8 @@ describe('ordered list delimiter', () => {
     const revision = core.open(SOURCE)
     const at = SOURCE.indexOf('two')
     const next = `${SOURCE.slice(0, at)}2${SOURCE.slice(at)}`
-    const reopened = core.reopen(revision, next, [{ start: at, end: at, insert: '2' }])
+    const reopened = core.apply(revision, [{ start: at, end: at, insert: '2' }]).revision
+    expect(reopened.source).toBe(next)
     expect(lists(core.project(reopened, 'revised').ast.root).map((list) => list.attributes['delimiter']))
       .toEqual([')', undefined, '.', ')', ')'])
   })

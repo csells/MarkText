@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type CriticMarkupAnnotation, type DocumentAuthorForm } from '../src/index.js'
 
-// Plan 0012 G15: every review form can be authored inside any arm of any
+// Every review form can be authored inside any arm of any
 // annotation, a Comment's payload included (Profile 1 N1, N2), and over whole
 // annotations, as Google Docs lets you highlight, suggest on or comment on
 // text that is itself a suggestion or highlighted. Pairing is properly nested,
@@ -37,7 +37,7 @@ const kinds = (annotations: readonly CriticMarkupAnnotation[]): string[] =>
   annotations.flatMap(annotation =>
     [annotation.kind, ...annotation.arms.flatMap(arm => kinds(arm.annotations).map(kind => `${annotation.kind}>${kind}`))])
 
-describe('Review forms nested in and around existing annotations (G15)', () => {
+describe('Review forms nested in and around existing annotations', () => {
   describe.each(containers)('in $name', ({ source }) => {
     const inner = source.indexOf('beta')
 

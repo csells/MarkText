@@ -4,7 +4,7 @@ import {
   createProfile1DocumentReuseCache,
   parseProfile1Document
 } from '../src/internal/profile1Document.js'
-import { createPhysicalTraversalRecorderV1 } from '../src/internal/profile1/physicalTraversalAccounting.js'
+import { createPhysicalTraversalRecorder } from '../src/internal/profile1/physicalTraversalAccounting.js'
 import {
   applyRegionalInventory,
   createRegionalInventory,
@@ -13,12 +13,10 @@ import {
 import type { ExecutionBudgetId } from '../src/revision.js'
 
 const executionBudget: ExecutionBudgetId = Object.freeze({
-  limitsProfile: 'desktop-v1',
-  accountingSchema: 'syntax-accounting-1'
+  limitsProfile: 'desktop-v1'
 })
 
 const markdownOptions = Object.freeze({
-  schema: 'markdown-options-1' as const,
   gfm: true,
   gfmAutolinks: true,
   gfmTagFilter: true,
@@ -62,14 +60,12 @@ describe('regional inventory', () => {
       'far {>>note<<}\n\n',
       'tail\n'
     ].join('')
-    const physical = createPhysicalTraversalRecorderV1()
+    const physical = createPhysicalTraversalRecorder()
     const parsed = parseProfile1Document(
       source,
       executionBudget,
-      undefined,
       markdownOptions,
       false,
-      undefined,
       createProfile1DocumentReuseCache(),
       physical
     )

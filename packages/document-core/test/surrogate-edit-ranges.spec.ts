@@ -34,10 +34,10 @@ describe('edits that would split a surrogate pair', () => {
     ])).toThrow(DocumentSourceEditError)
   })
 
-  it('refuses a reopen whose exact edits split a pair', () => {
+  it('refuses a single exact edit that splits a pair', () => {
     const core = createDocumentCore()
     const revision = core.open(source)
-    expect(() => core.reopen(revision, 'a\uDE00b', [{ start: 1, end: between, insert: '' }])).toThrow(DocumentSourceEditError)
+    expect(() => core.apply(revision, [{ start: 1, end: between, insert: '' }])).toThrow(DocumentSourceEditError)
   })
 
   it('refuses native input whose target range splits a pair', () => {

@@ -109,7 +109,7 @@ describe('tracked edits match untracked editing of the visible text', () => {
 
         const plan = core.planInput(revision, action, { tracked: true })
         const edits = core.inputEdits(revision, action, plan, true)
-        // Known gap (plan 0012 G34): a selection that splits a comment or a
+        // Known gap: a selection that splits a comment or a
         // highlight held in a suggestion's arm can still be refused; the
         // session then leaves the document and caret unchanged.
         if (edits === undefined && selectsIntoReviewNote(revision, range)) break

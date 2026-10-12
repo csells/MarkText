@@ -1,3 +1,5 @@
+import { isSpaceOrTab } from './markdownLexical.js'
+
 export interface MarkdownFenceOpening {
   readonly startOffset: number
   readonly markerCodeUnit: number
@@ -7,10 +9,6 @@ export interface MarkdownFenceOpening {
 export interface MarkdownFenceDelimiter {
   readonly markerCodeUnit: number
   readonly openerLength: number
-}
-
-function isSpaceOrTab(codeUnit: number): boolean {
-  return codeUnit === 32 || codeUnit === 9
 }
 
 export function findMarkdownFenceOpening(

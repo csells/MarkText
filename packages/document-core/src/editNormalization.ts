@@ -153,7 +153,7 @@ export function joinedEdits(core: DocumentCore, revision: DocumentRevision, edit
 }
 
 /** Edits as one replacement, from the first's start to the last's end. */
-export function joinedEdit(core: DocumentCore, revision: DocumentRevision, edits: readonly DocumentSourceEdit[]): DocumentSourceEdit {
+function joinedEdit(core: DocumentCore, revision: DocumentRevision, edits: readonly DocumentSourceEdit[]): DocumentSourceEdit {
   const first = edits[0]
   const last = edits.at(-1)
   if (first === undefined || last === undefined) throw new RangeError('Joining requires an edit')

@@ -10,7 +10,8 @@ import {
   findGfmExtendedAutolink,
   findInlineHtmlEnd,
   findInlineLinkDestinationEnd,
-  hasEvenBackslashRunBefore
+  hasEvenBackslashRunBefore,
+  isSpaceOrTab
 } from './markdownLexical.js'
 import {
   findMarkdownFenceOpening,
@@ -267,7 +268,7 @@ export type MarkdownArmMode =
 
 /**
  * Re-base every coordinate a checkpoint carries by a fixed delta — the
- * marker-bearing G32 splice re-uses retained lane state on both sides of an
+ * marker-bearing splice re-uses retained lane state on both sides of an
  * edit bracket. Coordinate knowledge stays in this module: each member's
  * offsets are enumerated here beside their declarations, and a member added
  * without a shift arm fails the exhaustive spread review below, not a
@@ -589,14 +590,6 @@ export interface MarkdownMatchingScopePolicy {
     openerStart: number,
     closerStart: number
   ) => number | undefined
-  // Planning-linearity instrumentation for the scope-aware inline-code closer
-  // lookup: one query per lookup request, one candidate per indexed probe.
-  // The R-4 gate asserts both stay linear in the number of backtick runs.
-  readonly recordInlineCodeCloserQuery?: (start: number, end: number) => void
-  readonly recordInlineCodeCloserCandidate?: (
-    start: number,
-    end: number
-  ) => void
   readonly rejectCrossScopeImageOpener: (
     bangStart: number,
     bracketStart: number
@@ -774,10 +767,6 @@ interface MarkdownContainerOpener {
   readonly startNumber?: number
   readonly delimiterCodeUnit?: number
   readonly contentOffset?: number
-}
-
-function isSpaceOrTab(codeUnit: number): boolean {
-  return codeUnit === 32 || codeUnit === 9
 }
 
 export { advanceColumn as advanceMarkdownColumn }
@@ -2558,7 +2547,6 @@ function createNextBacktickRunStart(
       const start = firstRunStartAtLeast(startsByLength.get(markerLength), after)
       return start !== undefined && start < laneEnd ? start : undefined
     }
-    matchingPolicy.recordInlineCodeCloserQuery?.(openerStart, after)
     const openerScopeId = matchingPolicy.matchingScopeAt(openerStart)?.id ?? -1
     const sameScope = firstRunStartAtLeast(
       scopedStarts.get(markerLength)?.get(openerScopeId),
@@ -2566,12 +2554,6 @@ function createNextBacktickRunStart(
     )
     const closer =
       sameScope !== undefined && sameScope < laneEnd ? sameScope : undefined
-    if (closer !== undefined) {
-      matchingPolicy.recordInlineCodeCloserCandidate?.(
-        closer,
-        closer + markerLength
-      )
-    }
     const globalNext = firstRunStartAtLeast(
       startsByLength.get(markerLength),
       after
@@ -2581,10 +2563,6 @@ function createNextBacktickRunStart(
       globalNext < laneEnd &&
       globalNext !== closer
     ) {
-      matchingPolicy.recordInlineCodeCloserCandidate?.(
-        globalNext,
-        globalNext + markerLength
-      )
       matchingPolicy.rejectCrossScopeMatch(openerStart, globalNext)
     }
     return closer
@@ -5350,7 +5328,7 @@ function lazyContinuationOpenFor(checkpoint: MarkdownCheckpoint): boolean {
   return checkpoint.paragraphOpen || checkpoint.definitionLazyContinuation === true
 }
 
-export function buildPlainMarkdownLine(
+function buildPlainMarkdownLine(
   source: string,
   bounds: Readonly<{ start: number, contentEnd: number, end: number }>,
   activeContainers: MarkdownCheckpoint['activeContainers'],
@@ -5431,7 +5409,7 @@ export function buildPlainMarkdownLine(
 }
 
 /** Line boundaries starting at `start`, honoring LF, CRLF and CR. */
-export function plainMarkdownLineBounds(
+function plainMarkdownLineBounds(
   source: string,
   start: number
 ): Readonly<{ start: number, contentEnd: number, end: number }> {
@@ -5458,7 +5436,7 @@ export function plainMarkdownLineBounds(
  * same container path. Fork continuations use this emitted checkpoint fact so
  * a new sibling list item or block quote is still parsed structurally.
  */
-export function markdownCheckpointContinuesLiteralContainer(
+function markdownCheckpointContinuesLiteralContainer(
   source: string,
   bounds: Readonly<{ start: number, contentEnd: number, end: number }>,
   checkpoint: MarkdownCheckpoint

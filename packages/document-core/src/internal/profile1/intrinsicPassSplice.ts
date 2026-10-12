@@ -28,7 +28,7 @@ import type {
 } from '../../revision.js'
 
 /**
- * The incremental intrinsic parse (G32): a reopen whose edits sit between two
+ * The incremental intrinsic parse: a reopen whose edits sit between two
  * safe points re-scans only that bracket and splices the retained facts of
  * the untouched prefix and suffix around the bracket's fresh mini-parse.
  *
@@ -1154,8 +1154,8 @@ export function spliceIntrinsicFacts(
   // The prefix re-materializes as one advance transition PER SAFE SEGMENT,
   // not one monolith: downstream regionization derives reuse regions from
   // per-transition reconvergence, and a single spliced transition would
-  // collapse the document into one region and defeat the fragment reuse
-  // G31 proved. Segment boundaries are the retained safe points.
+  // collapse the document into one region and defeat fragment reuse.
+  // Segment boundaries are the retained safe points.
   const boundaries: number[] = [0]
   for (const point of retained.safePoints) {
     if (point > 0 && point < bracket.start) {

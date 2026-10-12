@@ -11,7 +11,11 @@ export function hasEvenBackslashRunBefore(source: string, offset: number): boole
   return backslashes % 2 === 0
 }
 
-export function isAsciiLetter(codeUnit: number): boolean {
+export function isSpaceOrTab(codeUnit: number): boolean {
+  return codeUnit === 32 || codeUnit === 9
+}
+
+function isAsciiLetter(codeUnit: number): boolean {
   return (codeUnit >= 65 && codeUnit <= 90) || (codeUnit >= 97 && codeUnit <= 122)
 }
 
@@ -89,7 +93,7 @@ function inlineParagraphLimit(
 }
 
 /** Tag-name facts from the same lexer used to admit an inline HTML token. */
-export function inlineHtmlTagPrefix(source: string, start: number, limit: number):
+function inlineHtmlTagPrefix(source: string, start: number, limit: number):
   { name: string, closing: boolean, end: number } | undefined {
   let offset = start + 1
   const closing = source.charCodeAt(offset) === 47
