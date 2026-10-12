@@ -92,7 +92,7 @@ import {
   readPerformanceCalibration,
   startPerformanceCalibration
 } from './helpers/performanceCalibration'
-import { performanceRunCalibrationReference } from '../../../../scripts/criticmarkupPerformanceTargets'
+import { nearestRank, performanceRunCalibrationReference } from '../../../../scripts/criticmarkupPerformanceTargets'
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..')
 const PINNED_BASELINE = 'e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c'
@@ -980,9 +980,6 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
         await expectRenderActiveInactive(app, true)
         const echoes = input.flatMap(sample => sample.tEcho === undefined ? [] : [sample.tEcho - sample.tEvent])
         const sorted = [...echoes].sort((left, right) => left - right)
-        const percentile = (value: number): number | null => sorted.length === 0
-          ? null
-          : sorted[Math.min(sorted.length - 1, Math.ceil(value * sorted.length) - 1)] ?? null
         expect(sorted).toHaveLength(measured)
         console.log(describePerformanceCalibration(workload.name, calibration))
         return {
@@ -999,17 +996,19 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
           open: opened,
           echoMs: {
             count: sorted.length,
-            p50: percentile(0.5),
-            p95: percentile(0.95),
+            p50: nearestRank(sorted, 0.5),
+            p95: nearestRank(sorted, 0.95),
             max: sorted.at(-1) ?? null
           },
           frameMs: (() => {
             const frames = input.flatMap(sample => sample.tFrame === undefined ? [] : [sample.tFrame - sample.tEvent])
               .sort((left, right) => left - right)
-            const at = (value: number): number | null => frames.length === 0
-              ? null
-              : frames[Math.min(frames.length - 1, Math.ceil(value * frames.length) - 1)] ?? null
-            return { count: frames.length, p50: at(0.5), p95: at(0.95), max: frames.at(-1) ?? null }
+            return {
+              count: frames.length,
+              p50: nearestRank(frames, 0.5),
+              p95: nearestRank(frames, 0.95),
+              max: frames.at(-1) ?? null
+            }
           })(),
           samples: input
         }
