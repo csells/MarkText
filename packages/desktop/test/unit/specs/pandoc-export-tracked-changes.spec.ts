@@ -143,7 +143,3 @@ describe.skipIf(pandocMissing)('pandoc export of tracked changes (installed pand
     )
   })
 })
-
-describe.runIf(pandocMissing)('pandoc export of tracked changes', () => {
-  it.skip('needs pandoc on PATH or MARKTEXT_PANDOC; none was found', () => {})
-})
