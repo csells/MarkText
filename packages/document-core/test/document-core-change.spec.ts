@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import {
   createDocumentCore,
@@ -16,11 +16,14 @@ import {
   type OrdinalRange,
   type SourceRange
 } from '../src/index.js'
-import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
+import { countMaterializedNodes, inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
 import { applyExactSourceEdits } from '../src/exactSourceEdits.js'
 import {
   createUnboundedDocumentCoreForInspection
 } from '../src/documentCore.js'
+
+beforeAll(() => countMaterializedNodes(true))
+afterAll(() => countMaterializedNodes(false))
 
 interface ChangeInspection {
   readonly fullProductStoresStrongCurrent: number
