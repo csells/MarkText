@@ -496,11 +496,7 @@ onMounted(() => {
     props.coreLease.binding,
     {
       nativeHistoryScope: crypto.randomUUID(),
-      ...sourceCodeCoreAdapterOptions(
-        props.markdown ?? '',
-        props.coreLease.lineEnding,
-        props.coreLease.identity.revision
-      ),
+      ...sourceCodeCoreAdapterOptions(props.markdown ?? '', props.coreLease.identity.revision),
       ...(props.corePerformanceTrace === undefined
         ? {}
         : {
