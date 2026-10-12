@@ -158,3 +158,53 @@ test('a click on a heading\'s shown `#`s still edits them', async() => {
     await app.close()
   }
 })
+
+// Keys move the caret into the `#`s and show them, as in upstream, even when
+// pressed before the frame that settles a click.
+const lineStart = process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home'
+const otherHeading = (page: Page) => page.locator('.mu-atxheading-content', { hasText: 'Other heading' })
+
+test('the line-start key pressed straight after a click on a heading\'s text reaches its `#`s', async() => {
+  const { app, page, filePath } = await launchWithMarkdown(DOC, { suppressErrorDialog: true, env })
+  try {
+    await otherHeading(page).click()
+    await page.keyboard.press(lineStart)
+    await expect(otherHeading(page).locator('.mu-gray').first()).toHaveText('##')
+    await page.keyboard.type('Z')
+    await expectSaved(app, filePath, DOC.replace('## Other heading', 'Z## Other heading'))
+    await expectNoRendererErrors(app)
+  } finally {
+    await app.close()
+  }
+})
+
+test('the line-start key pressed straight after a click at a heading\'s left edge reaches its `#`s', async() => {
+  const { app, page, filePath } = await launchWithMarkdown(DOC, { suppressErrorDialog: true, env })
+  try {
+    await click(page, 'Intro paragraph', 'letter')
+    const point = await pointFor(page, 'Other heading', 'leaf')
+    await page.mouse.click(point.x, point.y)
+    await page.keyboard.press(lineStart)
+    await expect(otherHeading(page).locator('.mu-gray').first()).toHaveText('##')
+    await page.keyboard.type('Z')
+    await expectSaved(app, filePath, DOC.replace('## Other heading', 'Z## Other heading'))
+    await expectNoRendererErrors(app)
+  } finally {
+    await app.close()
+  }
+})
+
+test('ArrowLeft after a click at a heading\'s left edge enters its `#`s', async() => {
+  const { app, page, filePath } = await launchWithMarkdown(DOC, { suppressErrorDialog: true, env })
+  try {
+    await click(page, 'Intro paragraph', 'letter')
+    await click(page, 'Other heading', 'leaf')
+    await page.keyboard.press('ArrowLeft')
+    await expect(otherHeading(page).locator('.mu-gray').first()).toHaveText('##')
+    await page.keyboard.type('Z')
+    await expectSaved(app, filePath, DOC.replace('## Other heading', '##Z Other heading'))
+    await expectNoRendererErrors(app)
+  } finally {
+    await app.close()
+  }
+})
