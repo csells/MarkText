@@ -1,3 +1,4 @@
+import { escapeTableCellPipes } from '@marktext/input-policy'
 import { planModelTextClipboard, rebaseModelTextPoint } from './modelText.js'
 import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkupSyntax, SourceRange } from './documentCore.js'
 import { copyDocumentSelection, type DocumentSelection, type DocumentTableSelection, type DocumentTableCellSelection } from './sourceInputPlanning.js'
@@ -158,9 +159,7 @@ export function planClipboard(
   if (typeof insert !== 'string') throw new TypeError('Clipboard Markdown must be text')
   // Upstream writes a pipe pasted into a cell escaped, keeping it that cell's text.
   if (selectedCell !== undefined) {
-    const pasted = insert
-    const before = core.sourceSlice(previous, { start: Math.max(0, start - 1), end: start })
-    insert = pasted.replace(/\|/gu, (pipe, at: number) => (at === 0 ? before : pasted.charAt(at - 1)) === '\\' ? pipe : '\\|')
+    insert = escapeTableCellPipes(insert, core.sourceSlice(previous, { start: Math.max(0, start - 1), end: start }))
   }
   if (!action.tracked && 'ranges' in action.selection && blockPlacement === undefined && start < end) {
     const crossBlock = planCrossBlockCut(core, previous, core.project(previous, 'markup').syntax, physicalLines(), { start, end }, insert)

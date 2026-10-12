@@ -19,6 +19,26 @@ export interface TableMarkdownResult {
   readonly rows: readonly { start: number; end: number; cells: readonly TableMarkdownCellPosition[] }[];
 }
 
+/**
+ * `text` as a table cell's text: each `|` no backslash escapes gains one, as
+ * upstream writes it. `before` is the character preceding `text`, and
+ * `onEscape` hears the index in `text` of each pipe escaped.
+ */
+export function escapeTableCellPipes(text: string, before = '', onEscape?: (index: number) => void): string {
+  let escaped = ''
+  let previous = before
+  for (let index = 0; index < text.length; index++) {
+    const character = text.charAt(index)
+    if (character === '|' && previous !== '\\') {
+      escaped += '\\'
+      onEscape?.(index)
+    }
+    escaped += character
+    previous = character
+  }
+  return escaped
+}
+
 function escapeText(input: string, positions: boolean) {
   const str = input.trim()
   const trimStart = input.length - input.trimStart().length
