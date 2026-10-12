@@ -1,5 +1,6 @@
 import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import { annotationsAround } from './internal/annotationsAround.js'
+import { isAnnotationDelimiter } from './annotationDelimiter.js'
 import { containerContinuationPrefix } from './clipboardMarkdown.js'
 import { INLINE_UPDATE_REG, inlineUpdateLayout } from './inputPolicy.js'
 import { syntaxPathAt } from './syntaxPath.js'
@@ -143,25 +144,6 @@ function narrowed(edit: DocumentSourceEdit, current: string): DocumentSourceEdit
   return { start: edit.start + head, end: edit.end - tail, insert: edit.insert.slice(head, edit.insert.length - tail) }
 }
 
-/** Whether a source unit is annotation syntax or a comment, which block syntax does not see. */
-function annotationSyntaxAt(annotations: readonly CriticMarkupAnnotation[], position: number): boolean {
-  let level = annotations
-  for (;;) {
-    let low = 0
-    let high = level.length
-    while (low < high) {
-      const middle = (low + high) >>> 1
-      if (level[middle]!.range.end <= position) low = middle + 1
-      else high = middle
-    }
-    const annotation = level[low]
-    if (annotation === undefined || annotation.range.start > position) return false
-    const arm = annotation.arms.find(item => item.range.start <= position && position < item.range.end)
-    if (arm === undefined || arm.name === 'comment') return true
-    level = arm.annotations
-  }
-}
-
 export interface InlineUpdatePlan {
   /** Conversion edits, in the source that results from the input's edits. */
   readonly edits: readonly DocumentSourceEdit[]
@@ -203,7 +185,7 @@ export function planInlineUpdate(
   // The paragraph and its line prefixes lie in the blocks around its start.
   const roots = annotated ? annotationsAround(core, revision, start) : []
   let hidden = Array.from({ length: original.length }, (_, index) =>
-    annotated && annotationSyntaxAt(roots, start + index))
+    annotated && isAnnotationDelimiter(roots, start + index, true))
   for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
     text = text.slice(0, edit.start - start) + edit.insert + text.slice(edit.end - start)
     hidden = [...hidden.slice(0, edit.start - start), ...Array.from({ length: edit.insert.length }, () => false), ...hidden.slice(edit.end - start)]
@@ -215,7 +197,7 @@ export function planInlineUpdate(
   // Annotation syntax on the first line's prefix is not the container's.
   const spelled = containers.length > 1 ? containerContinuationPrefix(core, revision, syntax, paragraph, containers) : ''
   const continuation = /[{}~]/u.test(spelled)
-    ? spelled.split('').filter((_, index) => !annotationSyntaxAt(annotationsAround(core, revision, start), start - spelled.length + index)).join('')
+    ? spelled.split('').filter((_, index) => !isAnnotationDelimiter(annotationsAround(core, revision, start), start - spelled.length + index, true)).join('')
     : spelled
   // Each later line's prefix spells the continuation around any annotation syntax.
   const prefixes = lines.map((line, index) => {
