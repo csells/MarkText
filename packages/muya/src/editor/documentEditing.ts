@@ -12,7 +12,7 @@ import { findContentDOM, getOffsetOfParagraph } from '../selection/dom';
 import { SelectionDirection } from '../selection/types';
 import { backspaceLength, firstGraphemeLength, lastGraphemeLength } from '../utils';
 
-export type { DocumentDOMPoint, DocumentEditing, DocumentTextInput, DocumentTextReplacement } from './documentEditingTypes';
+export type { DocumentDOMPoint, DocumentEditing, DocumentTextInput } from './documentEditingTypes';
 
 const inputTypes = new Set([
     'insertText',
