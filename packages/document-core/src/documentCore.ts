@@ -1174,6 +1174,23 @@ function countMarkdownAstNodes(root: MarkdownAstNode): number {
   return count
 }
 
+/** Counts a regional markup stream and its blocks while materialized nodes are counted. */
+function countRegionalMaterialization(
+  inspection: MutableDocumentCoreInspection,
+  events: readonly MarkupEvent[],
+  blocks: readonly MarkdownAstNode[]
+): void {
+  if (!countsMaterializedNodes()) return
+  inspection.regionalMarkupEventUnits += events.reduce(
+    (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
+    0
+  )
+  inspection.regionalAstMaterializedNodes += blocks.reduce(
+    (total, block) => total + countMarkdownAstNodes(block),
+    0
+  )
+}
+
 function countCriticMarkupAnnotationNodes(
   roots: readonly CriticMarkupAnnotation[]
 ): number {
@@ -3848,16 +3865,7 @@ function createDocumentCoreWithExecutionBudget(
       recordPrepared(impact.nextProducts, impact.nextWindow.length)
     }
     inspection.regionalProjectionPreparationUnits += preparedSourceUnits
-    if (countsMaterializedNodes()) {
-      inspection.regionalMarkupEventUnits += counted.events.reduce(
-        (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
-        0
-      )
-      inspection.regionalAstMaterializedNodes += counted.blocks.reduce(
-        (total, block) => total + countMarkdownAstNodes(block),
-        0
-      )
-    }
+    countRegionalMaterialization(inspection, counted.events, counted.blocks)
     inspection.regionalCoordinateSegments += counted.coordinates.length
     return Object.freeze({
       kind: 'applied',
@@ -3973,16 +3981,7 @@ function createDocumentCoreWithExecutionBudget(
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits +=
       admission.previousWindow.length + admission.nextWindow.length
-    if (countsMaterializedNodes()) {
-      inspection.regionalMarkupEventUnits += events.reduce(
-        (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
-        0
-      )
-      inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
-        (total, block) => total + countMarkdownAstNodes(block),
-        0
-      )
-    }
+    countRegionalMaterialization(inspection, events, syntaxBlocks)
     inspection.regionalCoordinateSegments += coordinates.length
     return Object.freeze({
       revision,
@@ -4132,17 +4131,7 @@ function createDocumentCoreWithExecutionBudget(
         scope: 'regions',
         replacements: Object.freeze([replacement])
       }))
-      if (countsMaterializedNodes()) {
-        inspection.regionalMarkupEventUnits += events.reduce(
-          (total, event) => total +
-            (event.kind === 'text' ? event.text.length : 1),
-          0
-        )
-        inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
-          (total, block) => total + countMarkdownAstNodes(block),
-          0
-        )
-      }
+      countRegionalMaterialization(inspection, events, syntaxBlocks)
       inspection.regionalCoordinateSegments += coordinates.length
     }
     projections.push(Object.freeze({
@@ -4388,16 +4377,7 @@ function createDocumentCoreWithExecutionBudget(
     )
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits += regionSource.length
-    if (countsMaterializedNodes()) {
-      inspection.regionalMarkupEventUnits += events.reduce(
-        (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
-        0
-      )
-      inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
-        (total, block) => total + countMarkdownAstNodes(block),
-        0
-      )
-    }
+    countRegionalMaterialization(inspection, events, syntaxBlocks)
     inspection.regionalCoordinateSegments += coordinates.length
     return Object.freeze({
       kind: 'applied',
