@@ -3,14 +3,13 @@ import { bootCore, coreHistory, coreSource, disposeCore, readCore, reopenCore } 
 
 test('image picker upload retains its owned annotation and later typing without loading source', async ({ page }) => {
     const source = '![a{++a++}a]()\n\nafter\n';
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-        window.__e2e!.imageAction = () => new Promise<string>((resolve) => {
-            window.finishImagePickerUpload = resolve;
-        });
-    }, source);
+    await bootCore(page, source, {
+        setup: () => {
+            window.__e2e!.imageAction = () => new Promise<string>((resolve) => {
+                window.finishImagePickerUpload = resolve;
+            });
+        },
+    });
     try {
         await page.locator('#editor .mu-empty-image').click();
         const picker = page.locator('.mu-image-selector');
@@ -40,14 +39,13 @@ test('image picker upload retains its owned annotation and later typing without 
 for (const chosen of ['', 'https://example.test/chosen.png']) {
     test(`native image file chooser ${chosen ? 'retains its original target' : 'cancels without editing or holding save'}`, async ({ page }) => {
         const source = '![a]()\n\n![a]()\n\nafter\n';
-        await page.evaluate(async (source) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-            window.__e2e!.imagePathPicker = () => new Promise<string>((resolve) => {
-                window.finishImageFileChooser = resolve;
-            });
-        }, source);
+        await bootCore(page, source, {
+            setup: () => {
+                window.__e2e!.imagePathPicker = () => new Promise<string>((resolve) => {
+                    window.finishImageFileChooser = resolve;
+                });
+            },
+        });
         try {
             const picker = page.locator('.mu-image-selector');
             await page.locator('#editor .mu-empty-image').first().click();

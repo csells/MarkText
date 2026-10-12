@@ -52,16 +52,15 @@ for (const example of [
     { label: 'delete', source: 'same\n\ns{++a++}me{>>keep<<}\n\nlast\n', changed: 'same\n\nlast\n', typed: 'xsame\n\nlast\n' },
 ]) {
     test(`front menu ${example.label} owns its next key (${example.source.includes('{++') ? 'CM' : 'plain'})`, async ({ page }) => {
-        await page.evaluate(async (source) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            const muya = window.muya!;
-            window.coreBoundary = control.bootCoreBoundary(muya, source);
-            const content = muya.editor.scrollPage!.queryBlock([1, 'text']);
-            if (!content?.isContent()) throw new Error('Expected second paragraph');
-            content.setCursor(2, 2, true);
-            muya.eventCenter.emit('muya-front-menu', { reference: content.domNode, block: content.outMostBlock });
-        }, example.source);
+        await bootCore(page, example.source, {
+            setup: () => {
+                const muya = window.muya!;
+                const content = muya.editor.scrollPage!.queryBlock([1, 'text']);
+                if (!content?.isContent()) throw new Error('Expected second paragraph');
+                content.setCursor(2, 2, true);
+                muya.eventCenter.emit('muya-front-menu', { reference: content.domNode, block: content.outMostBlock });
+            },
+        });
         try {
             await page.locator(`.mu-front-menu .item.${example.label}`).click();
             expect(await readCore(page)).toMatchObject({ source: { source: example.changed }, anchor: 0, caret: 0, legacyCalls: [] });
@@ -83,13 +82,13 @@ for (const tracked of [false, true]) {
         const source = '$$\nx+y\n$$\n';
         const changed = tracked ? '{~~$$\nx+y\n$$~>x+y~~}\n' : 'x+y\n';
         const typed = tracked ? '{~~$$\nx+y\n$$~>x+yx~~}\n' : 'x+yx\n';
-        await page.evaluate(async ({ source, tracked }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(1, 1, true);
-            window.muya!.updateParagraph('reset-to-paragraph');
-        }, { source, tracked });
+        await bootCore(page, source, {
+            tracked,
+            cursor: [1, 1, true],
+            setup: () => {
+                window.muya!.updateParagraph('reset-to-paragraph');
+            },
+        });
         try {
             expect(await readCore(page)).toMatchObject({ source: { source: changed }, anchor: 3, caret: 3, legacyCalls: [] });
             await page.keyboard.type('x');

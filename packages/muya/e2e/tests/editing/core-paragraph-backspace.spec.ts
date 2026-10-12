@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -10,14 +10,14 @@ for (const tracked of [false, true]) {
             const source = '- a{>>keep<<}' + ending + ending + '  b' + ending;
             const joined = tracked ? '- a{>>keep<<}{--' + ending + ending + '  --}b' + ending : '- a{>>keep<<}b' + ending;
             const typed = tracked ? '- a{>>keep<<}{--' + ending + ending + '  --}{++x++}b' + ending : '- a{>>keep<<}xb' + ending;
-            await page.evaluate(async ({ source, tracked }) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-                const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!.nextContentInContext()!;
-                if (block.text !== 'b') throw new Error('Expected second paragraph');
-                block.setCursor(0, 0, true);
-            }, { source, tracked });
+            await bootCore(page, source, {
+                tracked,
+                setup: () => {
+                    const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!.nextContentInContext()!;
+                    if (block.text !== 'b') throw new Error('Expected second paragraph');
+                    block.setCursor(0, 0, true);
+                },
+            });
             try {
                 await page.keyboard.press('Backspace');
                 expect(await readCore(page)).toMatchObject({ source: { source: joined }, anchor: tracked ? 0 : 1, caret: tracked ? 0 : 1, legacyCalls: [] });
@@ -41,15 +41,15 @@ for (const example of [
     { style: 'reference definition', source: 'a\n\n[id]: /url\n\nb\n', joined: 'a\n\n[id]: /urlb\n', typed: 'a\n\n[id]: /urlxb\n', offset: 10, target: 2 },
 ]) {
     test(`Paragraph Backspace joins into the existing ${example.style}`, async ({ page }) => {
-        await page.evaluate(async ({ source, target }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, false);
-            let block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-            for (let index = 0; index < target; index++) block = block.nextContentInContext()!;
-            if (block.text !== 'b') throw new Error('Expected selected paragraph');
-            block.setCursor(0, 0, true);
-        }, { source: example.source, target: example.target });
+        await bootCore(page, example.source, {
+            arg: example.target,
+            setup: (target) => {
+                let block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                for (let index = 0; index < target; index++) block = block.nextContentInContext()!;
+                if (block.text !== 'b') throw new Error('Expected selected paragraph');
+                block.setCursor(0, 0, true);
+            },
+        });
         try {
             await page.keyboard.press('Backspace');
             expect(await readCore(page)).toMatchObject({ source: { source: example.joined }, anchor: example.offset, caret: example.offset, legacyCalls: [] });

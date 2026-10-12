@@ -122,12 +122,11 @@ for (const annotated of [false, true]) {
             return muya.getMarkdown();
         }, imported);
         expect(standalone).toBe(`end${imported}\n`);
-        await page.evaluate(async (source) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-            await window.coreBoundary.prepareClipboardCopy();
-        }, original);
+        await bootCore(page, original, {
+            setup: async () => {
+                await window.coreBoundary.prepareClipboardCopy();
+            },
+        });
         try {
             const images = page.locator('#editor .mu-inline-image img');
             await images.first().click();

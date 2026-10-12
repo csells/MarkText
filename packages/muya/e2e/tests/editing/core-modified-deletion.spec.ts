@@ -1,6 +1,6 @@
 import process from 'node:process';
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const example of [
     { key: 'Backspace', offset: 9, type: 'deleteWordBackward', changed: 'same {++same ++}{>>keep<<}\n', typed: 'same {++same X++}{>>keep<<}\n', caret: 10 },
@@ -8,23 +8,23 @@ for (const example of [
 ]) {
 test(`trusted word ${example.key} owns the browser range inside an annotation`, async ({ page }) => {
     const source = 'same {++same same++}{>>keep<<}\n';
-    await page.evaluate(async ({ source, offset }) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-        const leaf = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-        const walker = document.createTreeWalker(leaf.domNode!, NodeFilter.SHOW_TEXT);
-        let text = walker.nextNode();
-        while (text && text.textContent !== 'same same') text = walker.nextNode();
-        if (!text) throw new Error('Expected annotated repeated words');
-        window.muya!.editor.selection.setDOMSelection({ node: text, offset }, { node: text, offset });
-        window.muya!.domNode.addEventListener('beforeinput', event => {
-            if (!(event instanceof InputEvent)) return;
-            window.muya!.domNode.dataset.deletionType = event.inputType;
-            window.muya!.domNode.dataset.deletionTrusted = String(event.isTrusted);
-            window.muya!.domNode.dataset.deletionRangeCount = String(event.getTargetRanges().length);
-        }, { capture: true, once: true });
-    }, { source, offset: example.offset });
+    await bootCore(page, source, {
+        arg: example.offset,
+        setup: (offset) => {
+            const leaf = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+            const walker = document.createTreeWalker(leaf.domNode!, NodeFilter.SHOW_TEXT);
+            let text = walker.nextNode();
+            while (text && text.textContent !== 'same same') text = walker.nextNode();
+            if (!text) throw new Error('Expected annotated repeated words');
+            window.muya!.editor.selection.setDOMSelection({ node: text, offset }, { node: text, offset });
+            window.muya!.domNode.addEventListener('beforeinput', event => {
+                if (!(event instanceof InputEvent)) return;
+                window.muya!.domNode.dataset.deletionType = event.inputType;
+                window.muya!.domNode.dataset.deletionTrusted = String(event.isTrusted);
+                window.muya!.domNode.dataset.deletionRangeCount = String(event.getTargetRanges().length);
+            }, { capture: true, once: true });
+        },
+    });
     try {
         await page.keyboard.press(`${process.platform === 'darwin' ? 'Alt' : 'Control'}+${example.key}`);
         expect(await page.evaluate(() => ({ ...window.muya!.domNode.dataset }))).toMatchObject({ deletionType: example.type, deletionTrusted: 'true', deletionRangeCount: '1' });
@@ -55,20 +55,20 @@ test(`trusted macOS line ${example.key} retains annotated literal text and histo
     const afterLine = example.type === 'deleteHardLineForward' ? '' : '\n';
     const changed = `{++\`\`\`js\nbefore\n${afterLine}after\n\`\`\`++}{>>keep<<}\n`;
     const typed = `{++\`\`\`js\nbefore\nX${afterLine}after\n\`\`\`++}{>>keep<<}\n`;
-    await page.evaluate(async ({ source, offset }) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-        const leaf = window.muya!.editor.scrollPage!.queryBlock([0, 'text']);
-        if (!leaf?.isContent() || leaf.blockName !== 'codeblock.content') throw new Error('Expected annotated code body');
-        leaf.setCursor(offset, offset, true);
-        window.muya!.domNode.addEventListener('beforeinput', event => {
-            if (!(event instanceof InputEvent)) return;
-            window.muya!.domNode.dataset.deletionType = event.inputType;
-            window.muya!.domNode.dataset.deletionTrusted = String(event.isTrusted);
-            window.muya!.domNode.dataset.deletionRangeCount = String(event.getTargetRanges().length);
-        }, { capture: true, once: true });
-    }, { source, offset: example.offset });
+    await bootCore(page, source, {
+        arg: example.offset,
+        setup: (offset) => {
+            const leaf = window.muya!.editor.scrollPage!.queryBlock([0, 'text']);
+            if (!leaf?.isContent() || leaf.blockName !== 'codeblock.content') throw new Error('Expected annotated code body');
+            leaf.setCursor(offset, offset, true);
+            window.muya!.domNode.addEventListener('beforeinput', event => {
+                if (!(event instanceof InputEvent)) return;
+                window.muya!.domNode.dataset.deletionType = event.inputType;
+                window.muya!.domNode.dataset.deletionTrusted = String(event.isTrusted);
+                window.muya!.domNode.dataset.deletionRangeCount = String(event.getTargetRanges().length);
+            }, { capture: true, once: true });
+        },
+    });
     try {
         await page.keyboard.press(example.shortcut);
         expect(await page.evaluate(() => ({ ...window.muya!.domNode.dataset }))).toMatchObject({ deletionType: example.type, deletionTrusted: 'true', deletionRangeCount: '1' });

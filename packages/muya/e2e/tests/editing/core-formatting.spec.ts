@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const source of ['**aaa**\n', '**a{++a++}a**\n']) {
     for (const tracked of [false, true]) {
@@ -7,14 +7,14 @@ for (const source of ['**aaa**\n', '**a{++a++}a**\n']) {
             const cleared = source.includes('{++') ? 'a{++a++}a' : 'aaa';
             const expected = tracked ? `{~~${source.slice(0, -1)}~>${cleared}~~}\n` : `${cleared}\n`;
             const typed = tracked ? `{~~${source.slice(0, -1)}~>X~~}\n` : 'X\n';
-            await page.evaluate(async ({ source, tracked }) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-                const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-                block.setCursor(0, block.text.length);
-                window.muya!.format('clear');
-            }, { source, tracked });
+            await bootCore(page, source, {
+                tracked,
+                setup: () => {
+                    const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                    block.setCursor(0, block.text.length);
+                    window.muya!.format('clear');
+                },
+            });
             try {
                 const offset = tracked ? 7 : 0;
                 expect(await readCore(page)).toMatchObject({ source: { source: expected }, anchor: offset, caret: offset + 3 });
@@ -44,13 +44,13 @@ for (const example of [
 ]) {
     test(`Core ${example.format} preserves suggestions and the next browser replacement`, async ({ page }) => {
         const source = 'a{++a++}a\n';
-        await page.evaluate(async ({ source, format }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(0, 3);
-            window.muya!.format(format);
-        }, { source, format: example.format });
+        await bootCore(page, source, {
+            cursor: [0, 3],
+            arg: example.format,
+            setup: (format) => {
+                window.muya!.format(format);
+            },
+        });
         try {
             expect(await readCore(page)).toMatchObject({ source: { source: example.expected }, anchor: example.start, caret: example.end });
             await page.keyboard.type('X');
@@ -71,13 +71,12 @@ for (const example of [
 
 test('Core link creation places the next browser text in the destination', async ({ page }) => {
     const source = 'a{++a++}a\n';
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-        window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(0, 3);
-        window.muya!.format('link');
-    }, source);
+    await bootCore(page, source, {
+        cursor: [0, 3],
+        setup: () => {
+            window.muya!.format('link');
+        },
+    });
     try {
         expect(await readCore(page)).toMatchObject({ source: { source: '[a{++a++}a]()\n' }, anchor: 6, caret: 6 });
         await page.keyboard.type('url');
@@ -93,12 +92,11 @@ test('Core link creation places the next browser text in the destination', async
 
 test('Core unlink uses the existing floating link tool on the hovered suggestion fragment', async ({ page }) => {
     const source = '[a{++a++}a](url)\n\noutside\n';
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-        window.muya!.editor.scrollPage!.lastContentInDescendant()!.setCursor(0, 0);
-    }, source);
+    await bootCore(page, source, {
+        setup: () => {
+            window.muya!.editor.scrollPage!.lastContentInDescendant()!.setCursor(0, 0);
+        },
+    });
     try {
         await page.locator('#editor span.mu-link').first().hover();
         await page.locator('.mu-link-tools li.item.unlink').click();
@@ -162,15 +160,14 @@ for (const alt of ['aaa', 'a{++a++}a']) {
     test(`Core HTML image picker preserves literal alt ${alt} and the next browser input`, async ({ page }) => {
         const source = `<img src="old.png" alt="${alt}" width="120" data-align="center">\n`;
         const expected = `<img src="https://example.com/new.png" alt="${alt}" width="120" data-align="center" />\n`;
-        await page.evaluate(async (source) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-            const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-            block.setCursor(block.text.length, block.text.length);
-            if (!window.muya!.showImageSelectorAtSelection())
-                throw new Error('Missing native HTML image picker');
-        }, source);
+        await bootCore(page, source, {
+            setup: () => {
+                const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                block.setCursor(block.text.length, block.text.length);
+                if (!window.muya!.showImageSelectorAtSelection())
+                    throw new Error('Missing native HTML image picker');
+            },
+        });
         try {
             const destination = page.getByPlaceholder('Image link or local path');
             await expect(destination).toBeFocused();
