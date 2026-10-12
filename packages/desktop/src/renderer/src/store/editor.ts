@@ -2032,7 +2032,10 @@ export const useEditorStore = defineStore('editor', {
         return
       }
       coreTitleByTab.set(id, recommendedDocumentTitle(toc))
-      this.UPDATE_TOC(toc)
+      // A new outline of the shown document, as a preference change or an edit
+      // gives, keeps its highlighted entry by position, as REFRESH_TOC does.
+      if (tocDocumentId === id && pendingAnchor === undefined) this.REFRESH_TOC(toc)
+      else this.UPDATE_TOC(toc)
     },
 
     LISTEN_FOR_CORE_CURSOR_CHANGE(id: string, cursor: unknown): void {

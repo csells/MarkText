@@ -2955,6 +2955,11 @@ const rebuildHeadingCache = (): void => {
 // is fractional, and rounding the headings to whole pixels reports the one the
 // caret sits in as the heading above it.
 const updateActiveHeading = (viewportY: number): void => {
+  // A Core view can render its headings after the outline that the cache was
+  // built from arrives, and re-renders them for a preference change.
+  if (headingElementCache.length < editorStore.listToc.length || headingElementCache.some(({ el }) => !el.isConnected)) {
+    rebuildHeadingCache()
+  }
   if (headingElementCache.length === 0) return
   const positions: HeadingPosition[] = headingElementCache.map(({ slug, el }) => ({
     slug,
