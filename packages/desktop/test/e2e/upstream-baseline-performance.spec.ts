@@ -500,7 +500,8 @@ const launchRenderActiveUpstreamApplication = async(
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],
-        'Upstream performance launch and cleanup both failed'
+        'Upstream performance launch and cleanup both failed',
+        { cause: cleanupError }
       )
     }
     throw error
@@ -766,7 +767,8 @@ test.describe('pinned upstream baseline raw performance producer', () => {
               } catch (cleanupError) {
                 throw new AggregateError(
                   [error, cleanupError],
-                  'Upstream observation preparation and cleanup both failed'
+                  'Upstream observation preparation and cleanup both failed',
+                  { cause: cleanupError }
                 )
               }
               throw error

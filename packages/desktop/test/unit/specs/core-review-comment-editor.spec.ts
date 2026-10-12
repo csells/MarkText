@@ -26,7 +26,7 @@ const loadComponent = (): Vue.Component => {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
   }).outputText
   const exports: { default?: Vue.Component } = {}
-  // eslint-disable-next-line no-new-func
+   
   new Function('require', 'exports', js)((name: string) => {
     if (name !== 'vue') throw new Error(`Unexpected component dependency ${name}`)
     return Vue

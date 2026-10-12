@@ -116,7 +116,7 @@ describe('tracked edits match untracked editing of the visible text', () => {
         try {
           result = core.reconcileInput(revision, plan, commit, action)
         } catch (error) {
-          throw new Error(`reconcile threw: ${label} ${JSON.stringify(edits)} ${(error as Error).message}`)
+          throw new Error(`reconcile threw: ${label} ${JSON.stringify(edits)} ${(error as Error).message}`, { cause: error })
         }
         expect(result.selection, `no caret: ${label}`).toBeDefined()
 

@@ -1800,7 +1800,7 @@ function appendInlineRange(
   end: number,
   constructs: ReadonlyMap<number, MappedMarkdownLiteral> = EMPTY_INLINE_CONSTRUCTS,
   referenceDefinitions: MarkdownReferenceDefinitionLookup =
-  EMPTY_REFERENCE_DEFINITIONS,
+    EMPTY_REFERENCE_DEFINITIONS,
   boundaryPolicy?: InlineBoundaryPolicy,
   sequence?: InlineSegmentSequence
 ): number | undefined {
@@ -2283,7 +2283,7 @@ function parseInlineNodes(
   end: number,
   constructs: ReadonlyMap<number, MappedMarkdownLiteral> = EMPTY_INLINE_CONSTRUCTS,
   referenceDefinitions: MarkdownReferenceDefinitionLookup =
-  EMPTY_REFERENCE_DEFINITIONS,
+    EMPTY_REFERENCE_DEFINITIONS,
   boundaryPolicy?: InlineBoundaryPolicy
 ): readonly MarkdownNode[] {
   const list: InlineList = { head: undefined, tail: undefined }
@@ -2374,7 +2374,7 @@ function parseAtxHeading(
   end: number,
   constructs: ReadonlyMap<number, MappedMarkdownLiteral> = EMPTY_INLINE_CONSTRUCTS,
   referenceDefinitions: MarkdownReferenceDefinitionLookup =
-  EMPTY_REFERENCE_DEFINITIONS,
+    EMPTY_REFERENCE_DEFINITIONS,
   boundaryPolicy?: InlineBoundaryPolicy
 ): MarkdownNode | undefined {
   const indentation = leadingIndent(source, start, end)
@@ -2592,7 +2592,7 @@ function inlineMathAttributes(
   literal: MappedMarkdownLiteral
 ): Readonly<Record<string, string | number>> {
   let delimiterLength = 0
-  let closeLength = 0
+  let closeLength: number
   if (literal.mathForm === undefined) {
     while (
       literal.start + delimiterLength < literal.end &&
@@ -3010,7 +3010,7 @@ function scanLinkTargetAttributes(
     offset += 1
   }
   let destinationStart = offset
-  let destinationEnd = offset
+  let destinationEnd: number
   if (source.charCodeAt(offset) === 60) {
     destinationStart = offset + 1
     offset += 1
@@ -3182,7 +3182,7 @@ function blockLiteralNode(
   lines?: readonly PlainMarkdownLine[],
   fromLineIndex?: number,
   referenceDefinitions: MarkdownReferenceDefinitionLookup =
-  EMPTY_REFERENCE_DEFINITIONS,
+    EMPTY_REFERENCE_DEFINITIONS,
   boundaryPolicy?: InlineBoundaryPolicy,
   constructs: ReadonlyMap<number, MappedMarkdownLiteral> = EMPTY_INLINE_CONSTRUCTS
 ): MarkdownNode | undefined {
@@ -6444,9 +6444,9 @@ function inlineCodeDelimiterRuns(
   literal: MappedMarkdownLiteral,
   backtickRuns: readonly BoundaryBacktickRun[]
 ): Readonly<{
-    readonly opener: BoundaryBacktickRun
-    readonly closer: BoundaryBacktickRun
-  }> {
+  readonly opener: BoundaryBacktickRun
+  readonly closer: BoundaryBacktickRun
+}> {
   const delimiters = findInlineCodeDelimiterRuns(literal, backtickRuns)
   if (delimiters === undefined) {
     throw new Error('Inline-code literal lost its parser-owned delimiters')
@@ -6576,9 +6576,9 @@ function emphasisFlankingScalarEdits(
     { readonly kind: 'respell-enclosing-emphasis-delimiters' }
   >
 ): readonly Extract<
-    MarkdownArmBoundaryProjectionEdit,
-    { readonly kind: 'encode-emphasis-flanking-scalar' }
-  >[] {
+  MarkdownArmBoundaryProjectionEdit,
+  { readonly kind: 'encode-emphasis-flanking-scalar' }
+>[] {
   if (respelling.replacementMarker !== '_') {
     return Object.freeze([])
   }
@@ -8078,9 +8078,9 @@ function intrinsicForkRegionLanes(
 function forkRegionBoundaryFacts(
   lane: MappedMarkdownLane
 ): Readonly<{
-    readonly boundaryPolicy: InlineBoundaryPolicy | undefined
-    readonly matchingScopePolicy: MarkdownMatchingScopePolicy | undefined
-  }> {
+  readonly boundaryPolicy: InlineBoundaryPolicy | undefined
+  readonly matchingScopePolicy: MarkdownMatchingScopePolicy | undefined
+}> {
   const identityRuns = validatedCanonicalIdentityRuns(
     lane.source.length,
     lane.canonicalIdentityRuns
@@ -8413,9 +8413,9 @@ function parseIntrinsicForkRegionFacts(
   reuse: Map<string, PlainMarkdownLaneParse>,
   physicalRecorder?: Profile1PhysicalTraversalRecorder
 ): Readonly<{
-    readonly facts: PlainMarkdownLaneParseWithDefinitions
-    readonly boundaryPolicy: InlineBoundaryPolicy | undefined
-  }> {
+  readonly facts: PlainMarkdownLaneParseWithDefinitions
+  readonly boundaryPolicy: InlineBoundaryPolicy | undefined
+}> {
   const boundary = forkRegionBoundaryFacts(lane)
   const localReferenceDefinitions = scopeConstrainedReferenceDefinitions(
     markdownRegionReferenceDefinitions(
@@ -8680,7 +8680,7 @@ export function createProfile1MarkdownForkParser(
   canonicalReferenceDefinitions: Profile1CanonicalReferenceDefinitionLookup,
   physicalRecorder?: Profile1PhysicalTraversalRecorder,
   reuseCache: Profile1MarkdownReuseCache =
-  createProfile1MarkdownReuseCache(),
+    createProfile1MarkdownReuseCache(),
   spliceProvenance?: ForkAstSpliceProvenance
 ): Profile1MarkdownForkParser {
   const emittedRegionCache = reuseCache.astRegions

@@ -29,7 +29,7 @@ const loadTabs = (
   const js = ts.transpileModule(noImports, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
   }).outputText
-  // eslint-disable-next-line no-new-func
+   
   const factory = new Function(
     '__deps',
     'exports',

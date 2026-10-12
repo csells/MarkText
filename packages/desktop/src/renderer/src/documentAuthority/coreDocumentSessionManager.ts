@@ -1202,7 +1202,9 @@ export function createCoreDocumentSessionManager(
         // discards it; renderer-recorded actor acceptance remains the authority.
         try {
           await previous.settleView?.()
-        } catch {}
+        } catch {
+          // Recovery replaces whatever presentation the failed barrier described.
+        }
         if (previous.terminalFault === undefined && previous.viewFault === undefined) {
           throw new Error('Core document recovery is not required')
         }

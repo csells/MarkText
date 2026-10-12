@@ -910,7 +910,8 @@ export const assertMacWindowServerPresentationSettled = async(
     } catch (second) {
       throw new AggregateError([first, second],
         'WindowServer presentation invariant failed on two reads ' +
-        `${String(options.settleMs ?? 500)} ms apart: first=${first.message}; second=${second instanceof Error ? second.message : String(second)}`)
+        `${String(options.settleMs ?? 500)} ms apart: first=${first.message}; second=${second instanceof Error ? second.message : String(second)}`,
+        { cause: second })
     }
   }
 }

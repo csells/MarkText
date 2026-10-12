@@ -118,49 +118,49 @@ function serializeTable(state: ITableMarkdownState, indent: string, maximumUnits
     let cellOffset = outputOffset + indent.length + 1
     const rowStart = outputOffset
     const rs =
-            `${indent
-            }|${
-              r
-                .slice(0, columnWidth.length)
-                .map((data, j) => {
-                  const cell = data.text
+      `${indent
+      }|${
+        r
+          .slice(0, columnWidth.length)
+          .map((data, j) => {
+            const cell = data.text
                         // Pad by visual column width, not code-unit length,
                         // so combining marks and wide characters stay
                         // aligned (#1983). One leading space + cell + fill.
-                  const fill = columnWidth[j]!.width - 1 - stringWidth(cell)
+            const fill = columnWidth[j]!.width - 1 - stringWidth(cell)
 
-                  const spelling = ` ${cell}${' '.repeat(Math.max(fill, 0))}`
-                  if (positions) {
+            const spelling = ` ${cell}${' '.repeat(Math.max(fill, 0))}`
+            if (positions) {
                     // An empty cell's text starts after the space that follows its pipe.
-                    const contentStart = cellOffset + 1
-                    cells.push({ start: contentStart, end: contentStart + cell.length, slotStart: cellOffset, slotEnd: cellOffset + spelling.length, offsets: data.offsets.map(offset => contentStart + offset) })
-                  }
-                  cellOffset += spelling.length + 1
-                  return spelling
-                })
-                .join('|')
-            }|`
+              const contentStart = cellOffset + 1
+              cells.push({ start: contentStart, end: contentStart + cell.length, slotStart: cellOffset, slotEnd: cellOffset + spelling.length, offsets: data.offsets.map(offset => contentStart + offset) })
+            }
+            cellOffset += spelling.length + 1
+            return spelling
+          })
+          .join('|')
+      }|`
     result.push(rs)
     rows.push({ start: rowStart, end: rowStart + rs.length, cells })
     outputOffset += rs.length + 1
     if (i === 0) {
       let delimiterOffset = outputOffset + indent.length + 1
       const cutOff =
-                `${indent
-                }|${
-                  columnWidth
-                    .map(({ width, align }) => {
-                      const raw = tableDelimiter(width, align)
+        `${indent
+        }|${
+          columnWidth
+            .map(({ width, align }) => {
+              const raw = tableDelimiter(width, align)
 
-                      if (positions) {
-                        const markers = tableDelimiterMarkers(align)
-                        delimiterCells.push({ start: delimiterOffset, end: delimiterOffset + raw.length, contentStart: delimiterOffset + (markers.start === '' ? 1 : 0), contentEnd: delimiterOffset + raw.length - (markers.end === '' ? 1 : 0) })
-                      }
-                      delimiterOffset += raw.length + 1
-                      return raw
-                    })
-                    .join('|')
-                }|`
+              if (positions) {
+                const markers = tableDelimiterMarkers(align)
+                delimiterCells.push({ start: delimiterOffset, end: delimiterOffset + raw.length, contentStart: delimiterOffset + (markers.start === '' ? 1 : 0), contentEnd: delimiterOffset + raw.length - (markers.end === '' ? 1 : 0) })
+              }
+              delimiterOffset += raw.length + 1
+              return raw
+            })
+            .join('|')
+        }|`
       result.push(cutOff)
       outputOffset += cutOff.length + 1
     }

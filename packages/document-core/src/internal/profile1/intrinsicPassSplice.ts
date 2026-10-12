@@ -443,10 +443,10 @@ function shiftForkBranch(
   twins: ReadonlyMap<CriticMarkupNode, CriticMarkupNode>,
   allocateLaneId: () => number
 ): Readonly<{
-    kind: 'critic-branch'
-    node: CriticMarkupNode
-    arms: readonly IntrinsicProfile1ForkLane[]
-  }> {
+  kind: 'critic-branch'
+  node: CriticMarkupNode
+  arms: readonly IntrinsicProfile1ForkLane[]
+}> {
   return Object.freeze({
     kind: 'critic-branch' as const,
     node: twins.get(branch.node) ?? branch.node,

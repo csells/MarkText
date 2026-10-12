@@ -1672,19 +1672,19 @@ export function createCoreActor(
               }
               const decision = request.decision === 'remove' ? 'accept' : request.decision
               const insert =
-                  annotation.kind === 'addition'
+                annotation.kind === 'addition'
+                  ? decision === 'accept'
+                    ? armSource('content')
+                    : ''
+                  : annotation.kind === 'deletion'
                     ? decision === 'accept'
-                      ? armSource('content')
-                      : ''
-                    : annotation.kind === 'deletion'
-                      ? decision === 'accept'
-                        ? ''
-                        : armSource('content')
-                      : annotation.kind === 'substitution'
-                        ? armSource(decision === 'accept' ? 'new' : 'old')
-                        : annotation.kind === 'highlight'
-                          ? armSource('content')
-                          : ''
+                      ? ''
+                      : armSource('content')
+                    : annotation.kind === 'substitution'
+                      ? armSource(decision === 'accept' ? 'new' : 'old')
+                      : annotation.kind === 'highlight'
+                        ? armSource('content')
+                        : ''
               return insert === undefined
                 ? undefined
                 : Object.freeze({ ...annotation.range, insert })
@@ -1761,7 +1761,7 @@ export function createCoreActor(
                       let previousEnd = 0
                       const valid = request.edits.every((edit) => {
                         const accepted =
-                            edit !== null &&
+                          edit !== null &&
                             typeof edit === 'object' &&
                             Number.isSafeInteger(edit.start) &&
                             Number.isSafeInteger(edit.end) &&

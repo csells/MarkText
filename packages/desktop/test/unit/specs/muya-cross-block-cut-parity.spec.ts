@@ -72,7 +72,7 @@ it.each(scenarios)('$id', async(s) => {
   const host = document.body.appendChild(document.createElement('div'))
   const muya = new Muya(host, { markdown: s.source, math: true } as ConstructorParameters<typeof Muya>[1])
   muya.init()
-  let native = ''
+  let native: string
   try {
     await cut(muya, s.from, s.to, async() => {})
     native = muya.getMarkdown()

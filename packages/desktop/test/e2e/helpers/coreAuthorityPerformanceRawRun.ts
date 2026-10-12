@@ -128,7 +128,7 @@ const removeOwnedDirectory = async(
   lifecycle: CoreAuthorityPerformanceFileLifecycle
 ): Promise<void> => {
   const deadline = lifecycle.now() + LIFECYCLE_CLEANUP_TIMEOUT_MS
-  let failure: unknown = new Error(`${label} cleanup did not complete`)
+  let failure: unknown
   while (true) {
     try {
       await lifecycle.removeDirectory(directory)

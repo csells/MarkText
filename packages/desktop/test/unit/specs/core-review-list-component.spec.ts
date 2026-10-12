@@ -28,7 +28,7 @@ const loadComponent = (): Vue.Component => {
   }).outputText
   const exports: { default?: Vue.Component } = {}
   const projection = Vue.defineComponent({ render: () => Vue.h('div', { class: 'comment-stub' }) })
-  // eslint-disable-next-line no-new-func
+   
   new Function('require', 'exports', js)((name: string) => {
     if (name === 'vue') return Vue
     if (name === '@tanstack/vue-virtual') return virtual

@@ -87,9 +87,9 @@ export const planAuthor = (
       const annotation = pendingAnnotations.pop()
       if (annotation === undefined) break
       const overlaps =
-          authoredRange.start < annotation.range.end && authoredRange.end > annotation.range.start
+        authoredRange.start < annotation.range.end && authoredRange.end > annotation.range.start
       const contains =
-          authoredRange.start <= annotation.range.start && authoredRange.end >= annotation.range.end
+        authoredRange.start <= annotation.range.start && authoredRange.end >= annotation.range.end
       if (overlaps && !contains) {
         const nested = annotation.arms.some(arm =>
           arm.range.start <= authoredRange.start && authoredRange.end <= arm.range.end)
@@ -153,13 +153,13 @@ export const planAuthor = (
     authoredText: string
   ): Omit<DocumentAuthorPlan, 'escaped'> | undefined => {
     const insert =
-        request.form === 'addition'
-          ? spellSuggestion('addition', selected)
-          : request.form === 'comment'
-            ? spellSuggestion('highlight', selected) + spellSuggestion('comment', authoredText)
-            : request.form === 'highlight'
-              ? spellSuggestion('highlight', selected)
-              : spellSuggestion('substitution', selected, authoredText)
+      request.form === 'addition'
+        ? spellSuggestion('addition', selected)
+        : request.form === 'comment'
+          ? spellSuggestion('highlight', selected) + spellSuggestion('comment', authoredText)
+          : request.form === 'highlight'
+            ? spellSuggestion('highlight', selected)
+            : spellSuggestion('substitution', selected, authoredText)
     const edit = Object.freeze({
       start: authoredRange.start,
       end: authoredRange.end,

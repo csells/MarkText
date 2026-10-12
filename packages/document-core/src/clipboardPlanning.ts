@@ -299,8 +299,8 @@ function retainClipboardSelection(core: DocumentCore, previous: DocumentRevision
     else {
       const currentCell = resolveTableCell(core, previous, current.cell)
       selection = currentCell.slotStart === undefined
-        ? tableCellSelectionAfter(resultSyntax ??= previewSyntax(edits), sourceLength, edits, current)
-        : tableCellSelectionAfter(resultSyntax ??= previewSyntax(edits), sourceLength, edits, current, positionAfter(edits, currentCell.start + current.anchor, true), positionAfter(edits, currentCell.start + current.focus, true))
+        ? tableCellSelectionAfter(resultSyntax ?? previewSyntax(edits), sourceLength, edits, current)
+        : tableCellSelectionAfter(resultSyntax ?? previewSyntax(edits), sourceLength, edits, current, positionAfter(edits, currentCell.start + current.anchor, true), positionAfter(edits, currentCell.start + current.focus, true))
     }
   }
   return Object.freeze({ edits: Object.freeze(edits), selection: Object.freeze(selection) })

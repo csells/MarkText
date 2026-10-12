@@ -124,9 +124,9 @@ function deriveStandingLaneRegions(
   candidates: readonly Profile1ReferenceDelimiterCandidate[],
   rejectedCandidates: ReadonlySet<number>
 ): Readonly<{
-    readonly regions: readonly Profile1ReferenceLaneRegion[]
-    readonly virtualStarts: readonly number[]
-  }> {
+  readonly regions: readonly Profile1ReferenceLaneRegion[]
+  readonly virtualStarts: readonly number[]
+}> {
   const regions: Profile1ReferenceLaneRegion[] = []
   const virtualStarts: number[] = []
   const frames: CandidateLaneFrame[] = []

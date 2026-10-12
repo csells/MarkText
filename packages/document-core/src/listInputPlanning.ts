@@ -15,7 +15,7 @@ export function planListChange(core: DocumentCore, revision: DocumentRevision, s
   const lists = ancestors.filter(node => node.kind === 'list')
   const outermost = ancestors[1]?.kind === 'list' ? ancestors[1] : undefined
   let targets: readonly MarkdownAstNode[]
-  let unwrap = false
+  let unwrap: boolean
   let boundaryItem: MarkdownAstNode | undefined
   if (change.type === 'backspace') {
     const list = lists.at(-1)

@@ -887,9 +887,9 @@ function finalizeCanonicalTape(
   source: string,
   decisions: readonly CanonicalMarkerDecision[]
 ): Readonly<{
-    tape: readonly TapeRun[]
-    markerDecisions: readonly CanonicalMarkerDecision[]
-  }> {
+  tape: readonly TapeRun[]
+  markerDecisions: readonly CanonicalMarkerDecision[]
+}> {
   const retainedCandidates: RetainedMarkerCandidate[] = decisions.map((decision) =>
     Object.freeze({
       kind: decision.kind,
@@ -1089,7 +1089,7 @@ function parseIntrinsicProfile1(
     end: number
   }>[],
   physicalRecorder: Profile1PhysicalTraversalRecorder =
-  createPhysicalTraversalRecorder()
+    createPhysicalTraversalRecorder()
 ): ParseOutcome {
   const sourceProgression = createIntrinsicProfile1SourceProgression(
     source,
@@ -2350,7 +2350,7 @@ function projectionOriginAt(
 ): Readonly<
   | { kind: 'canonical'; sourceOffset: number }
   | { kind: 'generated'; sourcePosition: number; affinity: 'previous' | 'next' }
-  > {
+> {
   let low = 0
   let high = segments.length - 1
   while (low <= high) {
@@ -3043,14 +3043,14 @@ function guardProjectionCandidate(
   markerDecisions: readonly CanonicalMarkerDecision[],
   projectedMarkdownLiterals: readonly MarkdownLiteralRange[]
 ): Readonly<{
-    source: string
-    segments: readonly MutableProjectionSegment[]
-    acceptedMarkerCount: number
-    mapOffset: (
-      candidateOffset: number,
-      affinity: 'previous' | 'next'
-    ) => number
-  }> {
+  source: string
+  segments: readonly MutableProjectionSegment[]
+  acceptedMarkerCount: number
+  mapOffset: (
+    candidateOffset: number,
+    affinity: 'previous' | 'next'
+  ) => number
+}> {
   const decisionByIdentity = new Map<string, CanonicalMarkerDecision>()
   for (const decision of markerDecisions) {
     decisionByIdentity.set(`${decision.runId}:${decision.kind}:${decision.role}`, decision)
@@ -4580,7 +4580,7 @@ export function admitProfile1PlainParagraphRegion(
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptions,
   physicalRecorder: Profile1PhysicalTraversalRecorder =
-  createPhysicalTraversalRecorder()
+    createPhysicalTraversalRecorder()
 ): Profile1RegionalAdmissionResult | undefined {
   const edit = edits.length === 1
     ? edits[0]
@@ -4792,7 +4792,7 @@ export function parseProfile1Document(
   captureAccountingTrace: boolean = false,
   reuseCache?: Profile1DocumentReuseCache,
   physicalRecorder: Profile1PhysicalTraversalRecorder =
-  createPhysicalTraversalRecorder(),
+    createPhysicalTraversalRecorder(),
   previousPass?: PreviousIntrinsicPass,
   endsAtDocumentEnd = true,
   // A window of a document holding annotations reads its stray markers as

@@ -6626,9 +6626,9 @@ describe('Core document session manager', () => {
 const createAttachedCodeMirror = (
   source: string
 ): Readonly<{
-    editor: CodeMirror.Editor
-    dispose: () => void
-  }> => {
+  editor: CodeMirror.Editor
+  dispose: () => void
+}> => {
   const rangePrototype = Range.prototype
   const rangeRect = Object.getOwnPropertyDescriptor(rangePrototype, 'getBoundingClientRect')
   const rangeRects = Object.getOwnPropertyDescriptor(rangePrototype, 'getClientRects')

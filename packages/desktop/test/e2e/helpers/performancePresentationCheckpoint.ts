@@ -94,7 +94,9 @@ export const resolveExactElectronPageTargetId = async(
   } catch (primaryFailure) {
     try {
       await session.detach()
-    } catch {}
+    } catch {
+      // The lookup failure below is the one worth reporting.
+    }
     throw captureFailure(
       'Exact Electron renderer target lookup failed',
       primaryFailure

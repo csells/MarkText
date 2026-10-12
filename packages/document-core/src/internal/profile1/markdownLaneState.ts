@@ -1977,7 +1977,6 @@ function definitionColonInLine(
   const footnote = footnotesEnabled && lineText.charCodeAt(start + 1) === 94
   const labelStart = footnote ? start + 2 : start + 1
   let hasLabelContent = false
-  let sawCloser = false
   for (let offset = labelStart; offset < lineText.length; offset += 1) {
     if (lineText.charCodeAt(offset) === 92) {
       if (offset + 1 < lineText.length) {
@@ -1990,7 +1989,6 @@ function definitionColonInLine(
       return undefined
     }
     if (lineText.charCodeAt(offset) === 93) {
-      sawCloser = true
       if (lineText.charCodeAt(offset + 1) !== 58) {
         return undefined
       }
@@ -2002,7 +2000,7 @@ function definitionColonInLine(
     }
   }
   // Reference labels may span lines; footnote labels stay single-line.
-  return sawCloser || footnote ? undefined : 'label-open'
+  return footnote ? undefined : 'label-open'
 }
 
 type MarkdownDefinitionTail = Readonly<{
@@ -2924,7 +2922,7 @@ export function createMarkdownLaneState(
   source: string,
   containerDepthLimit: number = Number.POSITIVE_INFINITY,
   referenceDefinitions: MarkdownReferenceDefinitionLookup =
-  EMPTY_REFERENCE_DEFINITIONS,
+    EMPTY_REFERENCE_DEFINITIONS,
   matchingScopePolicy?: MarkdownMatchingScopePolicy,
   frontMatterEnabled: boolean = true,
   gfmEnabled: boolean = true,
@@ -3800,16 +3798,15 @@ export function createMarkdownLaneState(
                   resolvedLabel.labelEnd
                 )
               }
-              rejectedExplicitSuffix = true
             } else {
               const normalizedReference =
-              referenceSuffix.labelStart === referenceSuffix.labelEnd
-                ? resolvedLabel.normalizedLabel
-                : normalizeMarkdownReferenceLabel(
-                  source,
-                  referenceSuffix.labelStart,
-                  referenceSuffix.labelEnd
-                )
+                referenceSuffix.labelStart === referenceSuffix.labelEnd
+                  ? resolvedLabel.normalizedLabel
+                  : normalizeMarkdownReferenceLabel(
+                    source,
+                    referenceSuffix.labelStart,
+                    referenceSuffix.labelEnd
+                  )
               if (
                 referenceDefinitions.has(
                   normalizedReference,
@@ -3893,9 +3890,9 @@ export function createMarkdownLaneState(
                 findInlineHtmlEnd(source, offset, laneEnd)
               )
               const autolinkEnd =
-              htmlEnd === undefined
-                ? findAutolinkEnd(source, offset, laneEnd)
-                : undefined
+                htmlEnd === undefined
+                  ? findAutolinkEnd(source, offset, laneEnd)
+                  : undefined
               const closeEnd = htmlEnd ?? autolinkEnd
               if (closeEnd !== undefined) {
                 fixedInline = Object.freeze({
@@ -3970,26 +3967,26 @@ export function createMarkdownLaneState(
               }
               const inheritedLine = materializeMarkdownLine(checkpoint.linePath)
               const activeBangStart =
-              offset > sourceStart
-                ? source.charCodeAt(offset - 1) === 33 &&
+                offset > sourceStart
+                  ? source.charCodeAt(offset - 1) === 33 &&
                   hasEvenLaneBackslashRunBefore(
                     source,
                     offset - 1,
                     sourceStart,
                     checkpoint.trailingBackslashOdd
                   )
-                  ? offset - 1
-                  : undefined
-                : inheritedLine.charCodeAt(inheritedLine.length - 1) === 33 &&
+                    ? offset - 1
+                    : undefined
+                  : inheritedLine.charCodeAt(inheritedLine.length - 1) === 33 &&
                   hasEvenBackslashRunBeforeText(
                     inheritedLine,
                     inheritedLine.length - 1
                   )
-                  ? linePathSourceOffsetAt(
-                    checkpoint.linePath,
-                    inheritedLine.length - 1
-                  ) ?? Math.max(0, offset - 1)
-                  : undefined
+                    ? linePathSourceOffsetAt(
+                      checkpoint.linePath,
+                      inheritedLine.length - 1
+                    ) ?? Math.max(0, offset - 1)
+                    : undefined
               const imageOpenerSharesScope =
                 activeBangStart === undefined ||
                 matchingScopeAtOffset(activeBangStart).id === openerScope.id

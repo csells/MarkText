@@ -496,7 +496,8 @@ export const writeUpstreamBaselinePerformanceRawRun = (
       error.code === 'EEXIST'
     ) {
       throw new Error(
-        `Refusing to replace existing performance evidence: ${outputPath}`
+        `Refusing to replace existing performance evidence: ${outputPath}`,
+        { cause: error }
       )
     }
     throw error

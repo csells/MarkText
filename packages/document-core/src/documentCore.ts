@@ -4567,8 +4567,8 @@ function createDocumentCoreWithExecutionBudget(
         if (inventory === undefined) return replacement
         // A block on a line of its own at the first line after blank lines
         // starts there; an indented one is read from the blocks there.
-        let text = ''
-        let line = 0
+        let text: string
+        let line: number
         for (let span = 64; ; span *= 8) {
           text = previousState.source.slice(end, Math.min(previousState.source.length, end + span))
           line = /^(?:[ \t]*(?:\r\n|\r|\n))*/u.exec(text)?.[0].length ?? 0

@@ -353,7 +353,10 @@ class Sweep {
       await gesture()
       await this.settle()
     } catch (error) {
-      throw new Error(`${this.failureContext(entry)}\n${error instanceof Error ? error.stack ?? error.message : String(error)}`)
+      throw new Error(
+        `${this.failureContext(entry)}\n${error instanceof Error ? error.stack ?? error.message : String(error)}`,
+        { cause: error }
+      )
     }
     await this.check(entry)
     if (traceSource === '1' || (traceSource && this.label === traceSource)) {

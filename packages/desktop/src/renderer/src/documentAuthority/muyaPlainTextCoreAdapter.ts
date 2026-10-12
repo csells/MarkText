@@ -488,7 +488,8 @@ export function createMuyaPlainTextCoreAdapter(
             `(block=${String(item.path[0])}, field=${String(item.path[1])}, ` +
             `start=${String(range.start)}, end=${String(range.end)}, ` +
             `textUnits=${String(item.text.length)}): ` +
-            `${error instanceof Error ? error.message : 'invalid binding'}`
+            `${error instanceof Error ? error.message : 'invalid binding'}`,
+          { cause: error }
         )
       }
     }
@@ -690,7 +691,7 @@ export function createMuyaPlainTextCoreAdapter(
       inputAction = structuredClone(action)
     }
     let acknowledged
-    let transactionId = 0
+    let transactionId: number
     try {
       const dispatchedAt =
         performanceTrace === undefined
