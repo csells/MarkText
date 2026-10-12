@@ -2014,6 +2014,10 @@ class Format extends Content {
     formatColor(type: ColorFormatType, value: string | null): void {
         if (dispatchDocumentColor(this.muya, type, value))
             return;
+        this.muya.editor.history.recordCommand(() => this._formatColor(type, value));
+    }
+
+    private _formatColor(type: ColorFormatType, value: string | null) {
         const cursor = this.getCursor();
         if (cursor == null)
             return;
