@@ -4,7 +4,6 @@ export default defineConfig({
   test: {
     allowOnly: false,
     environment: 'node',
-    include: ['test/**/*.spec.ts'],
-    testTimeout: 30_000
+    include: ['test/**/*.spec.ts']
   }
 })
