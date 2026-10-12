@@ -3047,7 +3047,6 @@ function createDocumentCoreWithExecutionBudget(
       products = parseProfile1Document(
         source,
         executionBudget,
-        undefined,
         resolvedOptions,
         false,
         undefined,
@@ -3081,7 +3080,6 @@ function createDocumentCoreWithExecutionBudget(
     const result = parseProfile1Document(
       source,
       executionBudget,
-      undefined,
       resolvedOptions,
       false,
       undefined,
@@ -9164,7 +9162,7 @@ function createDocumentCoreWithExecutionBudget(
     inspection.documentParses += 1
     inspection.documentParseSourceUnits += source.length
     inspection.documentProjectionPreparationUnits += source.length
-    const products = parseProfile1Document(source, executionBudget, undefined, markdownOptions(), false, undefined,
+    const products = parseProfile1Document(source, executionBudget, markdownOptions(), false, undefined,
       createProfile1DocumentReuseCache(), physicalRecorder, undefined, true, true)
     if (products.kind !== 'complete') throw documentCoreError(products.fatalDiagnostic)
     return Object.freeze({

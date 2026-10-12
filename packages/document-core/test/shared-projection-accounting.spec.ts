@@ -9,7 +9,7 @@ it.each([
 ])('accounts shared projection storage once and distinct editing nodes individually: $source', ({ source, tape, markdown }) => {
   const parsed = parseProfile1Document(source, {
     limitsProfile: 'desktop-v1', accountingSchema: 'syntax-accounting-1'
-  }, undefined, undefined, true)
+  }, undefined, true)
   if (parsed.kind !== 'complete') throw new Error('Expected complete small-document parse')
   // Plain text owns its canonical root, projected root, paragraph and text.
   // A second trailing blank line is an editable paragraph with a distinct document root,

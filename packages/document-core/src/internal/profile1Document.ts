@@ -103,10 +103,6 @@ import {
   type SyntaxSourceIdentity
 } from './profile1/syntaxIdentity.js'
 import type {
-  ProfileParseTraceRecorderV1,
-  ProfileParseTraceViewV1
-} from './profileParseTraceV1.js'
-import type {
   Profile1CanonicalReferenceDefinitionLookup
 } from './profile1/referenceDefinitionIndex.js'
 import type {
@@ -2296,6 +2292,7 @@ function createMarkupProjection(
 }
 
 type ProjectionView = 'original' | 'revised' | 'editing'
+type ProjectionRole = ProjectionView | 'comment-display'
 
 // The lanes a branch contributes to a view, in projected order. Original rejects
 // (keeps deletion/substitution-old), Revised accepts (keeps addition/substitution-
@@ -3516,8 +3513,7 @@ const ARM_TERMINATION_FENCE_GAP_LIMIT = 5
 function followingFencedBlockLineEnding(
   parentLane: IntrinsicProfile1ForkLane,
   branchEnd: number,
-  source: string,
-  probe?: (start: number, end: number) => void
+  source: string
 ): ProjectionLineEnding | undefined {
   const opens = armTerminationFenceOpens(parentLane, source)
   let low = 0
@@ -3534,7 +3530,6 @@ function followingFencedBlockLineEnding(
   if (fenceStart === undefined) {
     return undefined
   }
-  probe?.(branchEnd, fenceStart)
   if (fenceStart - branchEnd > ARM_TERMINATION_FENCE_GAP_LIMIT) {
     return undefined
   }
@@ -3757,7 +3752,7 @@ interface PreparedProfile1Projection {
     offset: number,
     affinity: 'previous' | 'next'
   ) => number
-  readonly traceView: ProfileParseTraceViewV1
+  readonly role: ProjectionRole
 }
 
 // A replacement's arms share an inline position, but independently owned
@@ -3799,8 +3794,7 @@ function prepareProjection(
   view: ProjectionView,
   lane: IntrinsicProfile1ForkLane = graph.forkGraph.root,
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
-  traceRecorder?: ProfileParseTraceRecorderV1,
-  traceView: ProfileParseTraceViewV1 = view,
+  role: ProjectionRole = view,
   markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
   forkParser?: Profile1MarkdownForkParser,
   physicalRecorder?: Profile1PhysicalTraversalRecorderV1,
@@ -3809,7 +3803,7 @@ function prepareProjection(
   if (forkParser === undefined) {
     throw new Error('Projected Markdown requires the revision intrinsic fork parser')
   }
-  if (traceView === 'comment-display') {
+  if (role === 'comment-display') {
     physicalRecorder?.recordCommentProjectionPreparation(
       lane.range.end - lane.range.start
     )
@@ -3941,16 +3935,7 @@ function prepareProjection(
               followingFencedBlockLineEnding(
                 task.parentLane,
                 task.branchEnd,
-                source,
-                traceRecorder === undefined
-                  ? undefined
-                  : (start, end) => {
-                    traceRecorder.recordArmTerminationFenceProbe(
-                      traceView,
-                      start,
-                      end
-                    )
-                  }
+                source
               )
             if (lineEnding !== undefined) {
               const sourceElision = paragraphSeparation?.indentationElision
@@ -4104,9 +4089,7 @@ function prepareProjection(
         matchingScopes: Object.freeze(matchingScopes),
         canonicalIdentityRuns,
         armTerminationEdits: Object.freeze(armTerminationEdits)
-      }, markdownDepthLimit, traceRecorder === undefined
-        ? undefined
-        : Object.freeze({ view: traceView, recorder: traceRecorder }))
+      }, markdownDepthLimit)
   const structuralBoundaryEdits = armBoundaryProjectionEdits.filter((edit) =>
     edit.kind === 'terminate-fenced-block-fragment' ||
     edit.kind === 'separate-following-block' ||
@@ -4176,10 +4159,7 @@ function prepareProjection(
           matchingScopes: retainedMatchingScopes,
           canonicalIdentityRuns: canonicalIdentityRunsFor(boundarySafe.segments)
         }),
-        markdownDepthLimit,
-        traceRecorder === undefined
-          ? undefined
-          : Object.freeze({ view: traceView, recorder: traceRecorder })
+        markdownDepthLimit
       )
       : Object.freeze([])
   const guarded =
@@ -4291,7 +4271,7 @@ function prepareProjection(
     ...(semanticMarkdownLane === undefined || semanticToProjected === undefined
       ? {}
       : { semanticMarkdownLane, semanticToProjected }),
-    traceView
+    role
   })
 }
 
@@ -4334,7 +4314,6 @@ interface PreparedCommentDisplayProjection {
 function prepareCommentDisplayProjections(
   graph: Profile1SyntaxGraphCore,
   markdownDepthLimit: number,
-  traceRecorder: ProfileParseTraceRecorderV1 | undefined,
   markdownOptions: MarkdownOptionsV1,
   forkParser: Profile1MarkdownForkParser,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1
@@ -4352,7 +4331,6 @@ function prepareCommentDisplayProjections(
       'revised',
       armLane,
       markdownDepthLimit,
-      traceRecorder,
       'comment-display',
       markdownOptions,
       forkParser,
@@ -4366,7 +4344,7 @@ function prepareCommentDisplayProjections(
         ? `comment-editing:${branch.node.nodeId}`
         : `comment:${branch.node.nodeId}`,
       editing: editingDiffers
-        ? prepareProjection(graph, 'editing', armLane, markdownDepthLimit, undefined, 'comment-display', markdownOptions, forkParser, physicalRecorder)
+        ? prepareProjection(graph, 'editing', armLane, markdownDepthLimit, 'comment-display', markdownOptions, forkParser, physicalRecorder)
         : projection,
       projection
     })])
@@ -4809,7 +4787,7 @@ export function parseProfile1Window(
     sameMarkdownOptions(parse.markdownOptions, markdownOptions))
   if (retained !== undefined) return retained.result
   const result = parseProfile1Document(
-    source, executionBudget, undefined, markdownOptions, captureAccountingTrace, undefined,
+    source, executionBudget, markdownOptions, captureAccountingTrace, undefined,
     createProfile1DocumentReuseCache(), physicalRecorder, undefined, endsAtDocumentEnd,
     documentHasAnnotations
   )
@@ -4854,7 +4832,6 @@ export function parseProfile1Window(
 export function parseProfile1Document(
   source: string,
   executionBudget: ExecutionBudgetId,
-  traceRecorder?: ProfileParseTraceRecorderV1,
   markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
   captureAccountingTrace: boolean = false,
   executionControl?: ParseExecutionControl,
@@ -4872,7 +4849,6 @@ export function parseProfile1Document(
     const result = parseProfile1DocumentWithExecution(
       source,
       executionBudget,
-      traceRecorder,
       markdownOptions,
       captureAccountingTrace,
       execution,
@@ -4923,7 +4899,7 @@ export function parseProfile1ReaderViews(
 ): Profile1ReaderViews | Profile1SourceOnlyProducts {
   const execution = createParseExecutionTracker(undefined)
   try {
-    const result = parseProfile1DocumentWithExecution(source, executionBudget, undefined, markdownOptions, false,
+    const result = parseProfile1DocumentWithExecution(source, executionBudget, markdownOptions, false,
       execution, createProfile1DocumentReuseCache(), physicalRecorder, previousPass, true, false, true)
     if (result.kind === 'complete') throw new Error('Reader views parsed a whole document')
     return result
@@ -4950,7 +4926,6 @@ export function parseProfile1ReaderViews(
 function parseIntrinsicStage(
   source: string,
   executionBudget: ExecutionBudgetId,
-  traceRecorder: ProfileParseTraceRecorderV1 | undefined,
   markdownOptions: MarkdownOptionsV1,
   captureAccountingTrace: boolean,
   execution: ParseExecutionTracker,
@@ -4994,11 +4969,9 @@ function parseIntrinsicStage(
     source.length,
     accounting
   )
-  traceRecorder?.recordCanonicalSourceAdmission(source.length)
   const markdownDepthLimit = usesDesktopLimits
     ? DESKTOP_MARKDOWN_DEPTH_LIMIT
     : Number.POSITIVE_INFINITY
-  traceRecorder?.recordSourceProgression('markdown-kernel')
   const cmDepthLimit = usesDesktopLimits
     ? DESKTOP_CM_DEPTH_LIMIT
     : Number.POSITIVE_INFINITY
@@ -5105,7 +5078,7 @@ export function profile1CriticMarkupRootCount(
 ): number | undefined {
   const execution = createParseExecutionTracker(undefined)
   try {
-    const stage = parseIntrinsicStage(source, executionBudget, undefined, markdownOptions, false, execution,
+    const stage = parseIntrinsicStage(source, executionBudget, markdownOptions, false, execution,
       physicalRecorder, previousPass)
     return stage.kind === 'complete' ? stage.parsed.roots.length : undefined
   } catch (error) {
@@ -5119,7 +5092,6 @@ export function profile1CriticMarkupRootCount(
 function parseProfile1DocumentWithExecution(
   source: string,
   executionBudget: ExecutionBudgetId,
-  traceRecorder: ProfileParseTraceRecorderV1 | undefined,
   markdownOptions: MarkdownOptionsV1,
   captureAccountingTrace: boolean,
   execution: ParseExecutionTracker,
@@ -5136,7 +5108,7 @@ function parseProfile1DocumentWithExecution(
     execution.finish()
     return result
   }
-  const stage = parseIntrinsicStage(source, executionBudget, traceRecorder, markdownOptions, captureAccountingTrace,
+  const stage = parseIntrinsicStage(source, executionBudget, markdownOptions, captureAccountingTrace,
     execution, physicalRecorder, previousPass)
   if (stage.kind === 'source-only') return finishResult(stage)
   const { parsed, accounting, syntaxIdentity, usesDesktopLimits, markdownDepthLimit } = stage
@@ -5206,13 +5178,11 @@ function parseProfile1DocumentWithExecution(
     reuseCache?.markdown,
     parsed.spliceProvenance
   )
-  traceRecorder?.recordAuthoritativeMarkdownParse('canonical-source')
   const originalPrepared = prepareProjection(
     graphCore,
     'original',
     undefined,
     markdownDepthLimit,
-    traceRecorder,
     undefined,
     markdownOptions,
     forkParser,
@@ -5229,7 +5199,6 @@ function parseProfile1DocumentWithExecution(
       'revised',
       undefined,
       markdownDepthLimit,
-      traceRecorder,
       undefined,
       markdownOptions,
       forkParser,
@@ -5264,7 +5233,6 @@ function parseProfile1DocumentWithExecution(
             undefined,
             markdownDepthLimit,
             undefined,
-            undefined,
             markdownOptions,
             forkParser,
             undefined,
@@ -5297,7 +5265,6 @@ function parseProfile1DocumentWithExecution(
     : prepareCommentDisplayProjections(
       graphCore,
       markdownDepthLimit,
-      traceRecorder,
       markdownOptions,
       forkParser,
       physicalRecorder
@@ -5327,7 +5294,7 @@ function parseProfile1DocumentWithExecution(
       : undefined
     requestByKey.set(key, Object.freeze({
       key,
-      role: prepared.traceView,
+      role: prepared.role,
       forkLane: prepared.forkLane,
       lane: prepared.markdownLane,
       ...(key === rootEditingKey ? { endsAtDocumentEnd } : {}),
@@ -5340,7 +5307,7 @@ function parseProfile1DocumentWithExecution(
       const semanticKey = `${key}:semantic`
       requestByKey.set(semanticKey, Object.freeze({
         key: semanticKey,
-        role: prepared.traceView,
+        role: prepared.role,
         forkLane: prepared.forkLane,
         lane: prepared.semanticMarkdownLane,
         ...(key === rootEditingKey ? { endsAtDocumentEnd } : {}),

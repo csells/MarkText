@@ -50,7 +50,7 @@ describe('Regional window parses', () => {
     const recorder = createPhysicalTraversalRecorderV1()
     const retained = parseProfile1Window(window, budget, options, false, recorder, true)
     parseProfile1Window(window, budget, options, false, recorder, true)
-    const fresh = parseProfile1Document(window, budget, undefined, options, false, undefined, undefined,
+    const fresh = parseProfile1Document(window, budget, options, false, undefined, undefined,
       createPhysicalTraversalRecorderV1(), undefined, true)
     if (retained.kind !== 'complete' || fresh.kind !== 'complete') throw new Error('Expected complete parses')
     expect(retained.editing().markdown.root.childCount).toBe(fresh.editing().markdown.root.childCount)

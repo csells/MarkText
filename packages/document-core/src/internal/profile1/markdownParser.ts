@@ -35,10 +35,6 @@ import type {
   MarkdownMathForm
 } from './markdownTypes.js'
 import { composeMarkdownLiteralRanges } from './markdownTypes.js'
-import type {
-  ProfileParseTraceRecorderV1,
-  ProfileParseTraceViewV1
-} from '../profileParseTraceV1.js'
 import {
   findGfmExtendedAutolink,
   findInlineLinkDestinationEnd
@@ -307,11 +303,6 @@ export function createIntrinsicProfile1SourceProgression(
       source.length
     ))
   })
-}
-
-export interface Profile1ProjectionPlanningTraceV1 {
-  readonly view: ProfileParseTraceViewV1
-  readonly recorder: ProfileParseTraceRecorderV1
 }
 
 interface MappedMarkdownLiteral {
@@ -6389,8 +6380,7 @@ interface AuthenticatedMarkdownDelimiterLookup {
 
 function createAuthenticatedMarkdownDelimiterLookup(
   canonicalIdentityRuns: readonly MappedMarkdownCanonicalIdentityRun[],
-  boundaryPolicy: InlineBoundaryPolicy | undefined,
-  trace?: Profile1ProjectionPlanningTraceV1
+  boundaryPolicy: InlineBoundaryPolicy | undefined
 ): AuthenticatedMarkdownDelimiterLookup {
   const scopeRuns = boundaryPolicy?.scopeRuns ?? []
   const authenticatedRuns: Array<Readonly<{
@@ -6449,7 +6439,6 @@ function createAuthenticatedMarkdownDelimiterLookup(
       // below therefore advances through each authenticated segment at most
       // once instead of charging parallel identity and scope probes per
       // delimiter query.
-      trace?.recorder.recordInlineCodeCloserQuery(trace.view, start, end)
       if (start >= end) {
         return undefined
       }
@@ -6457,7 +6446,6 @@ function createAuthenticatedMarkdownDelimiterLookup(
         (authenticatedRuns[authenticatedRunIndex]?.candidateEnd ??
           Number.POSITIVE_INFINITY) <= start
       ) {
-        trace?.recorder.recordInlineCodeCloserCandidate(trace.view, start, end)
         authenticatedRunIndex += 1
       }
       const authenticated = authenticatedRuns[authenticatedRunIndex]
@@ -6531,14 +6519,8 @@ function inlineCodeDelimiterRuns(
 function analyzeInlineCodeLiteralForExtension(
   literal: MappedMarkdownLiteral,
   backtickRuns: readonly BoundaryBacktickRun[],
-  identityLookup: AuthenticatedMarkdownDelimiterLookup,
-  trace?: Profile1ProjectionPlanningTraceV1
+  identityLookup: AuthenticatedMarkdownDelimiterLookup
 ): InlineCodeLiteralExtensionAnalysis {
-  trace?.recorder.recordInlineCodeExtensionAnalysis(
-    trace.view,
-    literal.start,
-    literal.end
-  )
   const delimiters = inlineCodeDelimiterRuns(literal, backtickRuns)
   const openerEnd = delimiters.opener.end
   const closerStart = delimiters.closer.start
@@ -6709,8 +6691,7 @@ function planBoundaryProjectionEdits(
       { readonly kind: 'respell-enclosing-emphasis-delimiters' }
     >
   >,
-  armTerminationEdits: readonly MarkdownArmBoundaryProjectionEdit[],
-  trace?: Profile1ProjectionPlanningTraceV1
+  armTerminationEdits: readonly MarkdownArmBoundaryProjectionEdit[]
 ): readonly MarkdownArmBoundaryProjectionEdit[] {
   const respellings = [
     ...enclosingEmphasisRespellings.values()
@@ -6894,8 +6875,7 @@ function planBoundaryProjectionEdits(
       projectedBacktickRuns,
       createAuthenticatedMarkdownDelimiterLookup(
         canonicalIdentityRuns,
-        boundaryPolicy,
-        trace
+        boundaryPolicy
       ),
       boundaryPolicy
     )
@@ -7020,8 +7000,7 @@ function planBoundaryProjectionEdits(
       cachedAnalysis ??= analyzeInlineCodeLiteralForExtension(
         literal,
         projectedBacktickRuns,
-        analysisIdentityLookup,
-        trace
+        analysisIdentityLookup
       )
       extension = inlineCodeDelimiterExtension(
         cachedAnalysis,
@@ -8162,8 +8141,7 @@ function intrinsicForkRegionLanes(
 }
 
 function forkRegionBoundaryFacts(
-  lane: MappedMarkdownLane,
-  trace?: Profile1ProjectionPlanningTraceV1
+  lane: MappedMarkdownLane
 ): Readonly<{
     readonly boundaryPolicy: InlineBoundaryPolicy | undefined
     readonly matchingScopePolicy: MarkdownMatchingScopePolicy | undefined
@@ -8219,26 +8197,6 @@ function forkRegionBoundaryFacts(
           }
           return Math.min(ceiling, delimiterBoundaries[low] ?? ceiling)
         }),
-        ...(trace === undefined
-          ? {}
-          : {
-            recordInlineCodeCloserQuery: Object.freeze((
-              start: number,
-              end: number
-            ): void => {
-              trace.recorder.recordInlineCodeCloserQuery(trace.view, start, end)
-            }),
-            recordInlineCodeCloserCandidate: Object.freeze((
-              start: number,
-              end: number
-            ): void => {
-              trace.recorder.recordInlineCodeCloserCandidate(
-                trace.view,
-                start,
-                end
-              )
-            })
-          }),
         matchingScopeAt: Object.freeze((offset: number) => {
           const scope = matchingScopeAt(boundaryPolicy, offset)
           return scope === undefined
@@ -8518,13 +8476,12 @@ function parseIntrinsicForkRegionFacts(
   selectionOffset: number,
   containerDepthLimit: number,
   reuse: Map<string, PlainMarkdownLaneParse>,
-  trace?: Profile1ProjectionPlanningTraceV1,
   physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): Readonly<{
     readonly facts: PlainMarkdownLaneParseWithDefinitions
     readonly boundaryPolicy: InlineBoundaryPolicy | undefined
   }> {
-  const boundary = forkRegionBoundaryFacts(lane, trace)
+  const boundary = forkRegionBoundaryFacts(lane)
   const localReferenceDefinitions = scopeConstrainedReferenceDefinitions(
     markdownRegionReferenceDefinitions(
       selectionReferenceDefinitions,
@@ -8595,54 +8552,6 @@ function parseIntrinsicForkRegionFacts(
       referenceDefinitions: localReferenceDefinitions
     }),
     boundaryPolicy: boundary.boundaryPolicy
-  })
-}
-
-function projectionPlanningTraceAt(
-  trace: Profile1ProjectionPlanningTraceV1 | undefined,
-  offset: number
-): Profile1ProjectionPlanningTraceV1 | undefined {
-  if (trace === undefined || offset === 0) {
-    return trace
-  }
-  const recorder = trace.recorder
-  return Object.freeze({
-    view: trace.view,
-    recorder: Object.freeze({
-      recordInlineCodeExtensionAnalysis: Object.freeze((
-        view: ProfileParseTraceViewV1,
-        start: number,
-        end: number
-      ): void => recorder.recordInlineCodeExtensionAnalysis(
-        view,
-        start + offset,
-        end + offset
-      )),
-      recordInlineCodeCloserQuery: Object.freeze((
-        view: ProfileParseTraceViewV1,
-        start: number,
-        end: number
-      ): void => recorder.recordInlineCodeCloserQuery(
-        view,
-        start + offset,
-        end + offset
-      )),
-      recordInlineCodeCloserCandidate: Object.freeze((
-        view: ProfileParseTraceViewV1,
-        start: number,
-        end: number
-      ): void => recorder.recordInlineCodeCloserCandidate(
-        view,
-        start + offset,
-        end + offset
-      )),
-      recordArmTerminationFenceProbe:
-        recorder.recordArmTerminationFenceProbe,
-      recordCanonicalSourceAdmission: recorder.recordCanonicalSourceAdmission,
-      recordSourceProgression: recorder.recordSourceProgression,
-      recordAuthoritativeMarkdownParse:
-        recorder.recordAuthoritativeMarkdownParse
-    })
   })
 }
 
@@ -8766,8 +8675,7 @@ export interface Profile1MarkdownForkParser {
   readonly admitLiteralFacts: (
     forkLane: IntrinsicProfile1ForkLane,
     lane: MappedMarkdownLane,
-    containerDepthLimit?: number,
-    trace?: Profile1ProjectionPlanningTraceV1
+    containerDepthLimit?: number
   ) => readonly MarkdownLiteralRange[]
   readonly emitAst: (
     requests: readonly Profile1MarkdownForkAstRequest[]
@@ -8775,8 +8683,7 @@ export interface Profile1MarkdownForkParser {
   readonly planArmBoundaryEdits: (
     forkLane: IntrinsicProfile1ForkLane,
     lane: MappedMarkdownLane,
-    containerDepthLimit?: number,
-    trace?: Profile1ProjectionPlanningTraceV1
+    containerDepthLimit?: number
   ) => readonly MarkdownArmBoundaryProjectionEdit[]
 }
 
@@ -8899,8 +8806,7 @@ export function createProfile1MarkdownForkParser(
     lane: MappedMarkdownLane,
     selectionReferenceDefinitions: MarkdownReferenceDefinitionLookup,
     selectionOffset: number,
-    containerDepthLimit: number,
-    trace?: Profile1ProjectionPlanningTraceV1
+    containerDepthLimit: number
   ): ReturnType<typeof parseIntrinsicForkRegionFacts> => {
     const parse = (): ReturnType<typeof parseIntrinsicForkRegionFacts> => parseIntrinsicForkRegionFacts(
       canonicalFactIndex,
@@ -8909,11 +8815,10 @@ export function createProfile1MarkdownForkParser(
       selectionOffset,
       containerDepthLimit,
       admittedRegionFactsCache,
-      trace,
       physicalRecorder
     )
     const definitions = definitionId(selectionReferenceDefinitions)
-    if (trace !== undefined || definitions === undefined) return parse()
+    if (definitions === undefined) return parse()
     const key = JSON.stringify([
       lane.forkView ?? null,
       lane.frontMatterEnabled ?? true,
@@ -8958,8 +8863,7 @@ export function createProfile1MarkdownForkParser(
     admitLiteralFacts: Object.freeze((
       forkLane: IntrinsicProfile1ForkLane,
       lane: MappedMarkdownLane,
-      containerDepthLimit: number = Number.POSITIVE_INFINITY,
-      trace?: Profile1ProjectionPlanningTraceV1
+      containerDepthLimit: number = Number.POSITIVE_INFINITY
     ): readonly MarkdownLiteralRange[] => {
       requireForkLane(forkLane)
       requireMappedForkRead(lane)
@@ -8980,8 +8884,7 @@ export function createProfile1MarkdownForkParser(
           region.lane,
           selectionReferenceDefinitions,
           region.start,
-          containerDepthLimit,
-          projectionPlanningTraceAt(trace, region.start)
+          containerDepthLimit
         )
         literals.push(...emitted.facts.literals.map(
           (literal): MarkdownLiteralRange => Object.freeze({
@@ -9167,8 +9070,7 @@ export function createProfile1MarkdownForkParser(
     planArmBoundaryEdits: Object.freeze((
       forkLane: IntrinsicProfile1ForkLane,
       lane: MappedMarkdownLane,
-      containerDepthLimit: number = Number.POSITIVE_INFINITY,
-      trace?: Profile1ProjectionPlanningTraceV1
+      containerDepthLimit: number = Number.POSITIVE_INFINITY
     ): readonly MarkdownArmBoundaryProjectionEdit[] => {
       requireForkLane(forkLane)
       requireMappedForkRead(lane)
@@ -9213,7 +9115,6 @@ export function createProfile1MarkdownForkParser(
           scopeRejectedReferenceStarts
         )
       for (const region of intrinsicForkRegionLanes(forkLane, planningLane)) {
-        const regionTrace = projectionPlanningTraceAt(trace, region.start)
         const terminationEdits = localArmTerminationEdits(
           lane.armTerminationEdits ?? Object.freeze([]),
           region.start,
@@ -9228,8 +9129,7 @@ export function createProfile1MarkdownForkParser(
           localLane,
           selectionReferenceDefinitions,
           region.start,
-          containerDepthLimit,
-          regionTrace
+          containerDepthLimit
         )
         const planningBoundaryPolicy = emitted.boundaryPolicy === undefined
           ? undefined
@@ -9312,8 +9212,7 @@ export function createProfile1MarkdownForkParser(
             new Set<number>(),
           planningBoundaryPolicy?.enclosingEmphasisRespellings ??
             new Map(),
-          [...terminationEdits, ...tableBoundaryEdits],
-          regionTrace
+          [...terminationEdits, ...tableBoundaryEdits]
         )
         planned.push(...localEdits.map((edit) =>
           rebaseMarkdownBoundaryEdit(edit, region.start)))
