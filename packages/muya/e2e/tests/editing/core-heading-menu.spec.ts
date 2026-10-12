@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -17,18 +18,18 @@ test(`Heading ${level} menu uses the common model selection before the next key`
     }, { source, level });
     try {
         const heading = `${'#'.repeat(level)} a{++a++}a\n`;
-        expect.soft(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: heading }, legacyCalls: [] });
+        expect.soft(await readCore(page)).toMatchObject({ source: { source: heading }, legacyCalls: [] });
         await page.keyboard.type('X');
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: `${'#'.repeat(level)} X\n` }, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: heading } });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source } });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: heading });
+        expect(await readCore(page)).toMatchObject({ source: { source: `${'#'.repeat(level)} X\n` }, legacyCalls: [] });
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source: heading } });
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source } });
+        await coreHistory(page, 'redo');
+        expect(await reopenCore(page)).toMatchObject({ source: heading });
     }
     finally {
-        await page.evaluate(() => window.coreBoundary.dispose());
+        await disposeCore(page);
     }
 });
 
@@ -65,17 +66,17 @@ test('heading conversion preserves the actual cross-block selection for the next
     }, source);
     try {
         const heading = '## a{++a++}a\n\nbravo\n';
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: heading }, legacyCalls: [] });
+        expect(await readCore(page)).toMatchObject({ source: { source: heading }, legacyCalls: [] });
         expect(await page.evaluate(() => window.getSelection()?.toString())).toContain('bravo');
         await page.keyboard.type('X');
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '## X\n' }, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: heading } });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
+        expect(await readCore(page)).toMatchObject({ source: { source: '## X\n' }, legacyCalls: [] });
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source: heading } });
+        await coreHistory(page, 'undo');
+        expect(await reopenCore(page)).toMatchObject({ source });
     }
     finally {
-        await page.evaluate(() => window.coreBoundary.dispose());
+        await disposeCore(page);
     }
 });
 
@@ -92,18 +93,18 @@ test('tracked heading conversion retains the selected payload for immediate trac
     }, source);
     try {
         const heading = '{++# ++}a{++a++}a\n';
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: heading }, legacyCalls: [] });
+        expect(await readCore(page)).toMatchObject({ source: { source: heading }, legacyCalls: [] });
         expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('aaa');
         await page.keyboard.type('X');
-        const result = await page.evaluate(() => window.coreBoundary.read());
+        const result = await readCore(page);
         expect(result).toMatchObject({ source: { source: '{++# ++}{~~a{++a++}a~>X~~}\n' }, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: heading } });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source: heading } });
+        await coreHistory(page, 'undo');
+        expect(await reopenCore(page)).toMatchObject({ source });
     }
     finally {
-        await page.evaluate(() => window.coreBoundary.dispose());
+        await disposeCore(page);
     }
 });
 
@@ -116,16 +117,16 @@ test('empty document heading menu leaves a usable caret for actual typing', asyn
         window.muya!.updateParagraph('heading 2');
     });
     try {
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '## \n' }, legacyCalls: [] });
+        expect(await readCore(page)).toMatchObject({ source: { source: '## \n' }, legacyCalls: [] });
         await page.keyboard.type('X');
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '## X\n' }, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '## \n' } });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: '\n' });
+        expect(await readCore(page)).toMatchObject({ source: { source: '## X\n' }, legacyCalls: [] });
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source: '## \n' } });
+        await coreHistory(page, 'undo');
+        expect(await reopenCore(page)).toMatchObject({ source: '\n' });
     }
     finally {
-        await page.evaluate(() => window.coreBoundary.dispose());
+        await disposeCore(page);
     }
 });
 
@@ -147,16 +148,16 @@ for (const sample of [
             window.muya!.updateParagraph(command);
         }, sample);
         try {
-            expect.soft(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: sample.expected }, legacyCalls: [] });
+            expect.soft(await readCore(page)).toMatchObject({ source: { source: sample.expected }, legacyCalls: [] });
             await page.keyboard.type('X');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: sample.expected.replace('a{++a++}a', 'X') }, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: sample.expected } });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: sample.source });
+            expect(await readCore(page)).toMatchObject({ source: { source: sample.expected.replace('a{++a++}a', 'X') }, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source: sample.expected } });
+            await coreHistory(page, 'undo');
+            expect(await reopenCore(page)).toMatchObject({ source: sample.source });
         }
         finally {
-            await page.evaluate(() => window.coreBoundary.dispose());
+            await disposeCore(page);
         }
     });
 }
@@ -177,32 +178,32 @@ test('reversed cross-block heading reset preserves the selected payload for the 
     }, source);
     try {
         const paragraph = 'a{++a++}a\n\nbravo\n';
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: paragraph }, legacyCalls: [] });
+        expect(await readCore(page)).toMatchObject({ source: { source: paragraph }, legacyCalls: [] });
         expect(await page.evaluate(() => {
             const selected = window.muya!.getSelection();
             return { anchor: selected?.anchor.offset, focus: selected?.focus.offset, anchorText: selected?.anchor.block.text, focusText: selected?.focus.block.text };
         })).toEqual({ anchor: 5, focus: 0, anchorText: 'bravo', focusText: 'aaa' });
         await page.keyboard.type('X');
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: 'X\n' }, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: paragraph });
+        expect(await readCore(page)).toMatchObject({ source: { source: 'X\n' }, legacyCalls: [] });
+        await coreHistory(page, 'undo');
+        expect(await reopenCore(page)).toMatchObject({ source: paragraph });
         expect(await page.evaluate(() => {
             const selected = window.muya!.getSelection();
             return { anchor: selected?.anchor.offset, focus: selected?.focus.offset, anchorText: selected?.anchor.block.text, focusText: selected?.focus.block.text };
         })).toEqual({ anchor: 5, focus: 0, anchorText: 'bravo', focusText: 'aaa' });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
+        await coreHistory(page, 'undo');
+        expect(await reopenCore(page)).toMatchObject({ source });
         expect(await page.evaluate(() => {
             const selected = window.muya!.getSelection();
             return { anchor: selected?.anchor.offset, focus: selected?.focus.offset, anchorText: selected?.anchor.block.text, focusText: selected?.focus.block.text };
         })).toEqual({ anchor: 5, focus: 3, anchorText: 'bravo', focusText: '## aaa' });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: paragraph });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: 'X\n' });
+        await coreHistory(page, 'redo');
+        expect(await reopenCore(page)).toMatchObject({ source: paragraph });
+        await coreHistory(page, 'redo');
+        expect(await reopenCore(page)).toMatchObject({ source: 'X\n' });
     }
     finally {
-        await page.evaluate(() => window.coreBoundary.dispose());
+        await disposeCore(page);
     }
 });
 
@@ -220,17 +221,17 @@ for (const tail of ['', ' tail']) {
         }, source);
         try {
             const heading = `# {~~old~>new~~}${tail}\n`;
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: heading }, anchor: 2, caret: 2, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: heading }, anchor: 2, caret: 2, legacyCalls: [] });
             await page.keyboard.type('X');
             // Typing at the substitution's start stays before it.
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: `# X{~~old~>new~~}${tail}\n` }, anchor: 3, caret: 3, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: heading }, anchor: 2, caret: 2 });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 0, caret: 0 });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: heading });
+            expect(await readCore(page)).toMatchObject({ source: { source: `# X{~~old~>new~~}${tail}\n` }, anchor: 3, caret: 3, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source: heading }, anchor: 2, caret: 2 });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source }, anchor: 0, caret: 0 });
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: heading });
         }
-        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        finally { await disposeCore(page); }
     });
 }

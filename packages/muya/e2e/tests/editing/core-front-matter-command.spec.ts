@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { editor, floats, quickInsertItem } from '../helpers/selectors';
 
 const styles = [
@@ -30,17 +31,17 @@ for (const example of styles) {
                     expect(immediate).toMatchObject({ source: { source: inserted }, anchor: 0, caret: 0, legacyCalls: [], state: [{ name: 'frontmatter', meta: { lang: example.lang, style: example.style } }, { name: 'paragraph', text: 'body' }] });
                     // No timer, acknowledgement barrier or selection repair between the command and trusted input.
                     await page.keyboard.type('xy');
-                    expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 2, caret: 2, legacyCalls: [] });
+                    expect(await readCore(page)).toMatchObject({ source: { source: typed }, anchor: 2, caret: 2, legacyCalls: [] });
                     await expect(page.locator(editor.frontmatter)).toHaveCount(1);
                     await expect(page.locator(editor.frontmatter)).toContainText('xy');
                     // Upstream History groups the command with the rapid input.
-                    await page.evaluate(() => window.coreBoundary.history('undo'));
-                    expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 1, caret: 3 });
-                    expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
-                    await page.evaluate(() => window.coreBoundary.history('redo'));
-                    expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 2, caret: 2, legacyCalls: [] });
-                    expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
-                } finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+                    await coreHistory(page, 'undo');
+                    expect(await readCore(page)).toMatchObject({ source: { source }, anchor: 1, caret: 3 });
+                    expect(await reopenCore(page)).toMatchObject({ source });
+                    await coreHistory(page, 'redo');
+                    expect(await readCore(page)).toMatchObject({ source: { source: typed }, anchor: 2, caret: 2, legacyCalls: [] });
+                    expect(await reopenCore(page)).toMatchObject({ source: typed });
+                } finally { await disposeCore(page); }
             });
         }
     }
@@ -70,18 +71,18 @@ for (const example of [
             try {
                 await expect(page.locator(floats.quickInsert)).toBeVisible();
                 await page.locator(quickInsertItem('frontmatter')).click();
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: inserted }, anchor: 0, caret: 0, legacyCalls: [] });
+                expect(await readCore(page)).toMatchObject({ source: { source: inserted }, anchor: 0, caret: 0, legacyCalls: [] });
                 await page.keyboard.type('xy');
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 2, caret: 2, legacyCalls: [] });
+                expect(await readCore(page)).toMatchObject({ source: { source: typed }, anchor: 2, caret: 2, legacyCalls: [] });
                 await expect(page.locator(editor.frontmatter)).toHaveCount(1);
                 // Upstream History groups the conversion with the keys typed
                 // within its one-second window.
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 6, caret: 6 });
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
-                await page.evaluate(() => window.coreBoundary.history('redo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
-            } finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+                await coreHistory(page, 'undo');
+                expect(await readCore(page)).toMatchObject({ source: { source }, anchor: 6, caret: 6 });
+                expect(await reopenCore(page)).toMatchObject({ source });
+                await coreHistory(page, 'redo');
+                expect(await reopenCore(page)).toMatchObject({ source: typed });
+            } finally { await disposeCore(page); }
         });
     }
 }
@@ -102,12 +103,12 @@ for (const example of styles) {
         try {
             expect(immediate).toMatchObject({ source: { source }, anchor: 1, caret: 3, legacyCalls: [], state: [{ name: 'frontmatter', meta: { lang: example.lang, style: example.style } }, { name: 'paragraph', text: 'body' }] });
             await page.keyboard.type('xy');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 3, caret: 3, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: typed }, anchor: 3, caret: 3, legacyCalls: [] });
             await expect(page.locator(editor.frontmatter)).toHaveCount(1);
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 1, caret: 3 });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
-        } finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source }, anchor: 1, caret: 3 });
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: typed });
+        } finally { await disposeCore(page); }
     });
 }

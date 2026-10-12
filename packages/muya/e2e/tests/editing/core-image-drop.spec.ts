@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const annotated of [false, true]) {
     for (const placement of ['before', 'after'] as const) {
@@ -24,18 +25,18 @@ for (const annotated of [false, true]) {
                 await window.coreBoundary.settle();
             }, { source, placement });
             try {
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: joined }, caret: 0, legacyCalls: [] });
+                expect(await readCore(page)).toMatchObject({ source: { source: joined }, caret: 0, legacyCalls: [] });
                 await page.keyboard.type('x');
                 const typed = joined.replace(image, `x${image}`);
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, caret: 1, legacyCalls: [] });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 4, caret: 1 });
-                await page.evaluate(() => window.coreBoundary.history('redo'));
-                await page.evaluate(() => window.coreBoundary.history('redo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+                expect(await readCore(page)).toMatchObject({ source: { source: typed }, caret: 1, legacyCalls: [] });
+                await coreHistory(page, 'undo');
+                await coreHistory(page, 'undo');
+                expect(await readCore(page)).toMatchObject({ source: { source }, anchor: 4, caret: 1 });
+                await coreHistory(page, 'redo');
+                await coreHistory(page, 'redo');
+                expect(await reopenCore(page)).toMatchObject({ source: typed });
             }
-            finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+            finally { await disposeCore(page); }
         });
     }
 }

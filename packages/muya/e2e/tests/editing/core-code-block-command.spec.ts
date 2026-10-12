@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { floats, quickInsertItem } from '../helpers/selectors';
 
 for (const trigger of ['/code', '/c{++o++}de', '/co{>>inside<<}de']) {
@@ -19,16 +20,16 @@ for (const trigger of ['/code', '/c{++o++}de', '/co{>>inside<<}de']) {
             try {
                 await expect(page.locator(floats.quickInsert)).toBeVisible();
                 await page.locator(quickInsertItem('code-block')).click();
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0, legacyCalls: [] });
+                expect(await readCore(page)).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0, legacyCalls: [] });
                 await page.keyboard.type('x');
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 1, caret: 1, legacyCalls: [] });
+                expect(await readCore(page)).toMatchObject({ source: { source: typed }, anchor: 1, caret: 1, legacyCalls: [] });
                 // Upstream History groups the conversion with the key typed
                 // within its one-second window.
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
-                await page.evaluate(() => window.coreBoundary.history('redo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
-            } finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+                await coreHistory(page, 'undo');
+                expect(await reopenCore(page)).toMatchObject({ source });
+                await coreHistory(page, 'redo');
+                expect(await reopenCore(page)).toMatchObject({ source: typed });
+            } finally { await disposeCore(page); }
         });
     }
 }
@@ -48,12 +49,12 @@ for (const text of ['seed', 'se{++e++}d{>>keep<<}']) {
                 window.muya!.updateParagraph('pre');
             }, { source, tracked });
             try {
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0, legacyCalls: [] });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 2, caret: 2 });
-                await page.evaluate(() => window.coreBoundary.history('redo'));
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0 });
-            } finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+                expect(await readCore(page)).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0, legacyCalls: [] });
+                await coreHistory(page, 'undo');
+                expect(await readCore(page)).toMatchObject({ source: { source }, anchor: 2, caret: 2 });
+                await coreHistory(page, 'redo');
+                expect(await readCore(page)).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0 });
+            } finally { await disposeCore(page); }
         });
     }
 }

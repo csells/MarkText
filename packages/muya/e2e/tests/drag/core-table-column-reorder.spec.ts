@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
-import { bootCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, reopenCore } from '../helpers/coreBoundary';
 import { editor, floats } from '../helpers/selectors';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
@@ -95,15 +95,15 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
                 return { anchor: selection?.anchor.offset, focus: selection?.focus.offset, column: selection?.anchor.block.domNode?.closest('td')?.cellIndex, text: selection?.anchor.block.text };
             })).toEqual({ anchor: 2, focus: 2, column: 1, text: 'oXnekept' });
             if (bound) {
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+                expect(await reopenCore(page)).toMatchObject({ source: typed });
                 for (const expected of [reordered, source]) {
-                    await page.evaluate(() => window.coreBoundary.history('undo'));
-                    expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+                    await coreHistory(page, 'undo');
+                    expect(await reopenCore(page)).toMatchObject({ source: expected });
                 }
                 expect(await page.evaluate(() => window.muya!.getSelection()?.anchor.block.domNode?.closest('td')?.cellIndex)).toBe(0);
                 for (const expected of [reordered, typed]) {
-                    await page.evaluate(() => window.coreBoundary.history('redo'));
-                    expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+                    await coreHistory(page, 'redo');
+                    expect(await reopenCore(page)).toMatchObject({ source: expected });
                 }
                 expect(await page.evaluate(() => window.coreBoundary.read().legacyCalls)).toEqual([]);
                 if (tracked) {
@@ -115,14 +115,14 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
                     await page.keyboard.type('Y');
                     const movedAgain = '{~~| same | same |\n| :--- | ---: |\n| one{++kept++}{>>note<<} | onekept |~>| same | same |\n| :--- | ---: |\n| oXne{++kept++}{>>note<<} | onekept |~~}\n';
                     const typedAgain = '{~~| same | same |\n| :--- | ---: |\n| one{++kept++}{>>note<<} | onekept |~>| same | same |\n| :--- | ---: |\n| oXYne{++kept++}{>>note<<} | onekept |~~}\n';
-                    expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typedAgain });
+                    expect(await reopenCore(page)).toMatchObject({ source: typedAgain });
                     for (const expected of [movedAgain, typed]) {
-                        await page.evaluate(() => window.coreBoundary.history('undo'));
-                        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+                        await coreHistory(page, 'undo');
+                        expect(await reopenCore(page)).toMatchObject({ source: expected });
                     }
                     for (const expected of [movedAgain, typedAgain]) {
-                        await page.evaluate(() => window.coreBoundary.history('redo'));
-                        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+                        await coreHistory(page, 'redo');
+                        expect(await reopenCore(page)).toMatchObject({ source: expected });
                     }
                     expect(await page.evaluate(() => window.coreBoundary.read().legacyCalls)).toEqual([]);
                 }
@@ -136,7 +136,7 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
         }
         finally {
             if (bound)
-                await page.evaluate(() => window.coreBoundary.dispose());
+                await disposeCore(page);
         }
     });
 }
@@ -153,24 +153,24 @@ for (const tracked of [false, true]) {
             const table = page.locator(editor.table).first();
             await table.locator('tr').nth(1).locator('td').nth(1).click();
             await moveDimension(page, table, 1, 0, 'row');
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+            expect(await reopenCore(page)).toMatchObject({ source: expected });
             expect(await page.evaluate(() => {
                 const point = window.muya!.getSelection()?.anchor;
                 return { offset: point?.offset, row: point?.block.domNode?.closest('tr')?.rowIndex, column: point?.block.domNode?.closest('td')?.cellIndex };
             })).toEqual({ offset: 0, row: 0, column: 1 });
             await page.keyboard.type('X');
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+            expect(await reopenCore(page)).toMatchObject({ source: typed });
             for (const text of [expected, source]) {
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: text });
+                await coreHistory(page, 'undo');
+                expect(await reopenCore(page)).toMatchObject({ source: text });
             }
             for (const text of [expected, typed]) {
-                await page.evaluate(() => window.coreBoundary.history('redo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: text });
+                await coreHistory(page, 'redo');
+                expect(await reopenCore(page)).toMatchObject({ source: text });
             }
             expect(await page.evaluate(() => window.coreBoundary.read().legacyCalls)).toEqual([]);
         }
-        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        finally { await disposeCore(page); }
     });
 }
 
@@ -216,19 +216,19 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
             expect(await selection()).toEqual({ offset: 2, row: 2, column: 0 });
             if (bound) {
                 for (const expected of [reordered, source]) {
-                    await page.evaluate(() => window.coreBoundary.history('undo'));
+                    await coreHistory(page, 'undo');
                     expect(await read()).toBe(expected);
                 }
                 expect(await selection()).toEqual({ offset: 1, row: 1, column: 0 });
                 for (const expected of [reordered, typed]) {
-                    await page.evaluate(() => window.coreBoundary.history('redo'));
+                    await coreHistory(page, 'redo');
                     expect(await read()).toBe(expected);
                 }
                 expect(await page.evaluate(() => window.coreBoundary.read().legacyCalls)).toEqual([]);
             }
         }
         finally {
-            if (bound) await page.evaluate(() => window.coreBoundary.dispose());
+            if (bound) await disposeCore(page);
         }
     });
 }

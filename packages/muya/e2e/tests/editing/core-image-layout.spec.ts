@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { bootCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 const url = 'https://example.test/layout.svg';
 const image = `![cat](${url})`;
@@ -36,19 +36,19 @@ for (const resize of [false, true]) {
                 property = 'data-align=center';
             }
             const expected = `${image} ${image}{${property}}\n`;
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: expected }, legacyCalls: [] });
             await page.keyboard.type('X');
             const typed = `${expected.slice(0, -1)}X\n`;
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected } });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: original } });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+            expect(await readCore(page)).toMatchObject({ source: { source: typed }, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source: expected } });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source: original } });
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: expected });
         }
         finally {
-            await page.evaluate(() => window.coreBoundary.dispose());
+            await disposeCore(page);
         }
     });
 }
@@ -75,17 +75,17 @@ test('native resizing preserves independent CM labels and comments through input
         await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 4 });
         await expect(image).toHaveAttribute('width', '200');
         await page.mouse.up();
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, anchor: caret, caret, legacyCalls: [] });
+        expect(await readCore(page)).toMatchObject({ source: { source: expected }, anchor: caret, caret, legacyCalls: [] });
         await expect(image).toHaveAttribute('width', '200');
         await expect(image).toHaveAttribute('alt', 'A sunny sandy beach');
         await page.keyboard.type('X');
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: `${expected.slice(0, -1)}X\n` }, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected } });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: original } });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+        expect(await readCore(page)).toMatchObject({ source: { source: `${expected.slice(0, -1)}X\n` }, legacyCalls: [] });
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source: expected } });
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source: original } });
+        await coreHistory(page, 'redo');
+        expect(await reopenCore(page)).toMatchObject({ source: expected });
         await page.evaluate(async (source) => {
             window.coreBoundary.dispose();
             const modulePath = '/coreBoundaryControl.ts';
@@ -94,10 +94,10 @@ test('native resizing preserves independent CM labels and comments through input
         }, expected);
         await expect(image).toHaveAttribute('width', '200');
         await expect(image).toHaveAttribute('alt', 'A sunny sandy beach');
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, legacyCalls: [] });
+        expect(await readCore(page)).toMatchObject({ source: { source: expected }, legacyCalls: [] });
     }
     finally {
-        await page.evaluate(() => window.coreBoundary.dispose());
+        await disposeCore(page);
     }
 });
 
@@ -147,20 +147,20 @@ for (const annotated of [false, true]) {
                 await window.coreBoundary.settle();
             }, copied);
             const expected = `${original.slice(0, -1)}${imported}\n`;
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: expected }, legacyCalls: [] });
             await expect(images).toHaveCount(2);
             await expect(images.last()).toHaveAttribute('width', '160');
             await expect(images.last()).toHaveAttribute('height', '80');
             await page.keyboard.type('X');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: `${expected.slice(0, -1)}X\n` }, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected } });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: original } });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+            expect(await readCore(page)).toMatchObject({ source: { source: `${expected.slice(0, -1)}X\n` }, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source: expected } });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source: original } });
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: expected });
         }
-        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        finally { await disposeCore(page); }
     });
 }
 
@@ -185,7 +185,7 @@ test('repeated tracked native resizing presents the latest width while preservin
         await page.mouse.down();
         await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2, { steps: 4 });
         await page.mouse.up();
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: firstResize }, legacyCalls: [] });
+        expect(await readCore(page)).toMatchObject({ source: { source: firstResize }, legacyCalls: [] });
         await expect(image).toHaveAttribute('width', '200');
         await expect(image).toHaveAttribute('alt', 'abc');
         await image.click();
@@ -196,20 +196,20 @@ test('repeated tracked native resizing presents the latest width while preservin
         await page.mouse.down();
         await page.mouse.move(secondBox.x + secondBox.width / 2 + 40, secondBox.y + secondBox.height / 2, { steps: 4 });
         await page.mouse.up();
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, legacyCalls: [] });
+        expect(await readCore(page)).toMatchObject({ source: { source: expected }, legacyCalls: [] });
         await expect(image).toHaveAttribute('width', '240');
         await page.keyboard.type('X');
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: `${expected.slice(0, -1)}{++X++}\n` }, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected } });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: firstResize } });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: original } });
+        expect(await readCore(page)).toMatchObject({ source: { source: `${expected.slice(0, -1)}{++X++}\n` }, legacyCalls: [] });
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source: expected } });
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source: firstResize } });
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source: original } });
         await expect(image).toHaveAttribute('width', '120');
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+        await coreHistory(page, 'redo');
+        await coreHistory(page, 'redo');
+        expect(await reopenCore(page)).toMatchObject({ source: expected });
         await page.evaluate(async (source) => {
             window.coreBoundary.dispose();
             const modulePath = '/coreBoundaryControl.ts';
@@ -219,5 +219,5 @@ test('repeated tracked native resizing presents the latest width while preservin
         await expect(image).toHaveAttribute('width', '240');
         await expect(image).toHaveAttribute('alt', 'abc');
     }
-    finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    finally { await disposeCore(page); }
 });

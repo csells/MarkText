@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { editor, floats, quickInsertItem } from '../helpers/selectors';
 
 for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: true, tracked: false }, { bound: true, tracked: true }]) {
@@ -41,7 +42,7 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
                 else {
                     await page.keyboard.type('e');
                     if (bound) {
-                        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: query }, legacyCalls: [] });
+                        expect(await readCore(page)).toMatchObject({ source: { source: query }, legacyCalls: [] });
                     }
                     else {
                         expect(await page.evaluate(() => {
@@ -53,7 +54,7 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
                     await page.keyboard.press('Enter');
                 }
                 if (bound) {
-                    expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: quote }, anchor: menu === 'front' ? 3 : 0, caret: menu === 'front' ? 3 : 0, legacyCalls: [] });
+                    expect(await readCore(page)).toMatchObject({ source: { source: quote }, anchor: menu === 'front' ? 3 : 0, caret: menu === 'front' ? 3 : 0, legacyCalls: [] });
                 }
                 else {
                     expect(await page.evaluate(() => {
@@ -64,13 +65,13 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
                 await expect(page.locator(editor.blockQuote)).toHaveCount(1);
                 await page.keyboard.type('X');
                 if (bound) {
-                    expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
+                    expect(await readCore(page)).toMatchObject({ source: { source: typed }, legacyCalls: [] });
                     // Upstream History groups the query or menu choice, the
                     // quote and the next key typed within its one-second window.
-                    await page.evaluate(() => window.coreBoundary.history('undo'));
-                    expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source } });
-                    await page.evaluate(() => window.coreBoundary.history('redo'));
-                    expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+                    await coreHistory(page, 'undo');
+                    expect(await readCore(page)).toMatchObject({ source: { source } });
+                    await coreHistory(page, 'redo');
+                    expect(await reopenCore(page)).toMatchObject({ source: typed });
                 }
                 else {
                     expect(await page.evaluate(() => {
@@ -91,7 +92,7 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
             }
             finally {
                 if (bound && !failed)
-                    await page.evaluate(() => window.coreBoundary.dispose());
+                    await disposeCore(page);
             }
         });
     }

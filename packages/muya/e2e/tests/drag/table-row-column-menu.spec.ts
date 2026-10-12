@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
-import { bootCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { editor, floats } from '../helpers/selectors';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
@@ -246,17 +246,17 @@ for (const example of [
             const bar = await revealRightBar(page, table, example.row);
             await quickClickBar(page, bar);
             await menuContainer(page).locator('li.item', { hasText: 'Remove Row' }).click();
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });
             expect(await table.locator('tr').nth(example.survivor ?? 0).locator('.mu-content').first().evaluate(node => window.muya!.getSelection()?.anchor.block.domNode === node)).toBe(true);
             await page.keyboard.type('x');
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.next });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.expected });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.source });
+            expect(await reopenCore(page)).toMatchObject({ source: example.next });
+            await coreHistory(page, 'undo');
+            expect(await reopenCore(page)).toMatchObject({ source: example.expected });
+            await coreHistory(page, 'undo');
+            expect(await reopenCore(page)).toMatchObject({ source: example.source });
         }
         finally {
-            await page.evaluate(() => window.coreBoundary.dispose());
+            await disposeCore(page);
         }
     });
 }
@@ -275,19 +275,19 @@ for (const example of [
             await quickClickBar(page, bar);
             await expectShown(page, floats.tableRowColumMenu);
             await menuContainer(page).locator('li.item', { hasText: example.item }).click();
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });
             expect(await page.evaluate(() => window.coreBoundary.read().actions)).toHaveLength(1);
             const selectedCell = table.locator('tr').nth(example.insertedRow).locator('.mu-content').first();
             expect(await selectedCell.evaluate(node => window.muya!.getSelection()?.anchor.block.domNode === node)).toBe(true);
             await page.keyboard.type('x');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.next }, anchor: 1, caret: 1, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.expected });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: REVIEW_TABLE });
+            expect(await readCore(page)).toMatchObject({ source: { source: example.next }, anchor: 1, caret: 1, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            expect(await reopenCore(page)).toMatchObject({ source: example.expected });
+            await coreHistory(page, 'undo');
+            expect(await reopenCore(page)).toMatchObject({ source: REVIEW_TABLE });
         }
         finally {
-            await page.evaluate(() => window.coreBoundary.dispose());
+            await disposeCore(page);
         }
     });
 }
@@ -316,16 +316,16 @@ for (const bound of [false, true]) {
             await page.keyboard.type('x');
             expect(await page.evaluate(() => window.muya!.getSelection()?.anchor.block.text)).toBe('xafter');
             if (bound) {
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: 'away\n\n\n\nxafter\n' });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: 'away\n\n\n\nafter\n' });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
+                expect(await reopenCore(page)).toMatchObject({ source: 'away\n\n\n\nxafter\n' });
+                await coreHistory(page, 'undo');
+                expect(await reopenCore(page)).toMatchObject({ source: 'away\n\n\n\nafter\n' });
+                await coreHistory(page, 'undo');
+                expect(await reopenCore(page)).toMatchObject({ source });
             }
         }
         finally {
             if (bound)
-                await page.evaluate(() => window.coreBoundary.dispose());
+                await disposeCore(page);
         }
     });
 }
@@ -339,22 +339,22 @@ for (const tracked of [false, true]) {
             const bar = await revealRightBar(page, table, 0);
             await quickClickBar(page, bar);
             await menuContainer(page).locator('li.item', { hasText: 'Remove Row' }).click();
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ legacyCalls: [] });
             await page.keyboard.type('x');
             expect(await page.evaluate(() => window.coreBoundary.read().actions.map(action => action.accepted))).toEqual([true, true]);
-            const saved = await page.evaluate(() => window.coreBoundary.reopen());
+            const saved = await reopenCore(page);
             if (tracked) {
                 expect(saved).toMatchObject({ source: '{--| aa | aa |\n| :--- | ---: |--}{++x++}\n' });
             }
             else {
                 expect(saved).toMatchObject({ source: 'x\n' });
             }
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
+            await coreHistory(page, 'undo');
+            await coreHistory(page, 'undo');
+            expect(await reopenCore(page)).toMatchObject({ source });
         }
         finally {
-            await page.evaluate(() => window.coreBoundary.dispose());
+            await disposeCore(page);
         }
     });
 }
@@ -371,17 +371,17 @@ for (const ending of ['\n', '\r\n', '\r']) {
             await quickClickBar(page, await revealRightBar(page, table, 1));
             await menuContainer(page).locator('li.item', { hasText: 'Insert Row Below' }).click();
             const expected = withRow('    ');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, anchor: 0, caret: 0, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: expected }, anchor: 0, caret: 0, legacyCalls: [] });
             expect(await table.locator('tr').nth(2).locator('.mu-content').first().evaluate(node => window.muya!.getSelection()?.anchor.block.domNode === node)).toBe(true);
             await page.keyboard.type('x');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: withRow('x    ') }, anchor: 1, caret: 1, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected } });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source } });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+            expect(await readCore(page)).toMatchObject({ source: { source: withRow('x    ') }, anchor: 1, caret: 1, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source: expected } });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source } });
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: expected });
         }
-        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        finally { await disposeCore(page); }
     });
 }

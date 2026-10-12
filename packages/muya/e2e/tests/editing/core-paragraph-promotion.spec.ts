@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { bootCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const tracked of [false, true]) {
     for (const ending of ['\n', '\r\n', '\r']) {
@@ -10,17 +10,17 @@ for (const tracked of [false, true]) {
             await bootCore(page, source, { tracked, cursor: [1, 1, true] });
             try {
                 await page.keyboard.press('Delete');
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: joined }, anchor: 1, caret: 1, legacyCalls: [] });
+                expect(await readCore(page)).toMatchObject({ source: { source: joined }, anchor: 1, caret: 1, legacyCalls: [] });
                 await page.keyboard.type('xy');
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: tracked ? 2 : 3, caret: tracked ? 2 : 3, legacyCalls: [] });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: joined } });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
-                await page.evaluate(() => window.coreBoundary.history('redo'));
-                await page.evaluate(() => window.coreBoundary.history('redo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
-            } finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+                expect(await readCore(page)).toMatchObject({ source: { source: typed }, anchor: tracked ? 2 : 3, caret: tracked ? 2 : 3, legacyCalls: [] });
+                await coreHistory(page, 'undo');
+                expect(await readCore(page)).toMatchObject({ source: { source: joined } });
+                await coreHistory(page, 'undo');
+                expect(await reopenCore(page)).toMatchObject({ source });
+                await coreHistory(page, 'redo');
+                await coreHistory(page, 'redo');
+                expect(await reopenCore(page)).toMatchObject({ source: typed });
+            } finally { await disposeCore(page); }
         });
     }
 }

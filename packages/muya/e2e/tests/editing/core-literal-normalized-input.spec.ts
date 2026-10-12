@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore } from '../helpers/coreBoundary';
 
 for (const graphSuffix of ['', '\nA-->B', '\nA--->']) {
     const invalid = graphSuffix === '\nA--->';
@@ -24,9 +25,9 @@ for (const graphSuffix of ['', '\nA-->B', '\nA--->']) {
             // syntax. The consumed fence indentation remains part of the source.
             await page.keyboard.type(' ');
             expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: `   graph TD${graphSuffix}`, anchor: 2, caret: 2, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
+            await coreHistory(page, 'undo');
             expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source }, body: `  graph TD${graphSuffix}`, anchor: 1, caret: 1, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
+            await coreHistory(page, 'redo');
             expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: `   graph TD${graphSuffix}`, anchor: 2, caret: 2, legacyCalls: [] });
             const reopened = await page.evaluate(async () => {
                 const saved = window.coreBoundary.reopen();
@@ -42,7 +43,7 @@ for (const graphSuffix of ['', '\nA-->B', '\nA--->']) {
             else await expect(page.locator('.mu-diagram-error').first()).toContainText('Invalid Diagram Code');
         }
         finally {
-            await page.evaluate(() => window.coreBoundary.dispose());
+            await disposeCore(page);
         }
     });
 }
