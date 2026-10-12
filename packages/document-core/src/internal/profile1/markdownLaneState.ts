@@ -589,14 +589,6 @@ export interface MarkdownMatchingScopePolicy {
     openerStart: number,
     closerStart: number
   ) => number | undefined
-  // Planning-linearity instrumentation for the scope-aware inline-code closer
-  // lookup: one query per lookup request, one candidate per indexed probe.
-  // The R-4 gate asserts both stay linear in the number of backtick runs.
-  readonly recordInlineCodeCloserQuery?: (start: number, end: number) => void
-  readonly recordInlineCodeCloserCandidate?: (
-    start: number,
-    end: number
-  ) => void
   readonly rejectCrossScopeImageOpener: (
     bangStart: number,
     bracketStart: number
@@ -2558,7 +2550,6 @@ function createNextBacktickRunStart(
       const start = firstRunStartAtLeast(startsByLength.get(markerLength), after)
       return start !== undefined && start < laneEnd ? start : undefined
     }
-    matchingPolicy.recordInlineCodeCloserQuery?.(openerStart, after)
     const openerScopeId = matchingPolicy.matchingScopeAt(openerStart)?.id ?? -1
     const sameScope = firstRunStartAtLeast(
       scopedStarts.get(markerLength)?.get(openerScopeId),
@@ -2566,12 +2557,6 @@ function createNextBacktickRunStart(
     )
     const closer =
       sameScope !== undefined && sameScope < laneEnd ? sameScope : undefined
-    if (closer !== undefined) {
-      matchingPolicy.recordInlineCodeCloserCandidate?.(
-        closer,
-        closer + markerLength
-      )
-    }
     const globalNext = firstRunStartAtLeast(
       startsByLength.get(markerLength),
       after
@@ -2581,10 +2566,6 @@ function createNextBacktickRunStart(
       globalNext < laneEnd &&
       globalNext !== closer
     ) {
-      matchingPolicy.recordInlineCodeCloserCandidate?.(
-        globalNext,
-        globalNext + markerLength
-      )
       matchingPolicy.rejectCrossScopeMatch(openerStart, globalNext)
     }
     return closer

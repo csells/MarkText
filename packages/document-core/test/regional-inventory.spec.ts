@@ -66,7 +66,6 @@ describe('regional inventory', () => {
     const parsed = parseProfile1Document(
       source,
       executionBudget,
-      undefined,
       markdownOptions,
       false,
       undefined,
