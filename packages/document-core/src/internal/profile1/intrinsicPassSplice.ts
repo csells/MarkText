@@ -27,7 +27,7 @@ import type {
 import { sourceOffset, sourceRange } from './sourceRanges.js'
 
 /**
- * The incremental intrinsic parse: a reopen whose edits sit between two
+ * The incremental intrinsic parse: a reparse whose edits sit between two
  * safe points re-scans only that bracket and splices the retained facts of
  * the untouched prefix and suffix around the bracket's fresh mini-parse.
  *
@@ -658,7 +658,7 @@ export function spliceGuardsHold(
  * line facts before the bracket, the mini-parse's lines shifted into place,
  * one synthetic advance transition carrying them, and a tape spliced at the
  * bracket's run boundary. The lane's exit state is the mini-parse's exit,
- * shifted — the bracket reaches the end of the document, so the reopened
+ * shifted — the bracket reaches the end of the document, so the edited
  * document ends exactly as the window did.
  */
 export function spliceIntrinsicFacts(

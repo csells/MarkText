@@ -31,7 +31,7 @@ export interface Profile1CanonicalReferenceDefinitionLookup
   readonly definitionFacts: () => readonly Profile1ReferenceDefinitionFact[]
   /**
    * The accepted comment and substitution-arm scope boundaries the index
-   * resolves under. An incremental reopen retains these, shifts them with
+   * resolves under. An incremental reparse retains these, shifts them with
    * the other facts, and hands them back as preset regions.
    */
   readonly scopeRegions: () => readonly Profile1ReferenceScopeRegion[]

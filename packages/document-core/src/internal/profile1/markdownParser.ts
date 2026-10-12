@@ -7755,7 +7755,7 @@ function forkLaneSafeSourcePoints(
   ).sort((left, right) => left.start - right.start)
   // Indexed candidate lookup: the per-transition scan over every line and
   // every literal made this O(transitions × lines) — tens of milliseconds
-  // of every reopen on a large document.
+  // of every reparse of a large document.
   const blankLineIndexByEnd = new Map<number, number>()
   for (const [index, line] of lines.entries()) {
     if (line.blank && line.containers.length === 0) {
@@ -8872,7 +8872,7 @@ export function createProfile1MarkdownForkParser(
         // Splice provenance applies exactly when one fork-region lane spans
         // the document from zero — the CM-free root emission, where lane
         // coordinates are document coordinates. The index refreshes on every
-        // such emission (spliced or full) so the next reopen can consult it.
+        // such emission (spliced or full) so the next reparse can consult it.
         // One recognized selection means the projections coincide. Editing
         // may still assemble its blank nodes from that same emitted syntax.
         // Every fork-region start already uses the document coordinates
