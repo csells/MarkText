@@ -4,6 +4,7 @@ import { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
 import type { DocumentCore, DocumentRevision, MarkdownAst, MarkdownAstNode, MarkdownAttribute } from './documentCore.js'
 import type { DocumentTableSelection } from './sourceInputPlanning.js'
 import { resolveTableSelection } from './tableSelection.js'
+import { isPositionalMarkdownAttribute } from './markdownPositions.js'
 
 export interface DocumentTableSelectionProjection {
   readonly name: 'revised'
@@ -20,7 +21,7 @@ function copyCellNode(node: MarkdownAstNode, cell: MarkdownAstNode, output: Tabl
   }
   const attributes: Record<string, MarkdownAttribute> = {}
   for (const [key, value] of Object.entries(node.attributes)) {
-    if (typeof value === 'number' && /(?:Start|End)$/.test(key)) {
+    if (typeof value === 'number' && isPositionalMarkdownAttribute(key)) {
       // References outside the selected fragment retain their resolved semantic
       // values, but cannot retain document coordinates in the clipboard AST.
       if (value >= cell.range.start && value <= cell.range.end) attributes[key] = position(value)

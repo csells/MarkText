@@ -30,6 +30,7 @@ import {
 } from './sourceTape.js'
 import { FENCED_LITERAL_BLOCKS, SPLITTABLE_LITERAL_BLOCKS, isLiteralBlock } from '../../literalBlock.js'
 import { lineStartBefore } from '../../sourceLines.js'
+import { isPositionalMarkdownAttribute } from '../../markdownPositions.js'
 import {
   createPlainParagraphRetainedIndex,
   type PlainParagraphIndexRecorder,
@@ -2037,7 +2038,7 @@ function literalBlockReading(
   if (firstLine === undefined || blockLine === undefined || lastLineStart === undefined || blockLine > firstLine) return undefined
   // The attributes naming where its parts are, and its text, are not how it reads.
   const attributes = Object.entries(block.attributes)
-    .filter(([name, value]) => name !== 'content' && !(typeof value === 'number' && /(?:Start|End)$/u.test(name)))
+    .filter(([name, value]) => name !== 'content' && !(typeof value === 'number' && isPositionalMarkdownAttribute(name)))
     .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
   // An HTML block's first line is text too, and what starts the block.
   let secondLine = firstLine
