@@ -4874,6 +4874,8 @@ export interface Profile1ReaderViews {
   readonly diagnostics: Profile1DocumentProducts['diagnostics']
   readonly original: Profile1DocumentProducts['original']
   readonly revised: Profile1DocumentProducts['revised']
+  /** The intrinsic pass's literals and suggestions, aliased as a whole parse retains them. */
+  readonly intrinsic: Pick<RetainedIntrinsicPass, 'markdownLiterals' | 'roots'>
 }
 
 export function parseProfile1ReaderViews(
@@ -5437,7 +5439,8 @@ function parseProfile1DocumentWithExecution(
       criticMarkup,
       diagnostics: createDiagnosticIndex(parsed.diagnostics),
       original,
-      revised
+      revised,
+      intrinsic: Object.freeze({ markdownLiterals: parsed.markdownLiterals, roots: parsed.roots })
     }))
   }
   const finalized = finalizeProfile1SyntaxGraph(graphCore, {
