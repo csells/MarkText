@@ -28,7 +28,7 @@ interface Respelling extends DocumentSourceEdit {
  * delimiter row around `edits`, which stay separate operations. Whitespace
  * that `edits` add at a cell's edge stands in for that cell's padding.
  */
-export function tableRespellingEdits(
+function tableRespellingEdits(
   text: TableSource,
   syntax: MarkupSyntax,
   table: MarkdownAstNode,

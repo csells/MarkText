@@ -573,7 +573,7 @@ function createSubstitutionNode(
  * indistinguishable from one the full pass would have produced for the
  * shifted document.
  */
-export function replayShiftedCriticMarkupForest(
+function replayShiftedCriticMarkupForest(
   registry: Profile1SyntaxIdentityRegistry,
   roots: readonly CriticMarkupNode[],
   shiftOffset: (offset: number) => number

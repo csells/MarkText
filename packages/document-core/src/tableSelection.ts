@@ -66,7 +66,7 @@ export function resolveTableCell(core: DocumentCore, revision: DocumentRevision,
   return resolveTableCellInSyntax(core.project(revision, 'markup').syntax, selection.cell)
 }
 
-export function resolveTableCellInSyntax(syntax: MarkupSyntax, address: DocumentTableCellAddress) {
+function resolveTableCellInSyntax(syntax: MarkupSyntax, address: DocumentTableCellAddress) {
   const { table } = resolveTable(syntax, address.table)
   return { syntax, ...cellOf(syntax, table, address.row, address.column) }
 }

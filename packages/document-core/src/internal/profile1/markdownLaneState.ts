@@ -5331,7 +5331,7 @@ function lazyContinuationOpenFor(checkpoint: MarkdownCheckpoint): boolean {
   return checkpoint.paragraphOpen || checkpoint.definitionLazyContinuation === true
 }
 
-export function buildPlainMarkdownLine(
+function buildPlainMarkdownLine(
   source: string,
   bounds: Readonly<{ start: number, contentEnd: number, end: number }>,
   activeContainers: MarkdownCheckpoint['activeContainers'],
@@ -5412,7 +5412,7 @@ export function buildPlainMarkdownLine(
 }
 
 /** Line boundaries starting at `start`, honoring LF, CRLF and CR. */
-export function plainMarkdownLineBounds(
+function plainMarkdownLineBounds(
   source: string,
   start: number
 ): Readonly<{ start: number, contentEnd: number, end: number }> {
@@ -5439,7 +5439,7 @@ export function plainMarkdownLineBounds(
  * same container path. Fork continuations use this emitted checkpoint fact so
  * a new sibling list item or block quote is still parsed structurally.
  */
-export function markdownCheckpointContinuesLiteralContainer(
+function markdownCheckpointContinuesLiteralContainer(
   source: string,
   bounds: Readonly<{ start: number, contentEnd: number, end: number }>,
   checkpoint: MarkdownCheckpoint

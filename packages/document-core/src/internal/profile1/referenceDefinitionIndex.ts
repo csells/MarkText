@@ -453,7 +453,7 @@ function scopesAreCompatible(
   return true
 }
 
-export function createProfile1ReferenceDefinitionIndex(
+function createProfile1ReferenceDefinitionIndex(
   source: string,
   literals: readonly MarkdownLiteralRange[],
   scopeRegions: readonly Profile1ReferenceScopeRegion[]

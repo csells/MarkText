@@ -5148,8 +5148,8 @@ const MAX_RETAINED_FRAGMENT_ENTRIES = 131_072
  * the per-entry cap below, so a single oversized block can neither be
  * serialized into a key nor evict the whole working set (G31).
  */
-export const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1 = 64 * 1_024 * 1_024
-export const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1 =
+const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1 = 64 * 1_024 * 1_024
+const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1 =
   4 * 1_024 * 1_024
 const RETAINED_STRING_HEADER_BYTES = 16
 const RETAINED_OBJECT_HEADER_BYTES = 24
