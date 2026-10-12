@@ -366,6 +366,16 @@ class Content extends TreeNode {
         return null;
     }
 
+    /**
+     * The offset where the block's visible text begins while its leading
+     * Markdown syntax, such as a heading's `## `, is rendered hidden; 0 when
+     * no syntax is hidden there. A caret before this offset would sit in
+     * syntax the user cannot see.
+     */
+    hiddenLeadingSyntaxEnd(): number {
+        return 0;
+    }
+
     clickHandler(event: Event): void {
         if (!isMouseEvent(event))
             return;

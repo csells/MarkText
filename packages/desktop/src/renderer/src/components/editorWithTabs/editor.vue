@@ -471,6 +471,7 @@ import {
   createCoreAuthorityPerformanceTestBridge,
   createCoreTrackChangesMode,
   createMuyaPlainTextCoreAdapter,
+  type CoreTrackChangesMode,
   type CoreAppliedReply,
   type CoreAuthorForm,
   type CoreAuthorityPerformanceTrace,
@@ -567,6 +568,8 @@ const props = defineProps<{
   coreTestCrashCoreOwner?: () => void
   coreTestStaleNextTransaction?: () => void
   commentComposerState?: CoreReviewComposerState
+  /** The document's Track Changes mode, which outlives this view. */
+  trackChangesModeFor?: (documentId: string) => CoreTrackChangesMode
   /** True once, for the first view of a newly opened document. */
   claimFreshDocument?: (documentId: string) => boolean
 }>()
@@ -750,7 +753,7 @@ const coreReviewRefresh = createLatestViewRefresh<CoreReviewItemReply>({
   fault: (error) => emit('core-fault', error)
 })
 const coreTrackChangesEnabled = ref(false)
-let coreTrackChangesMode: ReturnType<typeof createCoreTrackChangesMode> | undefined
+let coreTrackChangesMode: CoreTrackChangesMode | undefined
 const toggleCoreTrackChanges = (): void => {
   coreTrackChangesEnabled.value = coreTrackChangesMode?.toggle() ?? false
 }
@@ -3696,7 +3699,9 @@ onMounted(() => {
       acknowledgedView: () => coreAcknowledgedMarkupView ?? props.corePlainTextView
     })
     activeCoreLease.setRecoveryDraftCapture(captureRecoveryDraft)
-    coreTrackChangesMode = createCoreTrackChangesMode()
+    coreTrackChangesMode =
+      props.trackChangesModeFor?.(props.coreLease.documentId) ?? createCoreTrackChangesMode()
+    coreTrackChangesEnabled.value = coreTrackChangesMode.enabled()
     const detachDocumentEditing = muya.editor.bindDocumentEditing({
       emojiContext: (point) =>
         coreAcknowledgedMarkupView === undefined
@@ -4066,7 +4071,6 @@ onMounted(() => {
       coreRecoveryDraftCapture = undefined
       coreBoundLease = undefined
       coreAuthorityPerformanceTrace = undefined
-      coreTrackChangesMode?.reset()
       coreTrackChangesMode = undefined
       coreAuthorSelection.value = undefined
       coreAuthorInvocationSelection.value = undefined
@@ -4553,14 +4557,18 @@ onMounted(() => {
       projectSource: true
     })
   } else if (freshDocument) {
-    // A newly opened document is ready to type into at its start. This view is
-    // never hidden, so it takes that focus now, through the native boundary its
-    // model selection is read from.
+    // A newly opened document is ready to type into at the start of its visible
+    // text, after a first heading's hidden `#`s. This view is never hidden, so it
+    // takes that focus now, through the native boundary its model selection is
+    // read from.
     const first = muya.editor.scrollPage?.firstContentInDescendant()
     const start =
       first === undefined || first === null
         ? null
-        : muya.editor.selection.getDOMPoint({ path: [...first.path], offset: 0 })
+        : muya.editor.selection.getDOMPoint({
+          path: [...first.path],
+          offset: first.hiddenLeadingSyntaxEnd()
+        })
     muya.domNode.focus({ preventScroll: true })
     if (start !== null) muya.editor.selection.setDOMSelection(start, start)
   }
