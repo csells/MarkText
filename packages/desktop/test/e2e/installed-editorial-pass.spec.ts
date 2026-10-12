@@ -140,7 +140,7 @@ const REJECTED_ALL = edited(
   ['{++footnote addition++}', '']
 )
 
-const CRITIC_TOKENS = /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/
+const CRITIC_MARKER = /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/
 const sidebarTabName = 'Comments and Suggestions'
 
 // ---------------------------------------------------------------------------
@@ -605,7 +605,7 @@ test.describe('installed editorial pass', () => {
     await expect(entry(page, 'Replacement: old wording → new wording')).toHaveAttribute('aria-pressed', 'true')
     expect(await source(page)).toBe(ANNOTATED)
     // Excerpts show recognizable text, never CriticMarkup delimiters.
-    expect(await list.innerText()).not.toMatch(CRITIC_TOKENS)
+    expect(await list.innerText()).not.toMatch(CRITIC_MARKER)
     await expectBaseline(s)
   })
 
@@ -1315,12 +1315,12 @@ test.describe('installed editorial pass: exports', () => {
         expect(text).not.toContain('a removed phrase')
         expect(text).not.toContain('old wording')
         expect(text).not.toContain('Verify this figure.')
-        expect(text).not.toMatch(CRITIC_TOKENS)
+        expect(text).not.toMatch(CRITIC_MARKER)
       }
       expect(reviewed.rawHtml).not.toContain('Standalone remark.')
       expect(runs(reviewed.docx, 'ins', 't')).toEqual(expect.arrayContaining(['an added phrase', 'new wording', 'list addition', 'two']))
       expect(runs(reviewed.docx, 'del', 'delText')).toEqual(expect.arrayContaining(['a removed phrase', 'old wording', 'one']))
-      expect(reviewed.docx).not.toMatch(CRITIC_TOKENS)
+      expect(reviewed.docx).not.toMatch(CRITIC_MARKER)
       for (const comment of ['Verify this figure.', 'Standalone remark.', 'Nested pair note.']) {
         expect(reviewed.comments).toContain(comment)
       }
