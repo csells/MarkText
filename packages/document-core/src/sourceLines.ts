@@ -41,7 +41,7 @@ export function firstLineEnding(core: SourceReader, revision: DocumentRevision, 
  * Where the line of `text` holding offset `at` starts. At offset 0 a line
  * ending at index 0 still counts, as `lastIndexOf` reads a negative start as 0.
  */
-export function lineStartBefore(text: string, at: number): number {
+export function lineStartInText(text: string, at: number): number {
   return Math.max(text.lastIndexOf('\n', at - 1), text.lastIndexOf('\r', at - 1)) + 1
 }
 
