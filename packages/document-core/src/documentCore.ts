@@ -20,7 +20,7 @@ import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, tracked
 import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, memoizedPreview, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, withoutDocumentSearchBudget, documentSearchExhausted, spelledAsSource, recordedExactly, trackedStructure, type TrackedStructure, type TrackedPart, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
-import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './criticMarkers.js'
+import { CRITIC_MARKER, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './criticMarkers.js'
 import {
   admitProfile1PlainParagraphRegion,
   createProfile1DocumentReuseCache,
@@ -2390,8 +2390,6 @@ function historySplit(
 
 /** A line opening a block other than a paragraph, or indented as code. */
 const OPENS_BLOCK_LINE = /^(?: {4}|\t| {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-+*](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|`{3,}|~{3,}|<|\$\$|(?:[-*_][ \t]*){3,}(?:[\r\n]|$)|=+[ \t]*(?:[\r\n]|$)|\|))/u
-
-const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'gu')
 
 /** The general tracked compiler for one edit, on any core. */
 function generalTrackedEdit(

@@ -7,9 +7,7 @@ import { blockCommandTarget } from './blockCommandPlanning.js'
 import { paragraphImageRange } from './paragraphBoundary.js'
 import type { MarkdownLineIndex } from './revision.js'
 import { lineStartAt } from './sourceLines.js'
-import { CRITIC_MARKER_ALTERNATION } from './criticMarkers.js'
-
-const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'gu')
+import { CRITIC_MARKER } from './criticMarkers.js'
 
 interface ClipboardInsertion { edit: DocumentSourceEdit, caret: number, after?: readonly DocumentSourceEdit[] }
 

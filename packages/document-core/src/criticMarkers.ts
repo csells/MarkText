@@ -12,6 +12,13 @@ export const CRITIC_MARKER_ALTERNATION = CRITIC_MARKERS
   .map(marker => marker.replace(/[\\^$.*+?()[\]{}|/]/gu, '\\$&'))
   .join('|')
 
+/** Every marker, matched globally: replacing with it rewrites each marker in a text. */
+export const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'gu')
+
+const ANY_CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'u')
+
+export const containsCriticMarker = (text: string): boolean => ANY_CRITIC_MARKER.test(text)
+
 export const CRITIC_FORM_SPELLING: Readonly<Record<Profile1CriticKind, FormDefinition>> = Object.freeze(
   Object.fromEntries(FORM_DEFINITIONS.map(definition => [definition.kind, definition])) as Record<Profile1CriticKind, FormDefinition>
 )

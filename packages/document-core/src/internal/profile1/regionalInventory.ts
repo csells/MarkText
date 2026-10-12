@@ -26,6 +26,7 @@ import {
   CRITIC_FORM_BY_CLOSER,
   CRITIC_FORM_BY_OPENER,
   CRITIC_FORM_SPELLING,
+  CRITIC_MARKER,
   CRITIC_MARKER_ALTERNATION
 } from '../../criticMarkers.js'
 import { FENCED_LITERAL_BLOCKS, SPLITTABLE_LITERAL_BLOCKS, isLiteralBlock } from '../../literalBlock.js'
@@ -2447,7 +2448,6 @@ function strayMarkersUnchanged(previousWindow: string, nextWindow: string): bool
 }
 
 const MARKER_SPELLING = new RegExp(`(?=(${CRITIC_MARKER_ALTERNATION}))`, 'gu')
-const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'gu')
 
 /** The marker spellings of `text` in order, overlapping spellings each read. */
 function markerSpellingSequence(text: string): string {
