@@ -5,7 +5,7 @@ import type {
 } from './documentCore.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import { positionAfter } from './sourcePosition.js'
-import { CRITIC_MARKER_ALTERNATION } from './internal/profile1/sourceTape.js'
+import { CRITIC_MARKER_ALTERNATION, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
 
 type Preview = (edits: readonly DocumentSourceEdit[]) => DocumentRevision
 
@@ -1039,7 +1039,7 @@ function searchWidenedSpelling(
         // line break before it.
         if (old.length > 0 || !atLineEnd || !next.startsWith(eol)) return undefined
         const body = pad(next.slice(eol.length))
-        return body.length === 0 ? undefined : `${eol}{++${body}++}`
+        return body.length === 0 ? undefined : eol + spellSuggestion('addition', body)
       }
       const paddedOld = pad(old)
       const paddedNext = pad(next)
@@ -1051,13 +1051,15 @@ function searchWidenedSpelling(
       // A literal opener in one arm could pair across the divider; separate
       // annotations give each side its own closer, in either order.
       if (old.length === 0 || next.length === 0) return undefined
-      return variant === 'reversed' ? `{++${next}++}{--${old}--}` : `{--${old}--}{++${next}++}`
+      return variant === 'reversed'
+        ? spellSuggestion('addition', next) + spellSuggestion('deletion', old)
+        : spellSuggestionPair(old, next)
     }
-    if (old.length === 0) return `{++${next}++}`
+    if (old.length === 0) return spellSuggestion('addition', next)
     // A retained `--}` would close a Deletion; a Substitution with an empty
     // new arm deletes it exactly.
-    if (next.length === 0) return old.includes('--}') ? `{~~${old}~>~~}` : `{--${old}--}`
-    return `{~~${old}~>${next}~~}`
+    if (next.length === 0) return old.includes('--}') ? spellSuggestion('substitution', old) : spellSuggestion('deletion', old)
+    return spellSuggestion('substitution', old, next)
   }
   let weighed = 0
   const budget = documentSearchBudgets.get(core)
@@ -1449,11 +1451,11 @@ export function splitTrackedHistoryEdit(
   for (const point of ordered) {
     const left = source({ start: history.range.start, end: point })
     const edit = owner.kind === 'deletion'
-      ? { start: point, end: point, insert: `--}{++${payload}++}{--` }
-      : { start: owner.range.start, end: point, insert: `{--${left}--}{++${payload}++}{~~` }
+      ? { start: point, end: point, insert: `--}${spellSuggestion('addition', payload)}{--` }
+      : { start: owner.range.start, end: point, insert: `${spellSuggestionPair(left, payload)}{~~` }
     const plain = owner.kind === 'deletion'
       ? { start: point, end: point, insert: `--}${text}{--` }
-      : { start: owner.range.start, end: point, insert: `{--${left}--}${text}{~~` }
+      : { start: owner.range.start, end: point, insert: `${spellSuggestion('deletion', left)}${text}{~~` }
     // The caret domain must contain the declared insertion for reconciliation.
     const from = Math.min(edit.start, offset)
     const to = Math.max(edit.end, offset)

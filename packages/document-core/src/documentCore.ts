@@ -19,7 +19,7 @@ import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, tracked
 import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, withoutDocumentSearchBudget, documentSearchExhausted, spelledAsSource, recordedExactly, trackedStructure, type TrackedStructure, type TrackedPart, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
-import { CRITIC_MARKER_ALTERNATION } from './internal/profile1/sourceTape.js'
+import { CRITIC_MARKER_ALTERNATION, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
 import {
   admitProfile1PlainParagraphRegion,
   createProfile1DocumentReuseCache,
@@ -2522,10 +2522,10 @@ function historySplit(
   // literal block's line.
   if (at === 'arm') {
     const leading = proposed.length === 0 ? typed : edits.map(edit => edit.insert).join('')
-    return { range: annotation.range, insert: `{~~${source.slice(arm.range.start, arm.range.end)}~>${leading}${proposed}~~}`, typed: leading }
+    return { range: annotation.range, insert: spellSuggestion('substitution', source.slice(arm.range.start, arm.range.end), leading + proposed), typed: leading }
   }
   if (at === 'after') {
-    return { range: { start: annotation.range.end, end: annotation.range.end }, insert: `{++${typed}++}`, typed }
+    return { range: { start: annotation.range.end, end: annotation.range.end }, insert: spellSuggestion('addition', typed), typed }
   }
   // A split point never cuts a suggestion nested in the arm: the typing goes
   // before the one holding the caret.
@@ -2539,15 +2539,15 @@ function historySplit(
   let cursor = arm.range.start
   edits.forEach((edit, index) => {
     const point = points[index] ?? edit.start
-    if (point > cursor) insert += `{--${source.slice(cursor, point)}--}`
-    if (edit.insert.length > 0) insert += `{++${escapeCompleted(edit.insert)}++}`
+    if (point > cursor) insert += spellSuggestion('deletion', source.slice(cursor, point))
+    if (edit.insert.length > 0) insert += spellSuggestion('addition', escapeCompleted(edit.insert))
     cursor = point
   })
   const rest = source.slice(cursor, arm.range.end)
   if (annotation.kind === 'deletion') {
-    if (rest.length > 0) insert += `{--${rest}--}`
+    if (rest.length > 0) insert += spellSuggestion('deletion', rest)
   } else {
-    insert += rest.length === 0 ? (proposed.length === 0 ? '' : `{++${proposed}++}`) : `{~~${rest}~>${proposed}~~}`
+    insert += rest.length === 0 ? (proposed.length === 0 ? '' : spellSuggestion('addition', proposed)) : spellSuggestion('substitution', rest, proposed)
   }
   return { range: annotation.range, insert, typed }
 }
@@ -8009,7 +8009,7 @@ function createDocumentCoreWithExecutionBudget(
       const outer = markupAnnotations(around)
         .find(annotation => annotation.range.start < edit.start && edit.start < annotation.range.end)
       for (const at of outer === undefined ? [] : [outer.range.end, outer.range.start]) {
-        const planned = Object.freeze({ start: at, end: at, insert: `{++${protectNativeCriticText(edit.insert)}++}` })
+        const planned = Object.freeze({ start: at, end: at, insert: spellSuggestion('addition', protectNativeCriticText(edit.insert)) })
         const next = preview([planned])
         if (next.annotations.length === previous.annotations.length + 1 &&
             next.diagnostics.length <= previous.diagnostics.length) return planned
@@ -8024,8 +8024,10 @@ function createDocumentCoreWithExecutionBudget(
       // record; the search's spans grow to whole suggestions.
       const old = core.sourceSlice(previous, edit)
       const spellings = old.length === 0
-        ? [`{++${edit.insert}++}`]
-        : edit.insert.length === 0 ? [`{--${old}--}`] : [`{--${old}--}{++${edit.insert}++}`, `{~~${old}~>${edit.insert}~~}`]
+        ? [spellSuggestion('addition', edit.insert)]
+        : edit.insert.length === 0
+          ? [spellSuggestion('deletion', old)]
+          : [spellSuggestionPair(old, edit.insert), spellSuggestion('substitution', old, edit.insert)]
       for (const insert of spellings) {
         const spelled = Object.freeze({ start: edit.start, end: edit.end, insert })
         if (oracle.resolvesExactly([spelled])) return spelled
@@ -8242,10 +8244,10 @@ function createDocumentCoreWithExecutionBudget(
       const old = source.slice(span.start, span.end)
       const proposed = next.slice(span.start, span.end + delta)
       const spellings = old === ''
-        ? [`{++${proposed}++}`]
+        ? [spellSuggestion('addition', proposed)]
         : proposed === ''
-          ? [`{--${old}--}`, `{~~${old}~>~~}`]
-          : [`{~~${old}~>${proposed}~~}`, `{--${old}--}{++${proposed}++}`]
+          ? [spellSuggestion('deletion', old), spellSuggestion('substitution', old)]
+          : [spellSuggestion('substitution', old, proposed), spellSuggestionPair(old, proposed)]
       for (const insert of spellings) {
         const candidate = Object.freeze({ start: span.start, end: span.end, insert })
         const read = preview([candidate])

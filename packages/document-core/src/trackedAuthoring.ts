@@ -6,7 +6,7 @@ import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations as annotationTree, markupReplacementRange } from './markupEditOwnership.js'
 import { historyInsertionPoint, substitutionBeforeDeletion, substitutionDraftInsertionPoint, trackedEditableSpans, trackedPartsSeparate, withinHistory } from './trackedHistoryEditing.js'
 import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
-import { CRITIC_MARKER_ALTERNATION } from './internal/profile1/sourceTape.js'
+import { CRITIC_MARKER_ALTERNATION, spellSuggestion } from './internal/profile1/sourceTape.js'
 import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, escapesLiteralContent, isWindowCompileCore, markUnresolvedDraft, reachesWindowEdge, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
 
 const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'g')
@@ -678,7 +678,7 @@ function inlineTrackedSourceEdit(
             originalOld === undefined || originalOldSource === undefined ||
             originalOld.annotations.length > 0
           ) return undefined
-          const insert = `{--${originalOldSource}--}`
+          const insert = spellSuggestion('deletion', originalOldSource)
           const candidate = preview([{ ...annotation.range, insert }])
           const replacement = annotationTree(candidate.annotations).find(item =>
             item.kind === 'deletion' &&
@@ -782,10 +782,10 @@ function inlineTrackedSourceEdit(
   ): DocumentSourceEdit | undefined => {
     const payload = insertion ? insertedPayload : selectedPayload
     const insert = insertion
-      ? `{++${payload}++}`
+      ? spellSuggestion('addition', payload)
       : deletion
-        ? `{--${payload}--}`
-        : `{~~${selectedPayload}~>${insertedPayload}~~}`
+        ? spellSuggestion('deletion', payload)
+        : spellSuggestion('substitution', selectedPayload, insertedPayload)
     const candidate = preview([{ ...request.range, insert }])
     const annotation = annotationTree(candidate.annotations).find(item =>
       item.kind === expectedKind && item.range.start === request.range.start &&
