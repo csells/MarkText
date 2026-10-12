@@ -33,7 +33,7 @@ const REPLACE_INPUT = '.search-bar .replace .input-wrapper input'
 const RESULT_COUNTER = '.search-bar .search-result'
 const REPLACE_ALL = '.search-bar .replace .button-group .button.right'
 
-const launchInstalled = async(
+const launchInstalledSearch = async(
   binary: string,
   userDataDir: string,
   filePath: string
@@ -99,7 +99,7 @@ test.describe('installed Core projected search authority', () => {
     fs.writeFileSync(filePath, source, 'utf8')
     let launched: { app: ElectronApplication; page: Page } | undefined
     try {
-      launched = await launchInstalled(installedBinary(), path.join(root, 'profile'), filePath)
+      launched = await launchInstalledSearch(installedBinary(), path.join(root, 'profile'), filePath)
       const { app, page } = launched
       await expectEditorWindowHidden(app)
       expectEditorNotFrontmost(app)
@@ -130,7 +130,7 @@ test.describe('installed Core projected search authority', () => {
     fs.writeFileSync(filePath, source, 'utf8')
     let launched: { app: ElectronApplication; page: Page } | undefined
     try {
-      launched = await launchInstalled(installedBinary(), path.join(root, 'profile'), filePath)
+      launched = await launchInstalledSearch(installedBinary(), path.join(root, 'profile'), filePath)
       const { app, page } = launched
       await expectEditorWindowHidden(app)
       expectEditorNotFrontmost(app)
@@ -159,7 +159,7 @@ test.describe('installed Core projected search authority', () => {
     fs.writeFileSync(filePath, initialSource, 'utf8')
     let launched: { app: ElectronApplication; page: Page } | undefined
     try {
-      launched = await launchInstalled(binary, userDataDir, filePath)
+      launched = await launchInstalledSearch(binary, userDataDir, filePath)
       const { app, page } = launched
       await expectEditorWindowHidden(app)
       expectEditorNotFrontmost(app)
@@ -204,7 +204,7 @@ test.describe('installed Core projected search authority', () => {
 
       await app.close()
       launched = undefined
-      const reopened = await launchInstalled(binary, userDataDir, filePath)
+      const reopened = await launchInstalledSearch(binary, userDataDir, filePath)
       launched = reopened
       await expectEditorWindowHidden(reopened.app)
       expectEditorNotFrontmost(reopened.app)
