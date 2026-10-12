@@ -6,6 +6,7 @@ import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations as annotationTree, markupReplacementRange } from './markupEditOwnership.js'
 import { historyInsertionPoint, substitutionBeforeDeletion, substitutionDraftInsertionPoint, trackedEditableSpans, trackedPartsSeparate, withinHistory } from './trackedHistoryEditing.js'
 import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
+import { FENCED_LITERAL_BLOCKS } from './literalBlock.js'
 import { CRITIC_MARKER_ALTERNATION, spellSuggestion } from './internal/profile1/sourceTape.js'
 import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, escapesLiteralContent, isWindowCompileCore, markUnresolvedDraft, reachesWindowEdge, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
 
@@ -114,7 +115,7 @@ export function createTrackedPendingArmEdits(
  */
 function withinBlockLiteral(core: DocumentCore, revision: DocumentRevision, edit: DocumentSourceEdit): boolean {
   const { ast, coordinates } = core.project(revision, 'markup').syntax
-  const block = ast.root.children.find(node => ['code-block', 'math-block', 'diagram'].includes(node.kind) &&
+  const block = ast.root.children.find(node => FENCED_LITERAL_BLOCKS.has(node.kind) &&
     coordinates.toSource(node.range.start, 'next') < edit.start && edit.end < coordinates.toSource(node.range.end, 'previous'))
   if (block === undefined) return false
   const start = coordinates.toSource(block.range.start, 'next')

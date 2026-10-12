@@ -28,6 +28,7 @@ import {
   CRITIC_FORM_SPELLING,
   CRITIC_MARKER_ALTERNATION
 } from './sourceTape.js'
+import { FENCED_LITERAL_BLOCKS, SPLITTABLE_LITERAL_BLOCKS, isLiteralBlock } from '../../literalBlock.js'
 import {
   createPlainParagraphRetainedIndex,
   type PlainParagraphIndexRecorder,
@@ -674,9 +675,6 @@ function annotationCapsule(
   })
 }
 
-/** Blocks whose children are the literal lines of their text. */
-const LITERAL_BLOCK_KINDS: ReadonlySet<string> = new Set(['code-block', 'math-block', 'html-block', 'diagram', 'front-matter'])
-
 function markdownTopology(
   roots: readonly MarkdownNode[],
   rangeDelta: number,
@@ -703,7 +701,7 @@ function markdownTopology(
       }).join('\u0001')
     // A literal block's children are the lines of its text, which a key
     // typing into it may add or remove.
-    const literal = positions !== undefined && LITERAL_BLOCK_KINDS.has(node.kind)
+    const literal = positions !== undefined && isLiteralBlock(node.kind)
     result.push(`${node.kind}:${literal ? 'literal' : node.childCount}:${attributes}`)
     if (literal) continue
     for (let ordinal = node.childCount - 1; ordinal >= 0; ordinal -= 1) {
@@ -786,7 +784,7 @@ function literalContents(products: Profile1DocumentProducts): Readonly<{
   const syntax: LiteralContent[] = []
   for (let ordinal = 0; ordinal < root.childCount; ordinal += 1) {
     const block = root.childAt(ordinal)
-    if (!LITERAL_BLOCK_KINDS.has(block.kind) || block.childCount === 0) continue
+    if (!isLiteralBlock(block.kind) || block.childCount === 0) continue
     const start = block.childAt(0).range.start
     const end = block.childAt(block.childCount - 1).range.end
     syntax.push({ start, end })
@@ -1073,7 +1071,7 @@ function armLiteralsOf(
   }
   for (let ordinal = 0; ordinal < root.childCount; ordinal += 1) {
     const block = root.childAt(ordinal)
-    if (!LITERAL_SPLIT_KINDS.has(block.kind) || block.childCount < ARM_LITERAL_CHILDREN ||
+    if (!SPLITTABLE_LITERAL_BLOCKS.has(block.kind) || block.childCount < ARM_LITERAL_CHILDREN ||
         block.range.start < syntaxStart || block.range.end > syntaxEnd) continue
     const reading = literalBlockReading(editing, block)
     if (reading === undefined) continue
@@ -2018,9 +2016,6 @@ function listSplitOf(
     : Object.freeze({ points: Object.freeze([...new Set(points)].sort((left, right) => left - right)), lists, literals })
 }
 
-/** Blocks whose lines split into leaves: their text reads literally, line by line. */
-const LITERAL_SPLIT_KINDS: ReadonlySet<string> = new Set(['code-block', 'math-block', 'html-block', 'diagram'])
-
 /**
  * How literal block `block` reads as a whole, whatever its lines: its key,
  * and the text before its first line and after its last (see LiteralSplit).
@@ -2029,7 +2024,7 @@ function literalBlockReading(
   editing: ReturnType<Profile1DocumentProducts['editing']>,
   block: MarkdownNode
 ): Readonly<{ key: string, opener: string, closer: string }> | undefined {
-  if (!LITERAL_SPLIT_KINDS.has(block.kind) || block.childCount === 0) return undefined
+  if (!SPLITTABLE_LITERAL_BLOCKS.has(block.kind) || block.childCount === 0) return undefined
   const firstLine = markerLineStart(editing.source, block.childAt(0).range.start)
   const blockLine = markerLineStart(editing.source, block.range.start)
   const lastChild = block.childAt(block.childCount - 1)
@@ -2075,7 +2070,7 @@ function literalSplitOf(
   const root = editing.markdown.root
   for (let ordinal = 0; ordinal < root.childCount; ordinal += 1) {
     const block = root.childAt(ordinal)
-    if (!LITERAL_SPLIT_KINDS.has(block.kind) || block.childCount < 3) continue
+    if (!SPLITTABLE_LITERAL_BLOCKS.has(block.kind) || block.childCount < 3) continue
     const lines: MarkdownNode[] = []
     const lineChildren: number[] = []
     let lineStart = true
@@ -3091,7 +3086,7 @@ function emptyLinesInLiterals(
   const root = editing.markdown.root
   for (let ordinal = 0; ordinal < root.childCount; ordinal += 1) {
     const block = root.childAt(ordinal)
-    if (!LITERAL_BLOCK_KINDS.has(block.kind) || block.childCount === 0) continue
+    if (!isLiteralBlock(block.kind) || block.childCount === 0) continue
     const start = canonicalSourceAt(editing.mappedTape, block.childAt(0).range.start)
     const end = canonicalSourceAt(editing.mappedTape, block.childAt(block.childCount - 1).range.end)
     if (start !== undefined && end !== undefined) literals.push({ start, end })
@@ -3536,7 +3531,7 @@ function lastBlockEndsBefore(products: Profile1DocumentProducts): boolean {
   const text = editing.source.slice(last.range.start, last.range.end)
   const ending = last.kind === 'html-block' &&
     !/^ {0,3}<(?:(?:script|pre|style|textarea)(?:[ \t>]|$)|!--|\?|![A-Za-z]|!\[CDATA\[)/iu.test(text) ||
-    ['code-block', 'math-block', 'diagram'].includes(last.kind) && closedByOwnFence(text)
+    FENCED_LITERAL_BLOCKS.has(last.kind) && closedByOwnFence(text)
     ? /(?:\r\n|\r|\n)$/u.exec(text)?.[0] ?? ''
     : ''
   const after = ending + editing.source.slice(last.range.end)

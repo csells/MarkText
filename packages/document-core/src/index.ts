@@ -84,6 +84,7 @@ export { projectSourceSelection } from './sourceSelectionProjection.js'
 export { rebaseDocumentInputSelection, type DocumentSelectionMutation, type DocumentSelectionRebaseResult } from './selectionRebasing.js'
 
 export { paragraphPrefixPosition, paragraphImageRange } from './paragraphBoundary.js'
+export { isLiteralBlock } from './literalBlock.js'
 export { setextUnderlineStart, setextUnderlineLeadingLine } from './setextTrailingLine.js'
 
 export type { DocumentModelTextPoint, DocumentModelTextSelection } from './sourceInputPlanning.js'
