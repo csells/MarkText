@@ -667,6 +667,9 @@ class Format extends Content {
         // Read before the frame below redraws the block with its syntax shown:
         // the click aimed at what was visible when it happened.
         const hiddenSyntaxEnd = this.hiddenLeadingSyntaxEnd();
+        const clicked = this.domNode?.ownerDocument.getSelection();
+        const clickedNode = clicked?.anchorNode;
+        const clickedOffset = clicked?.anchorOffset;
 
         requestAnimationFrame(() => {
             // TODO: @JOCS, remove use this.selection directly.
@@ -682,7 +685,11 @@ class Format extends Content {
 
             // Chromium resolves a click beside the first visible character to
             // either side of the hidden syntax before it; the user meant the text.
-            if (!event.shiftKey && currentCursor.isCollapsed && currentCursor.start.offset < hiddenSyntaxEnd) {
+            // A key pressed before this frame, such as a move to the line's start,
+            // has moved the caret on purpose, and keeps it there.
+            const live = this.domNode?.ownerDocument.getSelection();
+            const unmoved = live?.anchorNode === clickedNode && live?.anchorOffset === clickedOffset;
+            if (!event.shiftKey && unmoved && currentCursor.isCollapsed && currentCursor.start.offset < hiddenSyntaxEnd) {
                 this.setCursor(hiddenSyntaxEnd, hiddenSyntaxEnd, true);
                 return;
             }
