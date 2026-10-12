@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
-import { action, lcg, options, press, regional } from './support/inputDriver.js'
+import { autoPairOptions, keyInputAction, lcg, press, regionalRevision } from './support/inputDriver.js'
 
 // Enter and a soft break are planned from the paragraphs
 // around the caret, and tracked breaks are proved by reparsing only those
@@ -89,13 +89,13 @@ describe.each([
             // The planners are compared with the reference on their own, as
             // the reference searches spellings: without the search budget.
             searchWithoutBudget(core)
-            const revision = regional(core, source, at)
+            const revision = regionalRevision(core, source, at)
             const before = inspectDocumentCore(core).documentParses
             const actual = press(core, revision, caret, key, tracked)
             if (inspectDocumentCore(core).documentParses === before) regionalPlans += 1
             const control = createDocumentCore()
             planFromDocumentParse(control)
-            const expected = press(control, regional(control, source, at), caret, key, tracked)
+            const expected = press(control, regionalRevision(control, source, at), caret, key, tracked)
             expect(actual, `${JSON.stringify(edited)} @${caret} ${key} tracked=${tracked}`).toEqual(expected)
           }
         }
@@ -126,7 +126,7 @@ describe('Enter in a long document plans and commits without a document parse', 
       const parses: number[] = []
       for (let index = 0; index < 8; index += 1) {
         for (const key of [{ inputType: 'insertParagraph', data: null }, { inputType: 'insertText', data: 'x' }]) {
-          const input = { ...action(caret, 'insertParagraph'), ...key } as DocumentInputAction
+          const input = { ...keyInputAction(caret, 'insertParagraph'), ...key } as DocumentInputAction
           const before = inspectDocumentCore(core).documentParses
           const plan = core.planInput(revision, input, { tracked })
           const edits = core.inputEdits(revision, input, plan, tracked)
@@ -151,7 +151,7 @@ describe('Enter in a long document plans and commits without a document parse', 
       const core = createDocumentCore()
       const source = long(300)
       const start = source.indexOf(paragraph, source.length / 2) + 30
-      const revision = regional(core, source, start - 1)
+      const revision = regionalRevision(core, source, start - 1)
       const before = inspectDocumentCore(core).documentParses
       const outcome = press(core, revision, start + 1, 'insertParagraph', tracked)
       expect(inspectDocumentCore(core).documentParses - before).toBe(0)
@@ -174,9 +174,9 @@ describe('new suggestions in a document that already has suggestions reparse onl
     { name: 'a tracked join', caret: target, inputType: 'deleteContentBackward', data: null, range: { start: target - 1, end: target + 1 }, insert: '{--\n\n--}' }
   ])('$name', ({ caret, inputType, data, range, insert }) => {
     const core = createDocumentCore()
-    const revision = regional(core, source, 5)
+    const revision = regionalRevision(core, source, 5)
     const at = caret + 1
-    const input = { range, selection: { ranges: [{ anchor: at, focus: at }], primary: 0 }, inputType, data, options } as DocumentInputAction
+    const input = { range, selection: { ranges: [{ anchor: at, focus: at }], primary: 0 }, inputType, data, options: autoPairOptions } as DocumentInputAction
     const before = inspectDocumentCore(core).documentParses
     const plan = core.planInput(revision, input, { tracked: true })
     const edits = core.inputEdits(revision, input, plan, true)

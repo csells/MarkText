@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
 import { inspectDocumentCore, planFromGeneralCompile, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
-import { regional } from './support/inputDriver.js'
+import { regionalRevision } from './support/inputDriver.js'
 
 // A blank line typed with Track Changes into a long document's `$$` block
 // suggests the block again with the blank line in it. The proposed block's
@@ -31,7 +31,7 @@ const generalPlan = (source: string, edit: DocumentSourceEdit): DocumentSourceEd
 /** The key's plan and the document parses it and its apply cost, after one regional edit. */
 const typeBlankLine = (source: string, term: string, last = false) => {
   const core = createDocumentCore()
-  const revision = regional(core, source, 0)
+  const revision = regionalRevision(core, source, 0)
   const at = last ? revision.source.lastIndexOf(term) : revision.source.indexOf(term)
   const edit = { start: at, end: at, insert: '\n\n' }
   const before = inspectDocumentCore(core).documentParses
@@ -127,7 +127,7 @@ describe('a `$$` line a key opens reads on to the first `$$` after it', () => {
   it.each([[20, 0], [120, 0], [150, 0], [150, 300]])('past %i paragraphs, %i more after', (count, more) => {
     const source = `Intro {++a++}.\n\nx\n$$\n\n${paragraphs(count)}\n\n$$\nz\n$$\n\nEnd.\n` + (more === 0 ? '' : `\n${paragraphs(more)}\n`)
     const core = createDocumentCore()
-    const revision = regional(core, source, 0)
+    const revision = regionalRevision(core, source, 0)
     const at = revision.source.indexOf('x\n$$') + 1
     const edit = { start: at, end: at, insert: '\n\n' }
     expect(core.trackedEdit(revision, edit)).toEqual(generalPlan(revision.source, edit))
@@ -159,7 +159,7 @@ describe('a key that joins a paragraph to the math block after it', () => {
     const head = 'costs $$5 and $3\n'
     const source = `${blocks.slice(0, 20).join('\n\n')}\n\n${head}\n$$\nx_0 + y\nx_1\n$$\n\n${blocks.slice(20).join('\n\n')}\n`
     const core = createDocumentCore()
-    const revision = regional(core, source, 0)
+    const revision = regionalRevision(core, source, 0)
     const at = revision.source.indexOf(head) + head.length
     const applied = core.apply(revision, [{ start: at, end: at, insert: '{++x\n++}' }], { projections: ['markup'] }).revision
     const fresh = createDocumentCore().open(applied.source)
@@ -232,9 +232,9 @@ describe('typing in one\'s own draft whose `$$` its acceptance pairs past the su
   const plans = (marked: string, insert: string) => {
     const core = createDocumentCore()
     searchWithoutBudget(core)
-    // regional() types a `q` before the intro.
+    // regionalRevision() types a `q` before the intro.
     const intro = 'Intro.\n\n'
-    const revision = regional(core, intro + marked.replace('|', ''), 0)
+    const revision = regionalRevision(core, intro + marked.replace('|', ''), 0)
     const at = 'q'.length + intro.length + marked.indexOf('|')
     const edit = { start: at, end: at, insert }
     return { edit, planned: core.trackedEdit(revision, edit), general: generalPlan(revision.source, edit) }

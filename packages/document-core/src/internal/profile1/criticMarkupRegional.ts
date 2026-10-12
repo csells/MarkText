@@ -19,7 +19,7 @@ import {
 } from './regionalWindow.js'
 import { sameRange, sourceRange as range } from './sourceRanges.js'
 import type { CanonicalSourceView } from '../persistentCanonicalSource.js'
-import type { Profile1PhysicalTraversalRecorderV1 } from './physicalTraversalAccounting.js'
+import type { Profile1PhysicalTraversalRecorder } from './physicalTraversalAccounting.js'
 
 type RegionalCriticMarkupKind = Exclude<CriticMarkupNode['kind'], 'comment'>
 type RegionalCriticMarkupArmName = 'content' | 'old' | 'new'
@@ -414,7 +414,7 @@ export function admitCriticMarkupRegionalChange(
   edits: readonly RetainedPassSourceEdit[],
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptions,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder: Profile1PhysicalTraversalRecorder
 ): CriticMarkupRegionalAdmissionResult | undefined {
   const edit = edits.length === 1 ? edits[0] : undefined
   if (edit === undefined) return undefined

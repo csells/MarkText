@@ -1,6 +1,7 @@
 import { emojiAt, frontMatterPolicy } from '@marktext/input-policy'
 import { htmlTagAttributes } from './htmlTagAttributes.js'
 import { imageSizeAttributes, type ImageSizeOmission } from './imageSizeAttributes.js'
+import { isPositionalMarkdownAttribute } from '../../markdownPositions.js'
 import type {
   MarkdownDocument,
   MarkdownLineIndex,
@@ -12,10 +13,6 @@ import type {
   SourceOffset,
   ViewRange
 } from '../../revision.js'
-import {
-  PARSE_SOURCE_CHECKPOINT_INTERVAL,
-  type ParseExecutionTracker
-} from '../../parseExecutionControl.js'
 import {
   advanceMarkdownColumn,
   normalizeMarkdownReferenceLabel,
@@ -57,7 +54,7 @@ import type {
   IntrinsicProfile1LaneTransition
 } from './intrinsicProfile1ForkGraph.js'
 import type {
-  Profile1PhysicalTraversalRecorderV1
+  Profile1PhysicalTraversalRecorder
 } from './physicalTraversalAccounting.js'
 import {
   createStagedProfile1ReferenceDefinitionLookup,
@@ -109,6 +106,8 @@ export interface IntrinsicProfile1SourceProgression {
 }
 
 const NO_CLOSER_STARTS: readonly number[] = Object.freeze([])
+/** The longest run of plain source one Markdown text step spans. */
+const MARKDOWN_TEXT_STEP_MAX_UNITS = 4_096
 
 function nextIndexedOffset(
   offsets: readonly number[],
@@ -130,7 +129,6 @@ function nextIndexedOffset(
 
 export function createIntrinsicProfile1SourceProgression(
   source: string,
-  execution?: ParseExecutionTracker,
   suppressedMarkerRanges?: readonly Readonly<{
     start: number
     end: number
@@ -183,11 +181,6 @@ export function createIntrinsicProfile1SourceProgression(
     }
     hasDefinitionCandidate ||= codeUnit === 93 &&
       source.charCodeAt(offset + 1) === 58
-    if (
-      (offset + 1) % PARSE_SOURCE_CHECKPOINT_INTERVAL === 0
-    ) {
-      execution?.examineSource(PARSE_SOURCE_CHECKPOINT_INTERVAL)
-    }
     const marker = findMarker(source, offset)
     if (
       marker === undefined ||
@@ -221,10 +214,6 @@ export function createIntrinsicProfile1SourceProgression(
       }
     }
   }
-  const indexedRemainder = source.length % PARSE_SOURCE_CHECKPOINT_INTERVAL
-  if (indexedRemainder !== 0) {
-    execution?.examineSource(indexedRemainder)
-  }
   const referenceDefinitions =
     createStagedProfile1ReferenceDefinitionLookup(
       source,
@@ -254,7 +243,7 @@ export function createIntrinsicProfile1SourceProgression(
       sourceStepBoundaryOrdinal += 1
     }
     const end = lineEndingEnd ?? Math.min(
-      cursor + PARSE_SOURCE_CHECKPOINT_INTERVAL,
+      cursor + MARKDOWN_TEXT_STEP_MAX_UNITS,
       sourceStepBoundaryStarts[sourceStepBoundaryOrdinal] ?? source.length
     )
     return Object.freeze({
@@ -279,10 +268,6 @@ export function createIntrinsicProfile1SourceProgression(
       ) {
         throw new Error('Intrinsic Profile 1 grammar consumed outside its next token')
       }
-      // The canonical indexing pass already examined these exact source units.
-      // Consumption is still cooperatively cancellable, but it is parser work
-      // over the indexed authority rather than a second source scan.
-      execution?.examineParserWork(end - cursor)
       cursor = end
     }),
     nextCloserStart: Object.freeze((
@@ -463,7 +448,6 @@ let activeMarkdownGfmAutolinksEnabled = true
 let activeMarkdownGfmTagFilterEnabled = true
 let activeMarkdownFootnotesEnabled = true
 let activeMarkdownSubscriptAndSuperscriptEnabled = false
-let activeMarkdownExecution: ParseExecutionTracker | undefined
 let activeMarkdownLines: readonly PlainMarkdownLine[] = Object.freeze([])
 let activeMarkdownLineCursor = 0
 
@@ -1407,7 +1391,6 @@ function parseEmojiTextNodes(source: string, nodes: readonly MarkdownNode[], bou
     let textStart = node.range.start
     let start = nextColon(textStart)
     while (start >= 0 && start < node.range.end) {
-      activeMarkdownExecution?.examineParserWork(1)
       const emoji = emojiAt(source, start, Math.min(node.range.end, matchingScopeAt(boundaryPolicy, start)?.end ?? node.range.end))
       if (emoji === undefined) {
         start = nextColon(start + 1)
@@ -1869,19 +1852,8 @@ function appendInlineRange(
   }
   let textStart = start
   let offset = start
-  let reportedOffset = start
   let extendedAutolinkSuppressedUntil = start
-  const reportThrough = (end: number): void => {
-    if (
-      activeMarkdownExecution !== undefined &&
-      end - reportedOffset >= PARSE_SOURCE_CHECKPOINT_INTERVAL
-    ) {
-      activeMarkdownExecution.examineParserWork(end - reportedOffset)
-      reportedOffset = end
-    }
-  }
   while (offset < end) {
-    reportThrough(offset)
     const literal = constructs.get(offset)
     const construct = literal?.construct
     if (
@@ -2061,8 +2033,7 @@ function appendInlineRange(
           source,
           offset,
           Math.min(end, matchingScopeAt(boundaryPolicy, offset)?.end ?? end),
-          Math.max(start, matchingScopeAt(boundaryPolicy, offset)?.start ?? start),
-          activeMarkdownExecution
+          Math.max(start, matchingScopeAt(boundaryPolicy, offset)?.start ?? start)
         )
         : undefined
     if (extendedAutolink !== undefined) {
@@ -2300,7 +2271,6 @@ function appendInlineRange(
     }
     offset += 1
   }
-  activeMarkdownExecution?.examineParserWork(end - reportedOffset)
   if (textStart < end) {
     appendNode(createTextNode(source, textStart, end))
   }
@@ -3568,7 +3538,7 @@ function parseOrderedContainerSequence(
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
   boundaryPolicy?: InlineBoundaryPolicy,
   itemCache?: Map<string, MarkdownAstRegionTemplate>,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorder
 ): ParsedContainerSequence | undefined {
   if ((lines[lineIndex]?.containers.length ?? 0) === 0) {
     return undefined
@@ -4912,7 +4882,7 @@ function parseBlocksRegion(
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
   boundaryPolicy?: InlineBoundaryPolicy,
   itemCache?: Map<string, MarkdownAstRegionTemplate>,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorder
 ): readonly MarkdownNode[] {
   const blocks: MarkdownNode[] = []
   const constructs = new Map<number, MappedMarkdownLiteral>()
@@ -5367,10 +5337,6 @@ function retainFragmentEntry<Value>(
   budget.queue.push({ cache, key, keyBytes, valueBytes })
 }
 
-// Public AST *Start/*End scalar facts are projection coordinates everywhere,
-// including retained fragment identities and incremental coordinate shifts.
-const isPositionalMarkdownAttribute = (key: string): boolean => /(?:Start|End)$/.test(key)
-
 function shiftedMarkdownAttributes(
   attributes: Readonly<Record<string, string | number | boolean>>,
   offset: number
@@ -5392,7 +5358,7 @@ function markdownAstNodeTemplate(
   node: MarkdownNode,
   regionStart: number,
   cacheRetention: boolean = false,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorder
 ): MarkdownAstNodeTemplate {
   if (cacheRetention) {
     physicalRecorder?.recordAstCacheTemplateConstruction()
@@ -5868,7 +5834,7 @@ function emitMarkdownAstRegion(
   boundaryPolicy: InlineBoundaryPolicy | undefined,
   regionStart: number,
   itemCache?: Map<string, MarkdownAstRegionTemplate>,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorder
 ): readonly MarkdownNode[] {
   const identity = activeMarkdownSyntaxIdentity
   if (identity === undefined) {
@@ -6095,7 +6061,7 @@ function emitMarkdownAstRegions(
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
   boundaryPolicy: InlineBoundaryPolicy | undefined,
   reuseCache: MarkdownAstRegionCacheIdentity | undefined,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1,
+  physicalRecorder?: Profile1PhysicalTraversalRecorder,
   provenanceContext?: AstRegionProvenanceContext
 ): readonly MarkdownNode[] {
   const blocks: MarkdownNode[] = []
@@ -6289,8 +6255,7 @@ function containsPosition(
 
 function withMappedMarkdownIdentity<Value>(
   lane: MappedMarkdownLane,
-  emit: () => Value,
-  execution?: ParseExecutionTracker
+  emit: () => Value
 ): Value {
   const syntaxIdentity = lane.syntaxIdentity
   if (syntaxIdentity === undefined) {
@@ -6303,7 +6268,6 @@ function withMappedMarkdownIdentity<Value>(
   const previousFootnotesEnabled = activeMarkdownFootnotesEnabled
   const previousSubscriptAndSuperscriptEnabled =
     activeMarkdownSubscriptAndSuperscriptEnabled
-  const previousExecution = activeMarkdownExecution
   activeMarkdownSyntaxIdentity = {
     registry: syntaxIdentity.registry,
     sourceAt: syntaxIdentity.sourceAt
@@ -6314,7 +6278,6 @@ function withMappedMarkdownIdentity<Value>(
   activeMarkdownFootnotesEnabled = lane.footnotesEnabled ?? true
   activeMarkdownSubscriptAndSuperscriptEnabled =
     lane.subscriptAndSuperscriptEnabled ?? false
-  activeMarkdownExecution = execution
   try {
     return emit()
   } finally {
@@ -6325,7 +6288,6 @@ function withMappedMarkdownIdentity<Value>(
     activeMarkdownFootnotesEnabled = previousFootnotesEnabled
     activeMarkdownSubscriptAndSuperscriptEnabled =
       previousSubscriptAndSuperscriptEnabled
-    activeMarkdownExecution = previousExecution
   }
 }
 
@@ -7155,8 +7117,7 @@ function emitIntrinsicForkRegionNodes(
   facts: PlainMarkdownLaneParseWithDefinitions,
   reuseCache: MarkdownAstRegionCacheIdentity,
   boundaryPolicy: InlineBoundaryPolicy | undefined,
-  execution?: ParseExecutionTracker,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1,
+  physicalRecorder?: Profile1PhysicalTraversalRecorder,
   provenanceContext?: AstRegionProvenanceContext
 ): readonly MarkdownNode[] {
   return withMappedMarkdownIdentity(lane, () => {
@@ -7179,7 +7140,7 @@ function emitIntrinsicForkRegionNodes(
         physicalRecorder,
         provenanceContext
       )
-  }, execution)
+  })
 }
 
 /**
@@ -7443,7 +7404,6 @@ function intrinsicForkDocumentFromNodes(
   lane: MappedMarkdownLane,
   children: readonly MarkdownNode[],
   containerDepthFailure: MarkdownContainerDepthFailure | undefined,
-  execution: ParseExecutionTracker,
   physicalLines: readonly MarkdownPhysicalLine[],
   endsAtDocumentEnd = true
 ): Profile1MarkdownParse {
@@ -7460,7 +7420,6 @@ function intrinsicForkDocumentFromNodes(
       lane.source,
       root,
       registry,
-      execution,
       (definitionStart, referenceStart) =>
         definitionCanResolveWithinMatchingScopes(
           definitionScopesForView(lane.matchingScopes, lane.forkView),
@@ -7796,7 +7755,7 @@ function forkLaneSafeSourcePoints(
   ).sort((left, right) => left.start - right.start)
   // Indexed candidate lookup: the per-transition scan over every line and
   // every literal made this O(transitions × lines) — tens of milliseconds
-  // of every reopen on a large document.
+  // of every reparse of a large document.
   const blankLineIndexByEnd = new Map<number, number>()
   for (const [index, line] of lines.entries()) {
     if (line.blank && line.containers.length === 0) {
@@ -8452,7 +8411,7 @@ function parseIntrinsicForkRegionFacts(
   selectionOffset: number,
   containerDepthLimit: number,
   reuse: Map<string, PlainMarkdownLaneParse>,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorder
 ): Readonly<{
     readonly facts: PlainMarkdownLaneParseWithDefinitions
     readonly boundaryPolicy: InlineBoundaryPolicy | undefined
@@ -8719,8 +8678,7 @@ const retainedAstRegionIndexes = new WeakMap<
 export function createProfile1MarkdownForkParser(
   forkGraph: IntrinsicProfile1ForkGraph,
   canonicalReferenceDefinitions: Profile1CanonicalReferenceDefinitionLookup,
-  execution: ParseExecutionTracker,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1,
+  physicalRecorder?: Profile1PhysicalTraversalRecorder,
   reuseCache: Profile1MarkdownReuseCache =
   createProfile1MarkdownReuseCache(),
   spliceProvenance?: ForkAstSpliceProvenance
@@ -8914,7 +8872,7 @@ export function createProfile1MarkdownForkParser(
         // Splice provenance applies exactly when one fork-region lane spans
         // the document from zero — the CM-free root emission, where lane
         // coordinates are document coordinates. The index refreshes on every
-        // such emission (spliced or full) so the next reopen can consult it.
+        // such emission (spliced or full) so the next reparse can consult it.
         // One recognized selection means the projections coincide. Editing
         // may still assemble its blank nodes from that same emitted syntax.
         // Every fork-region start already uses the document coordinates
@@ -8943,7 +8901,6 @@ export function createProfile1MarkdownForkParser(
             emitted.facts,
             emittedRegionCache,
             emitted.boundaryPolicy,
-            execution,
             physicalRecorder,
             provenanceContext === undefined
               ? undefined
@@ -8986,7 +8943,6 @@ export function createProfile1MarkdownForkParser(
           request.lane,
           Object.freeze(children),
           depthFailure,
-          execution,
           Object.freeze(physicalLines),
           request.endsAtDocumentEnd
         )
@@ -9102,7 +9058,6 @@ export function createProfile1MarkdownForkParser(
             emitted.facts,
             emittedRegionCache,
             planningBoundaryPolicy,
-            execution,
             physicalRecorder
           )
           : []

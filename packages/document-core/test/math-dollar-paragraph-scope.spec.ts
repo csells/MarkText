@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction } from '../src/index.js'
 import { planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
-import { regional } from './support/inputDriver.js'
+import { regionalRevision } from './support/inputDriver.js'
 
 // A `$$` line that continues a paragraph is paragraph text: a math block
 // cannot interrupt a paragraph, and inline math ends with its paragraph, as
@@ -41,7 +41,7 @@ describe('a $$ line that continues a paragraph', () => {
       '<div>\n' + lines(5, index => `html ${index}`) + '\n</div>', '# Heading', 'A paragraph of ordinary words.'].join('\n\n') + '\n'
     // Typing `q` into the first opener leaves its closing `$$` in a paragraph.
     const plan = (core: DocumentCore) => {
-      const revision = regional(core, source)
+      const revision = regionalRevision(core, source)
       const caret = revision.source.indexOf('x_{2}', revision.source.indexOf('```\n\n$$')) + 3
       const input = {
         range: { start: caret, end: caret },

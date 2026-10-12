@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
-import { action, dense, lcg, regional } from './support/inputDriver.js'
+import { denseSuggestionParagraph, keyInputAction, lcg, regionalRevision } from './support/inputDriver.js'
 
 // Keys pressed one after another beside and inside
 // suggestions, such as Backspace then Delete over the text just struck,
@@ -14,7 +14,7 @@ import { action, dense, lcg, regional } from './support/inputDriver.js'
 // costs the single parse apply() publishes.
 
 const blocks = [
-  dense,
+  denseSuggestionParagraph,
   'Words {--one--}{++two++} and {~~a~>b~~}.',
   'Plain words before {--struck--} and after.',
   'Beside {++added++}{--gone--} and {==marked==} text.',
@@ -51,7 +51,7 @@ interface Step {
 
 function press(core: DocumentCore, revision: DocumentRevision, caret: number, key: Key, tracked = true): Step {
   try {
-    const input = action(caret, key)
+    const input = keyInputAction(caret, key)
     const plan = core.planInput(revision, input, { tracked })
     const edits = core.inputEdits(revision, input, plan, tracked)
     if (edits === undefined) return { outcome: { plan } }
@@ -93,8 +93,8 @@ describe('key sequences read as the document parse', () => {
         searchWithoutBudget(core)
         const control = createDocumentCore()
         planFromDocumentParse(control)
-        let revision = regional(core, source)
-        let controlRevision = regional(control, source)
+        let revision = regionalRevision(core, source)
+        let controlRevision = regionalRevision(control, source)
         // Carets favour the edges of suggestions, where the sequences meet
         // deleted text and hidden delimiters.
         const edges = [...revision.source.matchAll(/\{(?:\+\+|--|~~|==|>>)|(?:\+\+|--|~~|==|<<)\}/gu)]
@@ -158,8 +158,8 @@ describe('key sequences in suggestion arms\' literal blocks read as the document
         searchWithoutBudget(core)
         const control = createDocumentCore()
         planFromDocumentParse(control)
-        let revision = regional(core, source)
-        let controlRevision = regional(control, source)
+        let revision = regionalRevision(core, source)
+        let controlRevision = regionalRevision(control, source)
         // Carets favour the inner lines of literal blocks.
         const inner = [...revision.source.matchAll(/^ *(?:old|new|added|gone|x_|y_|z_|plain code|plain indented)[^\n]*$/gmu)]
         const line = inner[Math.floor(random() * inner.length)]
@@ -190,9 +190,9 @@ describe('key sequences in suggestion arms\' literal blocks read as the document
 })
 
 describe('key sequences in a long document cost no document parse', () => {
-  const source = ['Warm editing paragraph.', ...Array.from({ length: 300 }, () => dense)].join('\n\n') + '\n'
-  const target = source.indexOf(dense, source.length / 2) + 1
-  const at = (text: string, offset = 0): number => target + dense.indexOf(text) + offset
+  const source = ['Warm editing paragraph.', ...Array.from({ length: 300 }, () => denseSuggestionParagraph)].join('\n\n') + '\n'
+  const target = source.indexOf(denseSuggestionParagraph, source.length / 2) + 1
+  const at = (text: string, offset = 0): number => target + denseSuggestionParagraph.indexOf(text) + offset
   const B = 'deleteContentBackward'
   const D = 'deleteContentForward'
   const T = 'insertText'
@@ -236,7 +236,7 @@ describe('key sequences in a long document cost no document parse', () => {
   ]
   it.each(cases)('$name', ({ at: start, keys: sequence, untracked }) => {
     const core = createDocumentCore()
-    let revision = regional(core, source)
+    let revision = regionalRevision(core, source)
     let caret = start
     const before = inspectDocumentCore(core).documentParses
     for (const key of sequence) {
@@ -249,7 +249,7 @@ describe('key sequences in a long document cost no document parse', () => {
     expect(inspectDocumentCore(core).documentParses - before).toBe(0)
     const control = createDocumentCore()
     planFromDocumentParse(control)
-    let controlRevision = regional(control, source)
+    let controlRevision = regionalRevision(control, source)
     let controlCaret = start
     for (const key of sequence) {
       const step = press(control, controlRevision, controlCaret, key, untracked !== true)
@@ -274,17 +274,17 @@ describe('keys the general compiler plans in a long document', () => {
     { name: 'typing in a fenced code block', block: '```\ncode {++x++} here\n```', text: 'code', offset: 2, key: 'insertText', parses: 0 }
   ] as const
   it.each(shapes)('$name', ({ block, text, offset, key, parses }) => {
-    const paragraphs = ['Warm editing paragraph.', ...Array.from({ length: 300 }, () => dense)]
+    const paragraphs = ['Warm editing paragraph.', ...Array.from({ length: 300 }, () => denseSuggestionParagraph)]
     paragraphs[150] = block
     const source = paragraphs.join('\n\n') + '\n'
     const caret = source.indexOf(block) + 1 + block.indexOf(text) + offset
     const core = createDocumentCore()
-    const revision = regional(core, source)
+    const revision = regionalRevision(core, source)
     const before = inspectDocumentCore(core).documentParses
     const step = press(core, revision, caret, key)
     expect(inspectDocumentCore(core).documentParses - before).toBe(parses)
     const control = createDocumentCore()
     planFromDocumentParse(control)
-    expect(step.outcome).toEqual(press(control, regional(control, source), caret, key).outcome)
+    expect(step.outcome).toEqual(press(control, regionalRevision(control, source), caret, key).outcome)
   }, 60_000)
 })

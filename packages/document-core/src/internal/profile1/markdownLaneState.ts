@@ -17,12 +17,8 @@ import {
   findMarkdownFenceOpening,
   isMarkdownFenceCloser
 } from './markdownFence.js'
-import {
-  PARSE_SOURCE_CHECKPOINT_INTERVAL,
-  type ParseExecutionTracker
-} from '../../parseExecutionControl.js'
 import type {
-  Profile1PhysicalTraversalRecorderV1
+  Profile1PhysicalTraversalRecorder
 } from './physicalTraversalAccounting.js'
 import { CRITIC_MARKERS } from '../../criticMarkers.js'
 
@@ -35,7 +31,7 @@ interface MarkdownLinePath {
    * lazy prefix materialization still attributes its walk to the owning
    * engine.
    */
-  readonly recorder?: Profile1PhysicalTraversalRecorderV1
+  readonly recorder?: Profile1PhysicalTraversalRecorder
 }
 
 interface MarkdownBlockContainer {
@@ -2478,20 +2474,9 @@ function scopePartitionedRunStarts(
 
 function createNextBacktickRunStart(
   source: string,
-  matchingPolicy?: MarkdownMatchingScopePolicy,
-  execution?: ParseExecutionTracker
+  matchingPolicy?: MarkdownMatchingScopePolicy
 ): NextBacktickRunStart {
   const startsByLength = new Map<number, number[]>()
-  let reportedOffset = 0
-  const reportThrough = (offset: number): void => {
-    if (
-      execution !== undefined &&
-      offset - reportedOffset >= PARSE_SOURCE_CHECKPOINT_INTERVAL
-    ) {
-      execution.examineParserWork(offset - reportedOffset)
-      reportedOffset = offset
-    }
-  }
   // A code span is paragraph content and no paragraph crosses a blank line,
   // so a run after the next blank line can never close an opener.
   const blankLineStarts: number[] = []
@@ -2504,20 +2489,17 @@ function createNextBacktickRunStart(
       offset += codeUnit === 13 && source.charCodeAt(offset + 1) === 10 ? 2 : 1
       lineStart = offset
       lineBlank = true
-      reportThrough(offset)
       continue
     }
     if (codeUnit !== 32 && codeUnit !== 9) lineBlank = false
     if (codeUnit !== 96) {
       offset += 1
-      reportThrough(offset)
       continue
     }
     const runLimit = matchingPolicy?.delimiterRunLimit?.(offset, source.length) ?? source.length
     let runEnd = offset + 1
     while (runEnd < runLimit && source.charCodeAt(runEnd) === 96) {
       runEnd += 1
-      reportThrough(runEnd)
     }
     const markerLength = runEnd - offset
     const starts = startsByLength.get(markerLength)
@@ -2527,9 +2509,7 @@ function createNextBacktickRunStart(
       starts.push(offset)
     }
     offset = runEnd
-    reportThrough(offset)
   }
-  execution?.examineParserWork(source.length - reportedOffset)
   const scopedStarts =
     matchingPolicy === undefined
       ? undefined
@@ -2576,24 +2556,14 @@ function isMarkdownWhitespace(codeUnit: number): boolean {
 
 function createNextMathRunStart(
   source: string,
-  matchingPolicy?: MarkdownMatchingScopePolicy,
-  execution?: ParseExecutionTracker
+  matchingPolicy?: MarkdownMatchingScopePolicy
 ): NextMathRunStart {
   // Every unescaped `$`, one entry per character: upstream's editor retries
   // an opener at each `$`, including inside a run of them.
   const dollars: number[] = []
-  let reportedOffset = 0
   for (let offset = source.indexOf('$'); offset >= 0; offset = source.indexOf('$', offset + 1)) {
     if (hasEvenBackslashRunBefore(source, offset)) dollars.push(offset)
-    if (
-      execution !== undefined &&
-      offset - reportedOffset >= PARSE_SOURCE_CHECKPOINT_INTERVAL
-    ) {
-      execution.examineParserWork(offset - reportedOffset)
-      reportedOffset = offset
-    }
   }
-  execution?.examineParserWork(source.length - reportedOffset)
 
   const startsByLength = new Map<number, readonly number[]>([[0, dollars]])
   const scopedStarts =
@@ -2810,26 +2780,16 @@ function probeSourceOffsetAt(
 function sourceLineContentEnd(
   source: string,
   start: number,
-  limit: number,
-  execution?: ParseExecutionTracker
+  limit: number
 ): number {
   let end = start
-  let reportedEnd = start
   while (
     end < limit &&
     source.charCodeAt(end) !== 10 &&
     source.charCodeAt(end) !== 13
   ) {
     end += 1
-    if (
-      execution !== undefined &&
-      end - reportedEnd >= PARSE_SOURCE_CHECKPOINT_INTERVAL
-    ) {
-      execution.examineParserWork(end - reportedEnd)
-      reportedEnd = end
-    }
   }
-  execution?.examineParserWork(end - reportedEnd)
   return end
 }
 
@@ -2974,24 +2934,15 @@ export function createMarkdownLaneState(
   texMathSingleBackslashEnabled: boolean = false,
   texMathDoubleBackslashEnabled: boolean = false,
   footnotesEnabled: boolean = true,
-  execution?: ParseExecutionTracker,
   hasCriticMarkupCandidate?: boolean,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorder
 ): MarkdownLaneState {
   const lineBlockProbeCanPersist = hasCriticMarkupCandidate === undefined
     ? !CRITIC_MARKERS.some((marker) => source.includes(marker))
     : !hasCriticMarkupCandidate
   const linePathsWithBlockProbe = new WeakSet<MarkdownLinePath>()
-  const nextBacktickRunStart = createNextBacktickRunStart(
-    source,
-    matchingScopePolicy,
-    execution
-  )
-  const nextMathRunStart = createNextMathRunStart(
-    source,
-    matchingScopePolicy,
-    execution
-  )
+  const nextBacktickRunStart = createNextBacktickRunStart(source, matchingScopePolicy)
+  const nextMathRunStart = createNextMathRunStart(source, matchingScopePolicy)
   const matchingScopeAtOffset = (
     offset: number
   ): Readonly<{ readonly id: number; readonly depth: number }> =>
@@ -3072,7 +3023,7 @@ export function createMarkdownLaneState(
       return Math.min(cached.end, laneEnd)
     }
     const lineAt = (start: number): Readonly<{ text: string, next: number }> => {
-      const contentEnd = sourceLineContentEnd(source, start, source.length, execution)
+      const contentEnd = sourceLineContentEnd(source, start, source.length)
       return Object.freeze({
         text: source.slice(start, contentEnd),
         next: sourceLineEnd(source, contentEnd, source.length)
@@ -3170,7 +3121,7 @@ export function createMarkdownLaneState(
       // a math block cannot interrupt a paragraph.
       const text = openerLineText ?? source.slice(
         openerLineStart,
-        sourceLineContentEnd(source, openerLineStart, source.length, execution)
+        sourceLineContentEnd(source, openerLineStart, source.length)
       )
       const state = analyzeContainerLine(
         text,
@@ -3196,7 +3147,7 @@ export function createMarkdownLaneState(
     next: number
   ): boolean => {
     if (next >= source.length) return false
-    const contentEnd = sourceLineContentEnd(source, next, source.length, execution)
+    const contentEnd = sourceLineContentEnd(source, next, source.length)
     const text = source.slice(next, contentEnd)
     const following = analyzeContainerLine(
       text,
@@ -3226,7 +3177,7 @@ export function createMarkdownLaneState(
     paragraphWasOpen: boolean,
     rawEnd: number | undefined
   ): number | undefined => {
-    const lineEnd = sourceLineContentEnd(source, offset, laneEnd, execution)
+    const lineEnd = sourceLineContentEnd(source, offset, laneEnd)
     const next = source.charCodeAt(offset + 1)
     if (
       (rawEnd !== undefined && rawEnd <= lineEnd) ||
@@ -3243,7 +3194,7 @@ export function createMarkdownLaneState(
     for (
       let lineStart = sourceLineEnd(source, lineEnd, laneEnd);
       lineStart < paragraphEnd && lineStart > cursor;
-      lineStart = sourceLineEnd(source, sourceLineContentEnd(source, lineStart, laneEnd, execution), laneEnd)
+      lineStart = sourceLineEnd(source, sourceLineContentEnd(source, lineStart, laneEnd), laneEnd)
     ) {
       if (lines === 64) {
         windowEnd = lineStart
@@ -3350,7 +3301,7 @@ export function createMarkdownLaneState(
         if (code === 10 || code === 13) return undefined
       }
       return materializeMarkdownLine(checkpoint.linePath) +
-        source.slice(textSourceStart, sourceLineContentEnd(source, offset, laneEnd, execution))
+        source.slice(textSourceStart, sourceLineContentEnd(source, offset, laneEnd))
     }
     let bracketPath = checkpoint.bracketPath
     let pendingLinkLabel = checkpoint.pendingLinkLabel
@@ -3405,8 +3356,7 @@ export function createMarkdownLaneState(
       const lookaheadEnd = sourceLineContentEnd(
         source,
         sourceEnd,
-        laneEnd,
-        execution
+        laneEnd
       )
       const probeLine = visibleThroughRun + source.slice(sourceEnd, lookaheadEnd)
       // Profile rule L2b: a definition line that an unescaped arm closer
@@ -4899,8 +4849,7 @@ export function createMarkdownLaneState(
     const contentEnd = sourceLineContentEnd(
       source,
       markerOffset,
-      laneEnd,
-      execution
+      laneEnd
     )
     const lineText =
       materializeMarkdownLine(checkpoint.linePath) +
@@ -5055,7 +5004,7 @@ export function createMarkdownLaneState(
       prefix +
       source.slice(
         markerOffset,
-        sourceLineContentEnd(source, markerOffset, source.length, execution)
+        sourceLineContentEnd(source, markerOffset, source.length)
       )
     const lineState = analyzeContainerLine(
       lineText,
@@ -5464,7 +5413,7 @@ function parsePlainMarkdownLanePass(
   texMathSingleBackslashEnabled: boolean = false,
   texMathDoubleBackslashEnabled: boolean = false,
   footnotesEnabled: boolean = true,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorder
 ): PlainMarkdownLaneParse {
   const parser = createMarkdownLaneState(
     source,
@@ -5479,7 +5428,6 @@ function parsePlainMarkdownLanePass(
     texMathSingleBackslashEnabled,
     texMathDoubleBackslashEnabled,
     footnotesEnabled,
-    undefined,
     undefined,
     physicalRecorder
   )
@@ -5575,7 +5523,7 @@ export function parseIntrinsicForkMarkdownLaneFacts(
   texMathSingleBackslashEnabled: boolean = false,
   texMathDoubleBackslashEnabled: boolean = false,
   footnotesEnabled: boolean = true,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorder
 ): PlainMarkdownLaneParse {
   return parsePlainMarkdownLanePass(
     source,

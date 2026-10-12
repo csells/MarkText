@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentInputAction, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
 import { inHistory, keepsTyping, resolveAll } from './support/resolvedSuggestions.js'
 import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
-import { dense, lcg } from './support/inputDriver.js'
+import { denseSuggestionParagraph, lcg } from './support/inputDriver.js'
 
 // Owner rule: with Track Changes on, every edit untracked mode accepts is
 // accepted tracked. Rejecting every suggestion after a tracked key gives the
@@ -16,7 +16,7 @@ import { dense, lcg } from './support/inputDriver.js'
 
 const lines = (count: number, line: (index: number) => string): string => Array.from({ length: count }, (_, index) => line(index)).join('\n')
 const blocks = [
-  dense, 'Plain words here.', 'Text {==marked *text*==}{>>see **this** {++and that++}<<} end.', '- item {++one++}\n- item {--two--}',
+  denseSuggestionParagraph, 'Plain words here.', 'Text {==marked *text*==}{>>see **this** {++and that++}<<} end.', '- item {++one++}\n- item {--two--}',
   '> quoted {~~a~>b~~} line', '# Heading {++added++}', '```js\n' + lines(4, index => `const v${index} = ${index}`) + '\n```',
   '$$\n' + lines(3, index => `x_{${index}} + y`) + '\n$$', '<div>\n' + lines(3, index => `html ${index}`) + '\n</div>',
   lines(3, index => `    indented ${index}`), '{++```js\nconst added = 1\n```\n++}', '{~~```js\nconst a = 0\n```\n~>```js\nconst a = 1\n```\n~~}',

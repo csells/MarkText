@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentInputAction, type DocumentSourceEdit } from '../src/index.js'
-import { regional } from './support/inputDriver.js'
+import { regionalRevision } from './support/inputDriver.js'
 
 // Upstream MarkText writes an ordered list afresh after an edit changes its
 // items: a run of task or plain items keeps its ordinals while it holds the
@@ -98,7 +98,7 @@ describe('ordered list renumbering', () => {
   it('renumbers a long list to its end after Enter mid-list', () => {
     const source = 'Intro.\n\n' + Array.from({ length: 300 }, (_, index) => `${String(index + 1)}. item ${String(index)}`).join('\n') + '\n\nTail.\n'
     const core = createDocumentCore()
-    const revision = regional(core, source)
+    const revision = regionalRevision(core, source)
     const position = revision.source.indexOf('item 150') + 'item 150'.length
     const action = { selection: caret(position), range: { start: position, end: position }, inputType: 'insertParagraph', data: null, options } as DocumentInputAction
     const edits = core.inputEdits(revision, action, core.planInput(revision, action, { tracked: false }), false)

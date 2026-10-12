@@ -18,7 +18,7 @@ import {
 } from './regionalWindow.js'
 import { sameRange, sourceRange as range } from './sourceRanges.js'
 import type { CanonicalSourceView } from '../persistentCanonicalSource.js'
-import type { Profile1PhysicalTraversalRecorderV1 } from './physicalTraversalAccounting.js'
+import type { Profile1PhysicalTraversalRecorder } from './physicalTraversalAccounting.js'
 
 export interface CommentRegionalIndex {
   readonly source: SourceRange
@@ -258,7 +258,7 @@ export function admitCommentRegionalChange(
   edits: readonly RetainedPassSourceEdit[],
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptions,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder: Profile1PhysicalTraversalRecorder
 ): CommentRegionalAdmissionResult | undefined {
   if (!sameRange(requestedAnnotation, index.annotation)) return undefined
   const edit = edits.length === 1 ? edits[0] : undefined

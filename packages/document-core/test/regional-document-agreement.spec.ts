@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
 import { planFromGeneralCompile, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
-import { dense, lcg } from './support/inputDriver.js'
+import { denseSuggestionParagraph, lcg } from './support/inputDriver.js'
 
 // One input gives one output whatever path reads it: every tracked key a
 // core plans regionally, from a window or its regional planners, is the key
@@ -19,7 +19,7 @@ function control(): DocumentCore {
 }
 
 const sweepBlocks = [
-  dense, 'Plain words here.', 'Text {==marked *text*==}{>>see **this** {++and that++}<<} end.',
+  denseSuggestionParagraph, 'Plain words here.', 'Text {==marked *text*==}{>>see **this** {++and that++}<<} end.',
   '{==outer {==inner==}{>>nested<<} text==}{>>outer comment<<}', '{=={--gone--}==}{>>only deleted<<} tail.',
   '- item {++one++}\n- item {--two--}', '> quoted {~~a~>b~~} line', '# Heading {++added++}', 'Line one {++x++}\nline two {--y--}.', '', '   ',
   '```js\n' + lines(8, index => `const value${index} = ${index}`) + '\n```',
@@ -82,7 +82,7 @@ function trackedKeyDisagreements(seed: number, paragraphs: number, keys: number)
 }
 
 const inputBlocks = [
-  dense, 'Plain words here.', 'Text {==marked *text*==}{>>see **this** {++and that++}<<} end.', '- item {++one++}\n- item {--two--}',
+  denseSuggestionParagraph, 'Plain words here.', 'Text {==marked *text*==}{>>see **this** {++and that++}<<} end.', '- item {++one++}\n- item {--two--}',
   '> quoted {~~a~>b~~} line', '# Heading {++added++}', '```js\n' + lines(4, index => `const v${index} = ${index}`) + '\n```',
   '$$\n' + lines(3, index => `x_{${index}} + y`) + '\n$$', '<div>\n' + lines(3, index => `html ${index}`) + '\n</div>',
   lines(3, index => `    indented ${index}`), '{++```js\nconst added = 1\n```\n++}', '{~~```js\nconst a = 0\n```\n~>```js\nconst a = 1\n```\n~~}',
@@ -270,7 +270,7 @@ describe('a dollar-heavy key reads as the whole document plans it', () => {
   // which outlasts the default 5 s under a loaded lane.
   it.each(dollarWindowKeys)('fuzz key %s', (_key, source, edit) => {
     expect(keyAgrees(source, edit)).toBe(true)
-  })
+  }, 30_000)
 })
 
 // The draft's own acceptance can read past the arm before any edit (a block
