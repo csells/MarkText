@@ -342,8 +342,9 @@ export function createCoreActor(
     })
   const recoveryHistory = (): CoreHistorySnapshot =>
     Object.freeze({
-      undo: Object.freeze(undoStack.map(copyEntry)),
-      redo: Object.freeze(redoStack.map(copyEntry)),
+      // Entries are deeply frozen when recorded.
+      undo: Object.freeze([...undoStack]),
+      redo: Object.freeze([...redoStack]),
       ...(nativeHistoryGroup !== undefined && undoStack.at(-1) === nativeHistoryGroup.entry
         ? { nativeHistoryGroup: nativeHistoryGroup.id }
         : {})
@@ -621,18 +622,18 @@ export function createCoreActor(
         ? {}
         : { beforeSelection: previous.beforeSelection }),
       undo: Object.freeze([
-        {
+        Object.freeze({
           start: start + prefix,
           end: start + after.length - suffix,
           insert: before.slice(prefix, before.length - suffix)
-        }
+        })
       ]),
       redo: Object.freeze([
-        {
+        Object.freeze({
           start: start + prefix,
           end: start + before.length - suffix,
           insert: after.slice(prefix, after.length - suffix)
-        }
+        })
       ])
     })
   }
