@@ -8,7 +8,7 @@ import type {
 import type { IContentCursor, IRenderCursor } from '../../selection/types';
 import type { IBulletListState, IListItemState, IOrderListState, IParagraphState, ITaskListState } from '../../state/types';
 import type { Nullable } from '../../types';
-import type { ColorFormatType, IColorStyle } from '../../utils/colorSpan';
+import type { ColorFormatType, IColorSpan } from '../../utils/colorSpan';
 import type { IImageInfo } from '../../utils/image';
 import type AtxHeading from '../commonMark/atxHeading';
 import type BulletList from '../commonMark/bulletList';
@@ -27,13 +27,13 @@ import {
     PARAGRAPH_STATE,
     THEMATIC_BREAK_STATE,
 } from '../../config';
-import { createDocumentTextDraft, dispatchDocumentBlock, dispatchDocumentFormat, dispatchDocumentParagraphJoin } from '../../editor/documentEditing';
+import { createDocumentTextDraft, dispatchDocumentBlock, dispatchDocumentColor, dispatchDocumentFormat, dispatchDocumentParagraphJoin } from '../../editor/documentEditing';
 import { generator, tokenizer } from '../../inlineRenderer/lexer';
 import Selection, { getCursorReference } from '../../selection';
 import { getTextContent } from '../../selection/dom';
 import { isListItemState } from '../../state/types';
 import { conflict, escapeHTML, firstGraphemeLength, isHTMLElement, isKeyboardEvent, isMouseEvent, lastGraphemeLength } from '../../utils';
-import { COLOR_SPAN_CLOSE_TAG, colorPropertyOf, colorSpanOpenTag, isColorStyleEmpty, parseColorStyle } from '../../utils/colorSpan';
+import { parseColorStyle, recolorText } from '../../utils/colorSpan';
 import { correctImageSrc, encodeImageSrc, getImageInfo } from '../../utils/image';
 import logger from '../../utils/logger';
 
@@ -248,14 +248,6 @@ function isColorSpanToken(token: Token): boolean {
         return false;
 
     return parseColorStyle(token.attrs?.style) !== null;
-}
-
-interface IColorSpan {
-    openStart: number;
-    contentStart: number;
-    contentEnd: number;
-    closeEnd: number;
-    style: IColorStyle;
 }
 
 function collectColorSpans(
@@ -2020,6 +2012,8 @@ class Format extends Content {
      * declaration on a shared span is preserved (both stay in one span).
      */
     formatColor(type: ColorFormatType, value: string | null): void {
+        if (dispatchDocumentColor(this.muya, type, value))
+            return;
         const cursor = this.getCursor();
         if (cursor == null)
             return;
@@ -2028,124 +2022,17 @@ class Format extends Content {
         const end = cursor.end.offset;
         if (start == null || end == null)
             return;
-        if (start === end)
-            return;
 
-        const property = colorPropertyOf(type);
         const text = this.text;
         const tokens = tokenizer(text, { options: this.muya.options });
-        const spans = collectColorSpans(tokens, start, end).sort(
-            (a, b) => a.openStart - b.openStart,
-        );
+        const recolored = recolorText(text, start, end, collectColorSpans(tokens, start, end), type, value);
+        if (recolored === undefined)
+            return;
 
-        const representative = spans
-            .filter(s => s.contentStart <= start && s.contentEnd >= end)
-            .sort(
-                (a, b) =>
-                    a.contentEnd - a.contentStart - (b.contentEnd - b.contentStart),
-            )[0];
-        const currentValue
-            = property === 'color'
-                ? representative?.style.color ?? null
-                : representative?.style.backgroundColor ?? null;
+        if (recolored.text !== text)
+            this.text = recolored.text;
 
-        if (value !== null && value === currentValue)
-            value = null;
-
-        const targetStyle: IColorStyle = { color: null, backgroundColor: null };
-        if (value !== null) {
-            if (property === 'color')
-                targetStyle.color = value;
-            else
-                targetStyle.backgroundColor = value;
-        }
-
-        const mergeStyle = (base: IColorStyle): IColorStyle => {
-            const style: IColorStyle = { color: null, backgroundColor: null };
-            if (property === 'color')
-                style.backgroundColor = base.backgroundColor;
-            else
-                style.color = base.color;
-            if (value !== null) {
-                if (property === 'color')
-                    style.color = value;
-                else
-                    style.backgroundColor = value;
-            }
-
-            return style;
-        };
-
-        let output = '';
-        let newStart = start;
-        let newEnd = end;
-        let placedStart = false;
-
-        const emit = (a: number, b: number, style: IColorStyle) => {
-            if (a >= b)
-                return;
-
-            // Chunks are emitted in source order and align with the selection
-            // edges, so mapping start/end by "which chunks the selection covers"
-            // stays correct even when an edge lands on a span's tag boundary
-            // (there `a === start`/`b === end` never holds, which left the raw
-            // pre-edit offset pointing into the regenerated markup).
-            const inSelection = b > start && a < end;
-            const tag = isColorStyleEmpty(style) ? '' : colorSpanOpenTag(style);
-            if (tag)
-                output += tag;
-            if (inSelection && !placedStart) {
-                newStart = output.length;
-                placedStart = true;
-            }
-            output += text.slice(a, b);
-            if (inSelection)
-                newEnd = output.length;
-            if (tag)
-                output += COLOR_SPAN_CLOSE_TAG;
-        };
-
-        const empty: IColorStyle = { color: null, backgroundColor: null };
-        const emitGap = (a: number, b: number) => {
-            if (a >= b)
-                return;
-            if (b <= start || a >= end) {
-                emit(a, b, empty);
-                return;
-            }
-            if (a < start)
-                emit(a, start, empty);
-            emit(Math.max(a, start), Math.min(b, end), targetStyle);
-            if (b > end)
-                emit(Math.min(b, end), b, empty);
-        };
-
-        let pos = 0;
-        for (const span of spans) {
-            if (span.openStart < pos)
-                continue;
-
-            emitGap(pos, span.openStart);
-
-            const leftEnd = Math.min(
-                Math.max(start, span.contentStart),
-                span.contentEnd,
-            );
-            const midEnd = Math.min(
-                Math.max(end, span.contentStart),
-                span.contentEnd,
-            );
-            emit(span.contentStart, leftEnd, span.style);
-            emit(leftEnd, midEnd, mergeStyle(span.style));
-            emit(midEnd, span.contentEnd, span.style);
-            pos = span.closeEnd;
-        }
-        emitGap(pos, text.length);
-
-        if (output !== text)
-            this.text = output;
-
-        this.setCursor(newStart, newEnd, true);
+        this.setCursor(recolored.start, recolored.end, true);
     }
 
     private _addFormat(

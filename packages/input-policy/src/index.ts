@@ -183,6 +183,7 @@ export { codeEnter } from './codeEnter.js'
 export { INLINE_UPDATE_FRAGMENTS, INLINE_UPDATE_REG, INLINE_UPDATE_LIST_REG, INLINE_UPDATE_TASK_REG, INLINE_UPDATE_ATX_LINE_REG, INLINE_UPDATE_SETEXT_LINE_REG, INLINE_UPDATE_QUOTE_LINE_REG, INLINE_UPDATE_QUOTE_MARKER_REG, INLINE_UPDATE_THEMATIC_LINE_REG, matchInlineUpdate, inlineUpdateLayout, type InlineUpdateMatch, type InlineUpdateLayout, type InlineUpdateLine, type InlineUpdatePoint } from './inlineUpdate.js'
 export { fencedCodeMarkdown } from './codeBlock.js'
 export { FORMAT_MARKER_MAP, FORMAT_TAG_MAP, formatDelimiters, type HeadingChange } from './formatting.js'
+export { COLOR_SPAN_CLOSE_TAG, colorPropertyOf, colorSpanOpenTag, isColorStyleEmpty, parseColorStyle, recolorText, serializeColorStyle, type ColorFormatType, type IColorSpan, type IColorStyle } from './colorFormatting.js'
 
 export { tableCellInlineBreak, tableCellPaste, tableCellPasteCaret, headingPasteLines, plainHtmlPasteLines } from './clipboard.js'
 

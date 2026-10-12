@@ -48,6 +48,11 @@ export type IDocumentFormatInput = {
 } | {
     readonly format: 'image-properties';
     readonly properties: ImagePropertyPatch;
+} | {
+    /** Replaces, toggles or clears one colour declaration on the selected text. */
+    readonly format: 'color';
+    readonly colorType: 'color' | 'bg_color';
+    readonly value: string | null;
 });
 
 export type DocumentClipboardInput = (Readonly<{

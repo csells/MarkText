@@ -1,11 +1,17 @@
 import type { MarkdownAstNode, SourceRange } from './documentCore.js'
 
-export interface DocumentActiveFormat { readonly type: string; readonly tag?: string }
+export interface DocumentActiveFormat {
+  readonly type: string
+  readonly tag?: string
+  /** A colour span's style, which the inline toolbar's colour picker shows. */
+  readonly attrs?: Readonly<{ style: string }>
+}
 
 const formats: Readonly<Record<string, string>> = {
   strong: 'strong',
   emphasis: 'em',
   strikethrough: 'del',
+  mark: 'mark',
   'inline-code': 'inline_code',
   'inline-math': 'inline_math',
   link: 'link',
@@ -23,10 +29,12 @@ export function documentActiveFormats(root: MarkdownAstNode, selection: SourceRa
     if (selection.start < node.range.start || selection.end > node.range.end) return
     const type = formats[node.kind]
     if (type !== undefined) result.push({ type })
-    for (const pair of inlineHtmlFormatPairs(node)) {
-      if (selection.start >= pair.open.range.start && selection.end <= pair.close.range.end) {
-        result.push({ type: 'html_tag', tag: String(pair.open.attributes.tagName) })
-      }
+    for (const pair of inlineHtmlPairs(node)) {
+      if (selection.start < pair.open.range.start || selection.end > pair.close.range.end) continue
+      const tag = String(pair.open.attributes.tagName)
+      const style = pair.open.attributes['htmlAttribute:style']
+      if (htmlStyles.has(tag)) result.push({ type: 'html_tag', tag })
+      else if (tag === 'span' && typeof style === 'string') result.push({ type: 'html_tag', tag, attrs: { style } })
     }
     for (const child of node.children) visit(child)
   }

@@ -273,11 +273,13 @@ export function copyFormatAction(action: DocumentFormatAction): DocumentFormatAc
           )
         })
     })
-    : Object.freeze({
-      ...action,
-      ...(action.image === undefined ? {} : { image: Object.freeze({ ...action.image }) }),
-      selection: copyDocumentSelection(action.selection, Number.MAX_SAFE_INTEGER)
-    })
+    : action.format === 'color'
+      ? Object.freeze({ ...action, selection: copyDocumentSelection(action.selection, Number.MAX_SAFE_INTEGER) })
+      : Object.freeze({
+        ...action,
+        ...(action.image === undefined ? {} : { image: Object.freeze({ ...action.image }) }),
+        selection: copyDocumentSelection(action.selection, Number.MAX_SAFE_INTEGER)
+      })
 }
 
 export function copyPreparedOperation(operation: CorePreparedOperation): CorePreparedOperation {

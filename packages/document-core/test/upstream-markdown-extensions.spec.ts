@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createDocumentCore, type MarkdownOptions } from '../src/index.js'
+import { createDocumentCore, documentActiveFormats, type MarkdownOptions } from '../src/index.js'
 
 // Upstream MarkText's opt-in extensions (#2552, #954): `==highlight==`,
 // GitLab's inline diff and its `>>>` fenced blockquote. The cases mirror
@@ -169,6 +169,60 @@ describe('>>> fenced blockquote', () => {
     // Removing the closer leaves CommonMark's reading.
     const unclosed = core.apply(edited, [{ start: edited.source.length - 4, end: edited.source.length, insert: '' }]).revision
     expect(shape(unclosed)).not.toEqual(['blockquote'])
+  })
+})
+
+describe('formatting upstream extensions', () => {
+  const textSelection = (start: number, end: number) => ({ ranges: [{ anchor: start, focus: end }], primary: 0 })
+  const format = (source: string, action: 'mark' | 'clear', start: number, end: number) => {
+    const core = createDocumentCore()
+    const previous = core.open(source, on)
+    const plan = core.planFormat(previous, { format: action, selection: textSelection(start, end), tracked: false })
+    return core.apply(previous, plan.edits).revision.source
+  }
+
+  it('turns an == highlight off with Highlight, keeping a backslash run, and writes <mark> elsewhere', () => {
+    expect(format('==word==\n', 'mark', 4, 4)).toBe('word\n')
+    expect(format('==a\\\\==\n', 'mark', 3, 3)).toBe('a\\\\\n')
+    expect(format('word\n', 'mark', 0, 4)).toBe('<mark>word</mark>\n')
+  })
+
+  it('clears highlight and inline diff markers', () => {
+    expect(format('==word== and {+ add +}\n', 'clear', 0, 22)).toBe('word and  add \n')
+  })
+
+  it('reports an == highlight as the active mark format', () => {
+    const core = createDocumentCore()
+    const revision = core.open('a ==word== b\n', on)
+    const syntax = core.project(revision, 'markup').syntax
+    const formats = documentActiveFormats(syntax.ast.root, { start: syntax.coordinates.toProjected(5, 'next'), end: syntax.coordinates.toProjected(6, 'next') })
+    expect(formats).toContainEqual({ type: 'mark' })
+  })
+})
+
+describe('inline toolbar colour', () => {
+  const textSelection = (start: number, end: number) => ({ ranges: [{ anchor: start, focus: end }], primary: 0 })
+  const colour = (source: string, start: number, end: number, colorType: 'color' | 'bg_color', value: string | null) => {
+    const core = createDocumentCore()
+    const previous = core.open(source)
+    const plan = core.planFormat(previous, { format: 'color', colorType, value, selection: textSelection(start, end), tracked: false })
+    return { source: core.apply(previous, plan.edits).revision.source, plan }
+  }
+
+  it('wraps, recolours and clears with upstream\'s colour spans', () => {
+    const red = colour('a word b\n', 2, 6, 'color', '#f00')
+    expect(red.source).toBe('a <span style="color:#f00">word</span> b\n')
+    expect(red.plan.selection).toEqual(textSelection(27, 31))
+    expect(colour(red.source, 27, 31, 'color', '#f00').source).toBe('a word b\n')
+    expect(colour(red.source, 27, 31, 'bg_color', '#ff0').source)
+      .toBe('a <span style="color:#f00;background-color:#ff0">word</span> b\n')
+    expect(colour(red.source, 27, 29, 'color', null).source)
+      .toBe('a wo<span style="color:#f00">rd</span> b\n')
+  })
+
+  it('leaves spans with other declarations alone', () => {
+    expect(colour('a <span style="color:red;font-weight:bold">w</span> b\n', 2, 51, 'color', '#f00').source)
+      .toBe('a <span style="color:#f00"><span style="color:red;font-weight:bold">w</span></span> b\n')
   })
 })
 

@@ -4,19 +4,28 @@ import { copyDocumentSelection, type DocumentModelTextSelection, type DocumentTe
 import { positionAfter } from './sourcePosition.js'
 import { isLiteralBlock } from './literalBlock.js'
 import { allAnnotations } from './markupEditOwnership.js'
-import { formatDelimiters } from '@marktext/input-policy'
+import { formatDelimiters, parseColorStyle, recolorText, type ColorFormatType, type IColorSpan } from '@marktext/input-policy'
 import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
-import { inlineHtmlFormatPairs } from './documentFormatContext.js'
+import { inlineHtmlFormatPairs, inlineHtmlPairs } from './documentFormatContext.js'
 import { createTrackedSourceEdit } from './trackedAuthoring.js'
 import { trackedEditableSpans } from './trackedHistoryEditing.js'
 import { imageDestination, imageLabel, planImageProperties, type DocumentImagePropertiesAction } from './imagePropertyPlanning.js'
 
-export type DocumentFormatAction = DocumentImagePropertiesAction | {
+export type DocumentFormatAction = DocumentImagePropertiesAction | DocumentColorAction | {
   readonly format: 'strong' | 'em' | 'del' | 'inline_code' | 'inline_math' | 'u' | 'mark' | 'sub' | 'sup' | 'link' | 'image' | 'unlink' | 'clear'
   readonly selection: DocumentTextSelection | DocumentModelTextSelection
   readonly tracked: boolean
   /** An explicit Insert Image action; omission retains the native format toggle. */
   readonly image?: Readonly<{ src: string; alt: string }>
+}
+
+/** The inline toolbar's text or background colour; a null value clears it. */
+export interface DocumentColorAction {
+  readonly format: 'color'
+  readonly colorType: ColorFormatType
+  readonly value: string | null
+  readonly selection: DocumentTextSelection | DocumentModelTextSelection
+  readonly tracked: boolean
 }
 
 export interface DocumentFormatPlan {
@@ -25,7 +34,7 @@ export interface DocumentFormatPlan {
 }
 
 const formats = { strong: 'strong', em: 'emphasis', del: 'strikethrough', inline_code: 'inline-code', inline_math: 'inline-math', u: 'inline-html', mark: 'inline-html', sub: 'subscript', sup: 'superscript', link: 'link', image: 'image', unlink: 'link' } as const
-const clearKinds = new Set(['strong', 'emphasis', 'strikethrough', 'inline-code', 'inline-math', 'link', 'image', 'subscript', 'superscript'])
+const clearKinds = new Set(['strong', 'emphasis', 'strikethrough', 'mark', 'inline-code', 'inline-math', 'inline-diff', 'link', 'image', 'subscript', 'superscript'])
 const htmlFormats = new Set(['u', 'mark', 'sub', 'sup'])
 const contentKinds = new Set(['paragraph', 'heading', 'table-cell'])
 
@@ -59,6 +68,65 @@ function canonicalSelection(target: DocumentInputTarget, backward = false): Docu
   return 'start' in target
     ? copyDocumentSelection({ ranges: [{ anchor: backward ? target.end : target.start, focus: backward ? target.start : target.end }], primary: 0 }, Number.MAX_SAFE_INTEGER)
     : copyDocumentSelection(target, Number.MAX_SAFE_INTEGER)
+}
+
+/**
+ * Re-colours the selected text of one block with the shared colour policy,
+ * reading the colour spans the parser recognized there.
+ */
+function planColor(core: DocumentCore, previous: DocumentRevision, action: DocumentColorAction): DocumentFormatPlan {
+  if (!('ranges' in action.selection) || action.selection.ranges.length !== 1) throw new RangeError('Colour formatting requires exactly one selection')
+  const primary = action.selection.ranges[action.selection.primary]
+  if (primary === undefined) throw new RangeError('Formatting selection has no primary range')
+  const backward = primary.anchor > primary.focus
+  const selection = { start: Math.min(primary.anchor, primary.focus), end: Math.max(primary.anchor, primary.focus) }
+  const unchanged = Object.freeze({ edits: Object.freeze([]), selection: canonicalSelection(selection, backward) })
+  const { syntax } = core.project(previous, 'markup')
+  const { coordinates } = syntax
+  const start = coordinates.toProjected(selection.start, 'next')
+  const end = coordinates.toProjected(selection.end, 'previous')
+  let block: MarkdownAstNode | undefined
+  const find = (node: MarkdownAstNode): void => {
+    if (node.range.start > start || node.range.end < end || isLiteralBlock(node.kind)) return
+    if (contentKinds.has(node.kind)) block = node
+    for (const child of node.children) find(child)
+  }
+  find(syntax.ast.root)
+  if (block === undefined || selection.start === selection.end) return unchanged
+  const blockStart = coordinates.toSource(block.range.start, 'next')
+  const blockEnd = coordinates.toSource(block.range.end, 'previous')
+  const spans: IColorSpan[] = []
+  const collect = (node: MarkdownAstNode): void => {
+    for (const { open, close } of inlineHtmlPairs(node)) {
+      const style = open.attributes.tagName === 'span' ? parseColorStyle(String(open.attributes['htmlAttribute:style'] ?? '')) : null
+      if (style === null) continue
+      spans.push({
+        openStart: coordinates.toSource(open.range.start, 'next') - blockStart,
+        contentStart: coordinates.toSource(open.range.end, 'previous') - blockStart,
+        contentEnd: coordinates.toSource(close.range.start, 'next') - blockStart,
+        closeEnd: coordinates.toSource(close.range.end, 'previous') - blockStart,
+        style
+      })
+    }
+    for (const child of node.children) collect(child)
+  }
+  collect(block)
+  const text = core.sourceSlice(previous, { start: blockStart, end: blockEnd })
+  const recolored = recolorText(text, selection.start - blockStart, selection.end - blockStart, spans, action.colorType, action.value)
+  if (recolored === undefined) return unchanged
+  // Only the text between the first and last changed characters is written.
+  let prefix = 0
+  while (prefix < text.length && prefix < recolored.text.length && text[prefix] === recolored.text[prefix]) prefix += 1
+  let suffix = 0
+  while (suffix < text.length - prefix && suffix < recolored.text.length - prefix &&
+    text[text.length - 1 - suffix] === recolored.text[recolored.text.length - 1 - suffix]) suffix += 1
+  const edits = recolored.text === text
+    ? []
+    : [{ start: blockStart + prefix, end: blockEnd - suffix, insert: recolored.text.slice(prefix, recolored.text.length - suffix) }]
+  return Object.freeze({
+    edits: Object.freeze(edits.map(edit => Object.freeze(edit))),
+    selection: canonicalSelection({ start: blockStart + recolored.start, end: blockStart + recolored.end }, backward)
+  })
 }
 
 /** Plans one formatting action from the current syntax tree, never native text diffs. */
@@ -123,6 +191,7 @@ function planSelectedFormat(
     const selection = { kind: 'model-text' as const, anchor: rebaseModelTextPoint(resolved.selection.anchor, planned.edits), focus: rebaseModelTextPoint(resolved.selection.focus, planned.edits) }
     return { edits: planned.edits, selection }
   }
+  if (action.format === 'color') return planColor(core, previous, action)
   const { format } = action
   if (action.image !== undefined && (format !== 'image' || typeof action.image.src !== 'string' || typeof action.image.alt !== 'string')) {
     throw new TypeError('Image insertion requires image fields')
@@ -167,7 +236,11 @@ function planSelectedFormat(
   const visit = (node: MarkdownAstNode): void => {
     if (node.range.end < start || node.range.start > end || isLiteralBlock(node.kind)) return
     if (contentKinds.has(node.kind)) blocks.push(node)
-    if (action.image === undefined && (format === 'clear' ? clearKinds.has(node.kind) : node.kind !== 'inline-html' && node.kind === formats[format]) && intersects(node.range)) toggles.push(node)
+    // Highlight writes `<mark>` but also turns an `==` highlight off, as upstream does.
+    const toggled = format === 'clear'
+      ? clearKinds.has(node.kind)
+      : (node.kind !== 'inline-html' && node.kind === formats[format]) || (format === 'mark' && node.kind === 'mark')
+    if (action.image === undefined && toggled && intersects(node.range)) toggles.push(node)
     if (format === 'clear' || htmlFormats.has(format)) {
       for (const { open, close } of inlineHtmlFormatPairs(node)) {
         if ((format === 'clear' || open.attributes.tagName === format) && intersects({ start: open.range.start, end: close.range.end })) htmlDelimiters.push(open.range, close.range)

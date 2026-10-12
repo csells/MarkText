@@ -781,6 +781,18 @@ export function dispatchDocumentBlockquote(muya: Muya, type: 'set' | 'quick-inse
 }
 
 /** All bound format entry points dispatch before native syntax recognition. */
+/** Bound documents re-colour the selection through their model, as every format does. */
+export function dispatchDocumentColor(muya: Muya, colorType: 'color' | 'bg_color', value: string | null): boolean {
+    const model = muya.editor.documentEditing;
+    if (!model)
+        return false;
+    muya.flush();
+    const selection = muya.editor.selection.getDOMSelection();
+    if (selection)
+        muya.editor.history.recordModelCommand(historyGroup => model.format({ format: 'color', colorType, value, selection, historyGroup }));
+    return true;
+}
+
 export function dispatchDocumentFormat(muya: Muya, type: string): boolean {
     const model = muya.editor.documentEditing;
     if (!model || !['strong', 'em', 'del', 'inline_code', 'inline_math', 'u', 'mark', 'sub', 'sup', 'link', 'image', 'clear'].includes(type))
@@ -788,7 +800,7 @@ export function dispatchDocumentFormat(muya: Muya, type: string): boolean {
     muya.flush();
     const selection = muya.editor.selection.getDOMSelection();
     if (selection) {
-        const format = type as Exclude<DocumentFormatInput['format'], 'image-properties'>;
+        const format = type as Exclude<DocumentFormatInput['format'], 'image-properties' | 'color'>;
         muya.editor.history.recordModelCommand(historyGroup => model.format({ format, selection, historyGroup }));
     }
     if (type === 'image')

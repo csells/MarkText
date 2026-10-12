@@ -891,6 +891,15 @@ export function muyaFormatToModel(
   if (anchor === undefined || focus === undefined) {
     throw new Error('The current model has no source position for the native formatting selection')
   }
+  if (input.format === 'color') {
+    const selection = typeof anchor === 'number' && typeof focus === 'number'
+      ? { ranges: [{ anchor, focus }], primary: 0 }
+      : typeof anchor !== 'number' && typeof focus !== 'number'
+        ? { kind: 'model-text' as const, anchor, focus }
+        : undefined
+    if (selection === undefined) throw new Error('Colour formatting requires one kind of selection')
+    return { format: 'color', colorType: input.colorType, value: input.value, selection, tracked }
+  }
   if (typeof anchor !== 'number' || typeof focus !== 'number') {
     if (input.format === 'image-properties') {
       throw new Error('Image properties require an image source selection')
