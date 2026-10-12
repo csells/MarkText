@@ -3,11 +3,11 @@ import { createDocumentCore } from '../src/index.js'
 
 const options = { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
 
-const type = (source: string, at: number, data: string, tracked: boolean): string => {
+const type = (source: string, at: number, data: string, tracked: boolean, afterTypedCloser = false): string => {
   const core = createDocumentCore()
   const previous = core.open(source)
   const selection = { ranges: [{ anchor: at, focus: at }], primary: 0 }
-  const action = { selection, range: { start: at, end: at }, inputType: 'insertText', data, options }
+  const action = { selection, range: { start: at, end: at }, inputType: 'insertText', data, options, afterTypedCloser }
   const edits = core.inputEdits(previous, action, core.planInput(previous, action), tracked)
   if (edits === undefined) throw new Error('Expected the key to compile')
   return core.apply(previous, edits).revision.source
@@ -17,6 +17,17 @@ const type = (source: string, at: number, data: string, tracked: boolean): strin
 it('extends a draft typed after it', () => {
   expect(type('Start {++crit++}\n', 16, 'x', true)).toBe('Start {++critx++}\n')
   expect(type('Start{~~~> {++crit++}~~}\n', 21, 'x', true)).toBe('Start{~~~> {++critx++}~~}\n')
+})
+
+// A key typed right after a `}` the author typed lands after that brace,
+// within the author's own surrounding draft.
+it.each([
+  ['Start {++crit++}\n', 16, 'Start {++crit++}{++x++}\n'],
+  ['Start {~~old~>new~~}\n', 20, 'Start {~~old~>new~~}{++x++}\n'],
+  ['Start{~~~> {++crit++}~~}\n', 21, 'Start{~~~> {++crit++}x~~}\n'],
+  ['Start{++ {~~old~>new~~}++}\n', 23, 'Start{++ {~~old~>new~~}x++}\n']
+])('lands a key after a typed closing brace (%s)', (source, at, expected) => {
+  expect(type(source, at, 'x', true, true)).toBe(expected)
 })
 
 // `{++` inside an Addition would read with the Addition's own `++}`.

@@ -12,6 +12,25 @@ import { lineStartInText } from './sourceLines.js'
 import { CRITIC_MARKER, CRITIC_MARKER_ALTERNATION, spellSuggestion } from './criticMarkers.js'
 import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, escapesLiteralContent, isWindowCompileCore, markUnresolvedDraft, reachesWindowEdge, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
 
+let closerTypedBefore = false
+
+/**
+ * Runs `compile` for a key typed right after a `}` the author typed, which
+ * no suggestion that brace closes extends.
+ */
+export function afterTypedCloser<T>(typed: boolean, compile: () => T): T {
+  if (!typed || closerTypedBefore) return compile()
+  closerTypedBefore = true
+  try {
+    return compile()
+  } finally {
+    closerTypedBefore = false
+  }
+}
+
+/** Whether the key being compiled follows a `}` the author typed. */
+export const followsTypedCloser = (): boolean => closerTypedBefore
+
 /** Protective spelling retains exactly where the language compiler inserts escapes. */
 export const nativeCriticSpelling = (value: string): Readonly<{ text: string, escapes: readonly number[] }> => {
   const escapes: number[] = []
@@ -242,10 +261,10 @@ function trackedRequest(
       // a new suggestion outside it, preserving the original deleted payload.
       request.range = { start: offset, end: offset }
     }
-    const adjacent = tree.find(annotation =>
+    const adjacent = (closerTypedBefore ? undefined : tree.find(annotation =>
       (annotation.kind === 'addition' || annotation.kind === 'substitution') &&
       annotation.range.end === request.range.start && outsideHistory(annotation)
-    ) ?? tree.find(annotation =>
+    )) ?? tree.find(annotation =>
       (annotation.kind === 'addition' || annotation.kind === 'substitution') &&
       annotation.range.start === request.range.start && outsideHistory(annotation)
     )

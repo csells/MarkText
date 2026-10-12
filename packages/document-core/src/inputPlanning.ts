@@ -42,6 +42,12 @@ export interface DocumentBrowserInputAction<Selection extends DocumentInputSelec
     /** Upstream's preference; see `normalizeEdits`. */
     readonly trimUnnecessaryCodeBlockEmptyLines?: boolean
   }>
+  /**
+   * The caret follows a `}` the author just typed. Text typed there lands
+   * after that brace, outside the suggestion it closes, even where Track
+   * Changes would extend a suggestion the caret follows.
+   */
+  readonly afterTypedCloser?: boolean
 }
 
 export type DocumentCommandInputAction<Selection extends DocumentInputSelection | SourceRange = DocumentInputSelection> = {

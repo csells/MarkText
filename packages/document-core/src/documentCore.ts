@@ -15,7 +15,7 @@ import { lineStartInText } from './sourceLines.js'
 import { isPositionalMarkdownAttribute, shiftMarkdownAstNode } from './markdownPositions.js'
 import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
-import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
+import { afterTypedCloser, followsTypedCloser, createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit, withinHistory } from './trackedHistoryEditing.js'
 import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, memoizedPreview, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, withoutDocumentSearchBudget, documentSearchExhausted, spelledAsSource, recordedExactly, trackedStructure, type TrackedStructure, type TrackedPart, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
@@ -6633,6 +6633,8 @@ function createDocumentCoreWithExecutionBudget(
     const leading = history === undefined
       ? at <= text.range.start
       : at <= history.range.start || (history.range.end <= at && at <= text.range.start)
+    // A key after a `}` the author typed stays outside what it closed.
+    if (followsTypedCloser() && owner.range.end === at) return undefined
     const target = leading ? text.range.start : text.range.end <= at ? text.range.end : undefined
     if (target === undefined || (target === at && at > owner.range.start && at < owner.range.end)) return undefined
     const planned = Object.freeze({ start: target, end: target, insert: edit.insert })
@@ -8441,7 +8443,7 @@ function createDocumentCoreWithExecutionBudget(
           markupProjectionOf(products, annotationsOf(products).rangeByNodeId, source.length).syntax))
     },
     inputEdits(previous: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, tracked: boolean) {
-      return keyBudget(previous, () => {
+      return afterTypedCloser(!('kind' in action) && action.afterTypedCloser === true, () => keyBudget(previous, () => {
         const planOnce = (): readonly DocumentSourceEdit[] | undefined => {
           currentStateOf(previous)
           action = commentedSpanSafeInput(previous, action, at => rootsAround(previous, at))
@@ -8628,7 +8630,7 @@ function createDocumentCoreWithExecutionBudget(
         // opener re-pairs the math around a suggestion's markers: it is
         // applied as typed, which undo restores and Reject All cannot remove.
         return asTyped()
-      })
+      }))
     },
     planInput(previous: DocumentRevision, action: DocumentInputAction, options?: { readonly tracked?: boolean }) {
       const state = currentStateOf(previous)
@@ -8682,7 +8684,9 @@ function createDocumentCoreWithExecutionBudget(
       // so they follow the window check and never send a key to the document
       // parse; a tracked input suggests them with the edit.
       plan = normalizeInputPlan(core, previous, action, plan, normalizationReaders(previous))
-      return options?.tracked === true ? trackedInputPlan(previous, action, plan) : plan
+      return options?.tracked === true
+        ? afterTypedCloser(!('kind' in action) && action.afterTypedCloser === true, () => trackedInputPlan(previous, action, plan))
+        : plan
     },
     reconcileInput(previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction) {
       if (!stateByRevision.has(previous) || commit !== null && !stateByRevision.has(commit.revision)) throw new Error('Document revision belongs to another core')
