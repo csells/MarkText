@@ -1,3 +1,4 @@
+import { isPositionalMarkdownAttribute } from '@marktext/document-core'
 import type { MarkdownAstNode, SourceRange } from '@marktext/document-core'
 import type {
   MuyaMarkdownSegment,
@@ -8,7 +9,6 @@ import type {
   MuyaMarkupView
 } from './muyaMarkupView'
 import { itemOfPath, rootOf } from './muyaMarkupPath'
-import { isPositionKey } from '../documentConsumers/astAttributes'
 
 /*
  * A regional change replaces a few root blocks of a Markup view and moves
@@ -35,7 +35,7 @@ const shiftAttributes = (
   let shifted: Record<string, unknown> | undefined
   for (const key in attributes) {
     const value = attributes[key]
-    if (typeof value !== 'number' || !isPositionKey(key)) continue
+    if (typeof value !== 'number' || !isPositionalMarkdownAttribute(key)) continue
     shifted ??= { ...attributes }
     shifted[key] = value + delta
   }
