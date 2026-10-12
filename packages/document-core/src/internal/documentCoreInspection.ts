@@ -6,8 +6,14 @@ export interface DocumentCoreInspection {
   readonly regionalFastApplies: number
   readonly documentProjectionPreparationUnits: number
   readonly documentMarkupEventUnits: number
+  /** AST nodes of whole-document projections. Reads 0 unless `countMaterializedNodes` is on. */
   readonly documentAstMaterializedNodes: number
   readonly documentCoordinateSegments: number
+  /**
+   * Annotation nodes materialized for readers. Regional inventory
+   * annotations always count; whole-document annotations count only while
+   * `countMaterializedNodes` is on.
+   */
   readonly documentAnnotationMaterializedNodes: number
   /** Whole-document annotation fact tables built for readers of a revision's parse. */
   readonly annotationFactTables: number
@@ -22,10 +28,13 @@ export interface DocumentCoreInspection {
   readonly documentRetainedFactOutputStructuralUnits: number
   readonly canonicalFactIndexUnits: number
   readonly regionalProjectionPreparationUnits: number
+  /** Text units and events of regional markup streams. Reads 0 unless `countMaterializedNodes` is on. */
   readonly regionalMarkupEventUnits: number
+  /** AST nodes of regional projections. Reads 0 unless `countMaterializedNodes` is on. */
   readonly regionalAstMaterializedNodes: number
   readonly regionalCoordinateSegments: number
   readonly regionalCommentProjectionPreparationUnits: number
+  /** AST nodes of regional Comment projections. Reads 0 unless `countMaterializedNodes` is on. */
   readonly regionalCommentAstMaterializedNodes: number
   readonly regionalCommentCoordinateSegments: number
   readonly regionalInventoryBuildUnits: number
@@ -36,6 +45,7 @@ export interface DocumentCoreInspection {
   readonly regionalInventoryChangedLeaves: number
   readonly regionalInventoryRootsAttempted: number
   readonly regionalInventoryRootsCommitted: number
+  /** Annotation nodes of regional window parses. Reads 0 unless `countMaterializedNodes` is on. */
   readonly regionalInventoryLocalAnnotationMaterializedNodes: number
   readonly regionalInventoryCandidateRegionParses: number
   readonly regionalInventoryCandidateRegionParseSourceUnits: number
