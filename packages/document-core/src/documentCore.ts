@@ -24,6 +24,7 @@ import { CRITIC_MARKER, completeTrailingEscape, spellSuggestion, spellSuggestion
 import {
   admitProfile1PlainParagraphRegion,
   createProfile1DocumentReuseCache,
+  DEFAULT_MARKDOWN_OPTIONS,
   parseProfile1Document,
   parseProfile1ReaderViews,
   profile1CriticMarkupRootCount,
@@ -783,19 +784,6 @@ export interface DocumentCore {
   ): Readonly<{ projection: MarkdownProjection; span: SourceRange }>
 }
 
-const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
-  gfm: true,
-  gfmAutolinks: true,
-  gfmTagFilter: true,
-  frontMatter: true,
-  texMathDollars: true,
-  texMathGfm: false,
-  texMathSingleBackslash: false,
-  texMathDoubleBackslash: false,
-  footnotes: false,
-  subscriptAndSuperscript: false
-})
-
 // Resource and accounting profiles remain private transitional inputs to the
 // research parser. They are deliberately absent from the MarkText facade.
 /** Browser input types that transcribe the user's own typed characters. */
@@ -1184,6 +1172,23 @@ function countMarkdownAstNodes(root: MarkdownAstNode): number {
     }
   }
   return count
+}
+
+/** Counts a regional markup stream and its blocks while materialized nodes are counted. */
+function countRegionalMaterialization(
+  inspection: MutableDocumentCoreInspection,
+  events: readonly MarkupEvent[],
+  blocks: readonly MarkdownAstNode[]
+): void {
+  if (!countsMaterializedNodes()) return
+  inspection.regionalMarkupEventUnits += events.reduce(
+    (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
+    0
+  )
+  inspection.regionalAstMaterializedNodes += blocks.reduce(
+    (total, block) => total + countMarkdownAstNodes(block),
+    0
+  )
 }
 
 function countCriticMarkupAnnotationNodes(
@@ -3862,16 +3867,7 @@ function createDocumentCoreWithExecutionBudget(
       recordPrepared(impact.nextProducts, impact.nextWindow.length)
     }
     inspection.regionalProjectionPreparationUnits += preparedSourceUnits
-    if (countsMaterializedNodes()) {
-      inspection.regionalMarkupEventUnits += counted.events.reduce(
-        (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
-        0
-      )
-      inspection.regionalAstMaterializedNodes += counted.blocks.reduce(
-        (total, block) => total + countMarkdownAstNodes(block),
-        0
-      )
-    }
+    countRegionalMaterialization(inspection, counted.events, counted.blocks)
     inspection.regionalCoordinateSegments += counted.coordinates.length
     return Object.freeze({
       kind: 'applied',
@@ -3987,16 +3983,7 @@ function createDocumentCoreWithExecutionBudget(
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits +=
       admission.previousWindow.length + admission.nextWindow.length
-    if (countsMaterializedNodes()) {
-      inspection.regionalMarkupEventUnits += events.reduce(
-        (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
-        0
-      )
-      inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
-        (total, block) => total + countMarkdownAstNodes(block),
-        0
-      )
-    }
+    countRegionalMaterialization(inspection, events, syntaxBlocks)
     inspection.regionalCoordinateSegments += coordinates.length
     return Object.freeze({
       revision,
@@ -4146,17 +4133,7 @@ function createDocumentCoreWithExecutionBudget(
         scope: 'regions',
         replacements: Object.freeze([replacement])
       }))
-      if (countsMaterializedNodes()) {
-        inspection.regionalMarkupEventUnits += events.reduce(
-          (total, event) => total +
-            (event.kind === 'text' ? event.text.length : 1),
-          0
-        )
-        inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
-          (total, block) => total + countMarkdownAstNodes(block),
-          0
-        )
-      }
+      countRegionalMaterialization(inspection, events, syntaxBlocks)
       inspection.regionalCoordinateSegments += coordinates.length
     }
     projections.push(Object.freeze({
@@ -4402,16 +4379,7 @@ function createDocumentCoreWithExecutionBudget(
     )
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits += regionSource.length
-    if (countsMaterializedNodes()) {
-      inspection.regionalMarkupEventUnits += events.reduce(
-        (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
-        0
-      )
-      inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
-        (total, block) => total + countMarkdownAstNodes(block),
-        0
-      )
-    }
+    countRegionalMaterialization(inspection, events, syntaxBlocks)
     inspection.regionalCoordinateSegments += coordinates.length
     return Object.freeze({
       kind: 'applied',
@@ -6285,19 +6253,19 @@ function createDocumentCoreWithExecutionBudget(
       const match = /\r\n|\r|\n/u.exec(source.slice(offset, blockEnd))
       return match === null ? blockEnd : offset + match.index + match[0].length
     }
-    const lineStartAt = (offset: number): number => {
+    const lineStartInBlock = (offset: number): number => {
       let at = offset
       while (at > blockStart && !/[\r\n]/u.test(source.slice(at - 1, at))) at -= 1
       return at
     }
-    const editedStart = lineStartAt(edit.start)
+    const editedStart = lineStartInBlock(edit.start)
     const editedEnd = lineEnd(edit.start)
     // The block's first and last lines hold its delimiters, which stand for
     // the lines between them and the edited one; indented code has none,
     // its indentation is its delimiter, and its edited line may be either.
     const indented = /^(?: {4}|\t)/u.test(text)
     const firstLineEnd = indented && editedStart === blockStart ? blockStart : lineEnd(blockStart)
-    const lastStart = indented && editedEnd >= blockEnd ? blockEnd : lineStartAt(blockEnd)
+    const lastStart = indented && editedEnd >= blockEnd ? blockEnd : lineStartInBlock(blockEnd)
     if (editedStart < firstLineEnd || editedEnd > lastStart || (!indented && editedEnd >= blockEnd) ||
         indented && !/^(?: {4}|\t)/u.test(source.slice(editedStart, edit.start)) ||
         !/\S/u.test(source.slice(editedStart, editedEnd) + edit.insert)) return undefined
@@ -7546,8 +7514,8 @@ function createDocumentCoreWithExecutionBudget(
     const to = Math.min(state.source.length, edit.end + 512)
     const text = state.source.slice(from, to)
     const lineStart = from + lineStartInText(text, edit.start - from)
-    const lineEndAt = text.slice(edit.end - from).search(/[\r\n]/u)
-    const line = state.source.slice(lineStart, lineEndAt === -1 ? to : edit.end + lineEndAt)
+    const editToLineEnd = text.slice(edit.end - from).search(/[\r\n]/u)
+    const line = state.source.slice(lineStart, editToLineEnd === -1 ? to : edit.end + editToLineEnd)
     const marker = /^[ \t]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]+|$)/u.exec(line)
     return /[`$]/u.test(line + edit.insert) || (marker !== null && edit.start <= lineStart + marker[0].length)
   }

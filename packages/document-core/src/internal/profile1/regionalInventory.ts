@@ -2,7 +2,7 @@ import type {
   CriticMarkupNode,
   ExecutionBudgetId,
   MarkdownNode,
-  MarkdownOptionsV1,
+  MarkdownOptions,
   NodeId,
   ResourceDiagnostic,
   SourceRange,
@@ -19,7 +19,7 @@ import {
   type RetainedPassSourceEdit
 } from '../profile1Document.js'
 import type { CanonicalSourceView } from '../persistentCanonicalSource.js'
-import type { Profile1PhysicalTraversalRecorderV1 } from './physicalTraversalAccounting.js'
+import type { Profile1PhysicalTraversalRecorder } from './physicalTraversalAccounting.js'
 import type { MappedProjectionSegment } from './syntaxGraph.js'
 import { markdownReferenceDefinitionLabel, normalizeMarkdownReferenceLabel } from './markdownLaneState.js'
 import {
@@ -33,6 +33,8 @@ import {
 import { FENCED_LITERAL_BLOCKS, SPLITTABLE_LITERAL_BLOCKS, isLiteralBlock } from '../../literalBlock.js'
 import { lineStartInText } from '../../sourceLines.js'
 import { isPositionalMarkdownAttribute } from '../../markdownPositions.js'
+import { shiftResourceDiagnostic } from './regionalWindow.js'
+import { sourceRange } from './sourceRanges.js'
 import {
   createPlainParagraphRetainedIndex,
   type PlainParagraphIndexRecorder,
@@ -257,8 +259,8 @@ type RegionalInventoryArguments = [
   edits: readonly RetainedPassSourceEdit[],
   subscriptions: readonly RegionalInventorySubscription[],
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1
+  markdownOptions: MarkdownOptions,
+  physicalRecorder: Profile1PhysicalTraversalRecorder
 ]
 
 type RegionalInventoryPreviewResult = RegionalInventoryPreview | RegionalInventoryFallback | RegionalInventoryResourceFailure
@@ -492,25 +494,6 @@ function range(start: number, end: number): Readonly<{
   readonly end: number
 }> {
   return Object.freeze({ start, end })
-}
-
-function internalRange(start: number, end: number): SourceRange {
-  return range(start, end) as SourceRange
-}
-
-function shiftResourceDiagnostic(
-  diagnostic: ResourceDiagnostic,
-  sourceDelta: number
-): ResourceDiagnostic {
-  return Object.freeze({
-    kind: diagnostic.kind,
-    code: diagnostic.code,
-    range: internalRange(
-      diagnostic.range.start + sourceDelta,
-      diagnostic.range.end + sourceDelta
-    ),
-    metadata: diagnostic.metadata
-  })
 }
 
 function nodeRanges(
@@ -2608,8 +2591,8 @@ export function previewRegionalContext(
   source: CanonicalSourceView,
   position: number,
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1
+  markdownOptions: MarkdownOptions,
+  physicalRecorder: Profile1PhysicalTraversalRecorder
 ): RegionalInventoryPreview | undefined {
   const edit = Object.freeze({ start: position, end: position, insert: '' })
   const value = inventoryValue(inventory)
@@ -2637,8 +2620,8 @@ export function previewRegionalRange(
   source: CanonicalSourceView,
   range: Readonly<{ readonly start: number; readonly end: number }>,
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  markdownOptions: MarkdownOptions,
+  physicalRecorder: Profile1PhysicalTraversalRecorder,
   armLines = false
 ): Readonly<{
   sourceStart: number
@@ -2678,8 +2661,8 @@ export function regionalRangeWindow(
   source: CanonicalSourceView,
   range: Readonly<{ readonly start: number; readonly end: number }>,
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  markdownOptions: MarkdownOptions,
+  physicalRecorder: Profile1PhysicalTraversalRecorder,
   literalLines = true,
   armLines = false
 ): Readonly<{
@@ -2847,8 +2830,8 @@ function loneLeafRead(
   editedEnd: WindowEdge,
   range: Readonly<{ readonly start: number; readonly end: number }>,
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1
+  markdownOptions: MarkdownOptions,
+  physicalRecorder: Profile1PhysicalTraversalRecorder
 ): Readonly<{ sourceStart: number, nextProducts: Profile1DocumentProducts, nextWindow: string }> | undefined {
   const leaf = edited.leaf
   if (edited.ordinal !== editedEnd.ordinal || leaf.kind !== 'region' || leaf.annotations.roots.length === 0 ||
@@ -3038,8 +3021,8 @@ function evaluateRegionalInventory(
   edits: readonly RetainedPassSourceEdit[],
   subscriptions: readonly RegionalInventorySubscription[],
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  markdownOptions: MarkdownOptions,
+  physicalRecorder: Profile1PhysicalTraversalRecorder,
   previewOnly: boolean
 ): RegionalInventoryApplyResult | RegionalInventoryPreviewResult {
   if (edits.length === 1 && edits[0] !== undefined && !subscriptions.some(subscription => subscription.name === 'comment')) {
@@ -3118,8 +3101,8 @@ function evaluateSameShape(
   edits: readonly RetainedPassSourceEdit[],
   subscriptions: readonly RegionalInventorySubscription[],
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  markdownOptions: MarkdownOptions,
+  physicalRecorder: Profile1PhysicalTraversalRecorder,
   previewOnly: boolean
 ): RegionalInventoryApplyResult | RegionalInventoryPreviewResult {
   const inventory = inventoryValue(previousInventory)
@@ -3824,7 +3807,7 @@ function viewBlocksAgree(products: Profile1DocumentProducts): boolean {
  * wherever that is, so no window can bound it: the window opens front
  * matter that it does not close before the edit.
  */
-function frontMatterReach(markdownOptions: MarkdownOptionsV1, start: number, editStart: number, ...windows: string[]): boolean {
+function frontMatterReach(markdownOptions: MarkdownOptions, start: number, editStart: number, ...windows: string[]): boolean {
   if (start !== 0 || !markdownOptions.frontMatter) return false
   return windows.some(window => {
     const opener = /^(---|\+\+\+)[ \t]*(?:\r\n|\r|\n|$)/u.exec(window)
@@ -4154,8 +4137,8 @@ function evaluateBlockWindow(
   nextSource: CanonicalSourceView,
   edit: RetainedPassSourceEdit,
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  markdownOptions: MarkdownOptions,
+  physicalRecorder: Profile1PhysicalTraversalRecorder,
   previewOnly: boolean
 ): RegionalInventoryApplyResult | RegionalInventoryPreviewResult | undefined {
   const length = previousSource.length
@@ -4598,8 +4581,8 @@ function admitArmLiteralLines(
   nextSource: CanonicalSourceView,
   edit: RetainedPassSourceEdit,
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  markdownOptions: MarkdownOptions,
+  physicalRecorder: Profile1PhysicalTraversalRecorder,
   previewOnly: boolean
 ): RegionalInventoryAdmission | RegionalInventoryPreview | undefined {
   if (inventory.strayMarkers || previousSource.length !== inventory.root.sourceLength) return undefined
@@ -4880,8 +4863,8 @@ function admitArmCreation(
   nextSource: CanonicalSourceView,
   edit: RetainedPassSourceEdit,
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  markdownOptions: MarkdownOptions,
+  physicalRecorder: Profile1PhysicalTraversalRecorder,
   previewOnly: boolean
 ): RegionalInventoryAdmission | RegionalInventoryPreview | undefined {
   if (inventory.strayMarkers || inventory.dependencyPrefixEnd > edit.start || !edit.insert.startsWith('{~~') ||
@@ -5211,8 +5194,8 @@ function admitLiteralLines(
   edited: WindowEdge,
   editedEnd: WindowEdge,
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  markdownOptions: MarkdownOptions,
+  physicalRecorder: Profile1PhysicalTraversalRecorder,
   previewOnly: boolean
 ): RegionalInventoryAdmission | RegionalInventoryPreview | undefined {
   const firstRun = literalRunIn(edited.leaf)
@@ -5926,7 +5909,7 @@ export function materializeRegionalInventoryDiagnostics(
       for (const diagnostic of node.diagnostics) {
         diagnostics.push(Object.freeze({
           code: diagnostic.code,
-          range: internalRange(sourceStart + diagnostic.start, sourceStart + diagnostic.end),
+          range: sourceRange(sourceStart + diagnostic.start, sourceStart + diagnostic.end),
           metadata: diagnostic.metadata
         }))
       }

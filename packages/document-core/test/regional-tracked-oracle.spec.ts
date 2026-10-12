@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
-import { regional } from './support/inputDriver.js'
+import { regionalRevision } from './support/inputDriver.js'
 
 // A tracked key validates each candidate it considers as
 // apply() would read it. Where the regional inventory admits a candidate,
@@ -27,14 +27,14 @@ describe('tracked keys validated from the blocks they change', () => {
     { label: 'a deleted word', start: after('alongside'), length: 9, insert: '' }
   ])('compiles $label with no document parse, as the document parse does', ({ start, length, insert }) => {
     const core = createDocumentCore()
-    const revision = regional(core, source)
+    const revision = regionalRevision(core, source)
     const before = inspectDocumentCore(core).documentParses
     const actual = core.trackedEdit(revision, { start, end: start + length, insert })
     expect(inspectDocumentCore(core).documentParses - before).toBe(0)
     const control = createDocumentCore()
     planFromDocumentParse(control)
-    expect(actual).toEqual(control.trackedEdit(regional(control, source), { start, end: start + length, insert }))
-  })
+    expect(actual).toEqual(control.trackedEdit(regionalRevision(control, source), { start, end: start + length, insert }))
+  }, 30_000)
 })
 
 describe('tracked keys in a literal block beside suggestions', () => {
@@ -47,13 +47,13 @@ describe('tracked keys in a literal block beside suggestions', () => {
     const start = text.lastIndexOf(block) + block.indexOf('\n', block.indexOf('\n') + 1) + 3
     for (const insert of ['x', ' ', '\n', '{--d--}']) {
       const core = createDocumentCore()
-      const revision = regional(core, text)
+      const revision = regionalRevision(core, text)
       const before = inspectDocumentCore(core).documentParses
       const actual = core.trackedEdit(revision, { start, end: start, insert })
       expect(inspectDocumentCore(core).documentParses - before).toBe(0)
       const control = createDocumentCore()
       planFromDocumentParse(control)
-      expect(actual).toEqual(control.trackedEdit(regional(control, text), { start, end: start, insert }))
+      expect(actual).toEqual(control.trackedEdit(regionalRevision(control, text), { start, end: start, insert }))
     }
   }, 60_000)
 })

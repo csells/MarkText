@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
 import { planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
-import { regional } from './support/inputDriver.js'
+import { regionalRevision } from './support/inputDriver.js'
 
 // A tracked key compiled in a window of the document is taken from the window
 // only where blank lines part the window from the blocks around it: a block
@@ -19,8 +19,8 @@ describe('tracked keys at a window edge without a blank line', () => {
     const source = '| a | b |\n| --- | --- |\n| {++c++} | d {--e--} |\n\n| a | b |\n| --- | --- |\n| {++c++} | d {--e--} |\n\n' +
       '{~~<div>\nhtml {++x++} block\n</div>\n~><div>\nhtm {++x++} block\n</div>\n~~}\n<div>\nhtml {++x++} block\n</div>\n'
     const [core, control] = cores()
-    const revision = regional(core, source)
-    const controlRevision = regional(control, source)
+    const revision = regionalRevision(core, source)
+    const controlRevision = regionalRevision(control, source)
     const start = revision.source.indexOf('~~}\n<div>') + 3
     const edit = { start, end: start, insert: 'x' }
     expect(core.trackedEdit(revision, edit)).toEqual(control.trackedEdit(controlRevision, edit))
@@ -36,8 +36,8 @@ describe('tracked keys at a window edge without a blank line', () => {
     const [core, control] = cores()
     // The regional edit types the `q` the source already spells.
     const unspelled = source.slice(0, 1) + source.slice(2)
-    const revision = regional(core, unspelled)
-    const controlRevision = regional(control, unspelled)
+    const revision = regionalRevision(core, unspelled)
+    const controlRevision = regionalRevision(control, unspelled)
     expect(revision.source).toBe(source)
     const input = {
       range: { start: 77, end: 77 },

@@ -440,9 +440,6 @@ export interface MarkdownOptions {
   readonly subscriptAndSuperscript: boolean
 }
 
-/** @deprecated Use MarkdownOptions. */
-export type MarkdownOptionsV1 = MarkdownOptions
-
 export interface ExecutionBudgetId {
   readonly limitsProfile: string
 }

@@ -46,7 +46,7 @@ import {
 } from './profile1/markdownLaneState.js'
 import {
   createPhysicalTraversalRecorder,
-  type Profile1PhysicalTraversalRecorderV1
+  type Profile1PhysicalTraversalRecorder
 } from './profile1/physicalTraversalAccounting.js'
 import {
   createIntrinsicProfile1ForkRecorder,
@@ -114,11 +114,6 @@ import {
   type Profile1SyntaxAccountingRecorder,
   type Profile1SyntaxAccountingTrace
 } from './profile1/syntaxAccounting.js'
-import {
-  createParseExecutionTracker,
-  PARSE_SOURCE_CHECKPOINT_INTERVAL,
-  type ParseExecutionTracker
-} from '../parseExecutionControl.js'
 import { sourceOffset, sourceRange } from './profile1/sourceRanges.js'
 
 type ImplementedUnaryNode =
@@ -247,11 +242,11 @@ interface MarkupEventTask {
 type MarkupTask = MarkupRangeTask | MarkupAppendTask | MarkupEventTask
 
 /**
- * The intrinsic-pass facts a later reopen can splice instead of re-scanning
- * text its edits never touched. Members alias the frozen arrays the
- * parse already produced — retention adds references, not copies. The bundle
- * is only usable while its guards hold; `parseIntrinsicProfile1` falls back
- * to the full pass otherwise.
+ * The intrinsic-pass facts a parse of an edited source can splice instead
+ * of re-scanning text its edits never touched. Members alias the frozen
+ * arrays the parse already produced — retention adds references, not
+ * copies. The bundle is only usable while its guards hold;
+ * `parseIntrinsicStage` falls back to the full pass otherwise.
  */
 export interface RetainedIntrinsicPass {
   readonly sourceLength: number
@@ -305,8 +300,8 @@ export interface RetainedPassSourceEdit {
 /**
  * A prior parse's retained facts plus the exact edits that produced the new
  * source from its text — the inputs an incremental intrinsic pass splices
- * from. Accepted and currently unused: the splice lands behind this
- * seam without another signature change.
+ * from. A parse given one splices where the retained facts' guards hold and
+ * runs the full pass otherwise.
  */
 export interface PreviousIntrinsicPass {
   readonly retained: RetainedIntrinsicPass
@@ -361,7 +356,8 @@ const FORM_LABEL: Readonly<Record<ImplementedKind, string>> = Object.freeze({
 
 const DESKTOP_MARKDOWN_DEPTH_LIMIT = 128
 const DESKTOP_CM_DEPTH_LIMIT = 16_384
-const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
+/** The Markdown options a document is read with when its host names none. */
+export const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
   gfm: true,
   gfmAutolinks: true,
   gfmTagFilter: true,
@@ -371,8 +367,9 @@ const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
   texMathSingleBackslash: false,
   texMathDoubleBackslash: false,
   footnotes: false,
-  subscriptAndSuperscript: true
+  subscriptAndSuperscript: false
 })
+const MARKDOWN_OPTION_NAMES = Object.keys(DEFAULT_MARKDOWN_OPTIONS) as ReadonlyArray<keyof MarkdownOptions>
 
 function emitCriticMarkerEdges(
   registry: Profile1SyntaxIdentityRegistry,
@@ -729,15 +726,13 @@ function emitProjectionAccounting(
 }
 
 function plainParagraphLineRanges(
-  source: string,
-  execution?: ParseExecutionTracker
+  source: string
 ): readonly SourceRange[] | undefined {
   if (source.length === 0) {
     return undefined
   }
   const ranges: SourceRange[] = []
   let start = 0
-  let reportedEnd = 0
   while (start < source.length) {
     let end = start
     while (
@@ -746,16 +741,7 @@ function plainParagraphLineRanges(
       source.charCodeAt(end) !== 13
     ) {
       end += 1
-      if (
-        execution !== undefined &&
-        end - reportedEnd >= PARSE_SOURCE_CHECKPOINT_INTERVAL
-      ) {
-        execution.examineParserWork(end - reportedEnd)
-        reportedEnd = end
-      }
     }
-    execution?.examineParserWork(end - reportedEnd)
-    reportedEnd = end
     const content = source.slice(start, end)
     if (content.length === 0 || !/^[\p{L}\p{N} ]+$/u.test(content)) {
       return undefined
@@ -786,8 +772,7 @@ function plainParagraphLineRanges(
  */
 function plainParagraphBudgetEventFailure(
   source: string,
-  parsed: ParseResult,
-  execution?: ParseExecutionTracker
+  parsed: ParseResult
 ): ResourceDiagnostic | undefined {
   if (parsed.roots.length !== 0) {
     return undefined
@@ -802,7 +787,7 @@ function plainParagraphBudgetEventFailure(
   ) {
     return undefined
   }
-  const lines = plainParagraphLineRanges(source, execution)
+  const lines = plainParagraphLineRanges(source)
   if (lines === undefined) {
     return undefined
   }
@@ -900,8 +885,7 @@ function finalizeAuthenticatedMarkdownLiterals(
 
 function finalizeCanonicalTape(
   source: string,
-  decisions: readonly CanonicalMarkerDecision[],
-  execution?: ParseExecutionTracker
+  decisions: readonly CanonicalMarkerDecision[]
 ): Readonly<{
     tape: readonly TapeRun[]
     markerDecisions: readonly CanonicalMarkerDecision[]
@@ -913,7 +897,7 @@ function finalizeCanonicalTape(
       range: decision.range
     })
   )
-  const tape = scanSourceTape(source, retainedCandidates, execution)
+  const tape = scanSourceTape(source, retainedCandidates)
   assertLosslessTape(source, tape)
 
   const finalRunIdByIdentity = new Map<string, number>()
@@ -1100,17 +1084,15 @@ function parseIntrinsicProfile1(
   syntaxIdentity: Profile1SyntaxIdentityRegistry,
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
   markdownOptions: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS,
-  execution?: ParseExecutionTracker,
   suppressedMarkerRanges?: readonly Readonly<{
     start: number
     end: number
   }>[],
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
+  physicalRecorder: Profile1PhysicalTraversalRecorder =
   createPhysicalTraversalRecorder()
 ): ParseOutcome {
   const sourceProgression = createIntrinsicProfile1SourceProgression(
     source,
-    execution,
     suppressedMarkerRanges,
     markdownOptions.footnotes
   )
@@ -1131,7 +1113,6 @@ function parseIntrinsicProfile1(
     markdownOptions.texMathSingleBackslash,
     markdownOptions.texMathDoubleBackslash,
     markdownOptions.footnotes,
-    execution,
     sourceProgression.hasCriticMarkupCandidate,
     physicalRecorder
   )
@@ -1819,7 +1800,7 @@ function parseIntrinsicProfile1(
       )
     })
   }
-  const canonical = finalizeCanonicalTape(source, markerDecisions, execution)
+  const canonical = finalizeCanonicalTape(source, markerDecisions)
   const forkGraph = forkRecorder.finish(
     canonical.tape,
     rootMarkdownCheckpoint
@@ -3778,7 +3759,7 @@ function prepareProjection(
   role: ProjectionRole = view,
   markdownOptions: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS,
   forkParser?: Profile1MarkdownForkParser,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1,
+  physicalRecorder?: Profile1PhysicalTraversalRecorder,
   documentHasAnnotations: boolean = false
 ): PreparedProfile1Projection {
   if (forkParser === undefined) {
@@ -4297,7 +4278,7 @@ function prepareCommentDisplayProjections(
   markdownDepthLimit: number,
   markdownOptions: MarkdownOptions,
   forkParser: Profile1MarkdownForkParser,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder: Profile1PhysicalTraversalRecorder
 ): readonly PreparedCommentDisplayProjection[] {
   return Object.freeze(graph.forkGraph.branches.flatMap((branch) => {
     if (branch.node.kind !== 'comment') {
@@ -4424,9 +4405,8 @@ function tryIncrementalIntrinsicParse(
   previousPass: PreviousIntrinsicPass,
   markdownDepthLimit: number,
   markdownOptions: MarkdownOptions,
-  execution: ParseExecutionTracker,
   accounting: Profile1SyntaxAccountingRecorder,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  physicalRecorder: Profile1PhysicalTraversalRecorder,
   syntaxIdentity: Profile1SyntaxIdentityRegistry
 ): ParseResult | undefined {
   const bracket = bracketForEdits(
@@ -4444,7 +4424,6 @@ function tryIncrementalIntrinsicParse(
     createProfile1SyntaxIdentityRegistry(window.length, accounting),
     markdownDepthLimit,
     bracket.start === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false }),
-    execution,
     undefined,
     physicalRecorder
   )
@@ -4527,7 +4506,6 @@ function tryIncrementalIntrinsicParse(
     markdownOptions.texMathSingleBackslash,
     markdownOptions.texMathDoubleBackslash,
     markdownOptions.footnotes,
-    execution,
     false,
     physicalRecorder
   )
@@ -4564,7 +4542,7 @@ function tryIncrementalIntrinsicParse(
 function retainedIntrinsicFromParse(
   sourceLength: number,
   parsed: ParseResult,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorder
 ): RetainedIntrinsicPass {
   const safePoints = intrinsicForkSafeSourcePoints(parsed.forkGraph.root)
   physicalRecorder?.recordRetainedFactStructure(
@@ -4601,7 +4579,7 @@ export function admitProfile1PlainParagraphRegion(
   edits: readonly RetainedPassSourceEdit[],
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptions,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
+  physicalRecorder: Profile1PhysicalTraversalRecorder =
   createPhysicalTraversalRecorder()
 ): Profile1RegionalAdmissionResult | undefined {
   const edit = edits.length === 1
@@ -4680,7 +4658,7 @@ interface WindowParse {
   readonly executionBudget: ExecutionBudgetId
   readonly markdownOptions: MarkdownOptions
   readonly captureAccountingTrace: boolean
-  readonly physicalRecorder: Profile1PhysicalTraversalRecorderV1
+  readonly physicalRecorder: Profile1PhysicalTraversalRecorder
   readonly endsAtDocumentEnd: boolean
   readonly documentHasAnnotations: boolean
   readonly startsAfterOneEmptyLine: boolean
@@ -4724,16 +4702,7 @@ export function sameMarkdownOptions(
   left: MarkdownOptions,
   right: MarkdownOptions
 ): boolean {
-  return left.gfm === right.gfm &&
-    left.gfmAutolinks === right.gfmAutolinks &&
-    left.gfmTagFilter === right.gfmTagFilter &&
-    left.frontMatter === right.frontMatter &&
-    left.texMathDollars === right.texMathDollars &&
-    left.texMathGfm === right.texMathGfm &&
-    left.texMathSingleBackslash === right.texMathSingleBackslash &&
-    left.texMathDoubleBackslash === right.texMathDoubleBackslash &&
-    left.footnotes === right.footnotes &&
-    left.subscriptAndSuperscript === right.subscriptAndSuperscript
+  return MARKDOWN_OPTION_NAMES.every((name) => left[name] === right[name])
 }
 
 /**
@@ -4747,7 +4716,7 @@ export function parseProfile1Window(
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptions,
   captureAccountingTrace: boolean,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  physicalRecorder: Profile1PhysicalTraversalRecorder,
   endsAtDocumentEnd: boolean,
   documentHasAnnotations: boolean = false,
   startsAfterOneEmptyLine: boolean = true,
@@ -4822,7 +4791,7 @@ export function parseProfile1Document(
   markdownOptions: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS,
   captureAccountingTrace: boolean = false,
   reuseCache?: Profile1DocumentReuseCache,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
+  physicalRecorder: Profile1PhysicalTraversalRecorder =
   createPhysicalTraversalRecorder(),
   previousPass?: PreviousIntrinsicPass,
   endsAtDocumentEnd = true,
@@ -4830,14 +4799,12 @@ export function parseProfile1Document(
   // that document does, whether or not the window holds an annotation.
   documentHasAnnotations = false
 ): Profile1DocumentResult {
-  const execution = createParseExecutionTracker()
   try {
-    const result = parseProfile1DocumentWithExecution(
+    const result = parseProfile1DocumentOrReaderViews(
       source,
       executionBudget,
       markdownOptions,
       captureAccountingTrace,
-      execution,
       reuseCache,
       physicalRecorder,
       previousPass,
@@ -4850,7 +4817,6 @@ export function parseProfile1Document(
     if (!(error instanceof Profile1LogicalNodeLimitError)) {
       throw error
     }
-    execution.finish()
     return Object.freeze({
       kind: 'source-only',
       fatalDiagnostic: createResourceDiagnostic(
@@ -4882,18 +4848,16 @@ export function parseProfile1ReaderViews(
   source: string,
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1 = createPhysicalTraversalRecorder(),
+  physicalRecorder: Profile1PhysicalTraversalRecorder = createPhysicalTraversalRecorder(),
   previousPass?: PreviousIntrinsicPass
 ): Profile1ReaderViews | Profile1SourceOnlyProducts {
-  const execution = createParseExecutionTracker()
   try {
-    const result = parseProfile1DocumentWithExecution(source, executionBudget, markdownOptions, false,
-      execution, createProfile1DocumentReuseCache(), physicalRecorder, previousPass, true, false, true)
+    const result = parseProfile1DocumentOrReaderViews(source, executionBudget, markdownOptions, false,
+      createProfile1DocumentReuseCache(), physicalRecorder, previousPass, true, false, true)
     if (result.kind === 'complete') throw new Error('Reader views parsed a whole document')
     return result
   } catch (error) {
     if (!(error instanceof Profile1LogicalNodeLimitError)) throw error
-    execution.finish()
     return Object.freeze({
       kind: 'source-only',
       fatalDiagnostic: createResourceDiagnostic(
@@ -4916,8 +4880,7 @@ function parseIntrinsicStage(
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptions,
   captureAccountingTrace: boolean,
-  execution: ParseExecutionTracker,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  physicalRecorder: Profile1PhysicalTraversalRecorder,
   previousPass: PreviousIntrinsicPass | undefined
 ): Profile1SourceOnlyProducts | Readonly<{
   kind: 'complete'
@@ -4931,7 +4894,6 @@ function parseIntrinsicStage(
   let accounting = createProfile1SyntaxAccountingRecorder(
     usesDesktopLimits,
     captureAccountingTrace,
-    execution,
     usesDesktopLimits
       ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
       : Number.POSITIVE_INFINITY
@@ -4970,7 +4932,6 @@ function parseIntrinsicStage(
       previousPass,
       markdownDepthLimit,
       markdownOptions,
-      execution,
       accounting,
       physicalRecorder,
       syntaxIdentity
@@ -4982,7 +4943,6 @@ function parseIntrinsicStage(
       syntaxIdentity,
       markdownDepthLimit,
       markdownOptions,
-      execution,
       undefined,
       physicalRecorder
     )
@@ -4998,7 +4958,6 @@ function parseIntrinsicStage(
     accounting = createProfile1SyntaxAccountingRecorder(
       usesDesktopLimits,
       captureAccountingTrace,
-      execution,
       usesDesktopLimits
         ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
         : Number.POSITIVE_INFINITY
@@ -5012,7 +4971,6 @@ function parseIntrinsicStage(
       syntaxIdentity,
       markdownDepthLimit,
       markdownOptions,
-      execution,
       parsed.recoverySuppressedMarkerRanges,
       physicalRecorder
     )
@@ -5038,11 +4996,7 @@ function parseIntrinsicStage(
   }
   emitTapeAccounting(accounting, parsed.tape)
   if (usesDesktopLimits) {
-    const plainParagraphFailure = plainParagraphBudgetEventFailure(
-      source,
-      parsed,
-      execution
-    )
+    const plainParagraphFailure = plainParagraphBudgetEventFailure(source, parsed)
     if (plainParagraphFailure !== undefined) {
       return Object.freeze({
         kind: 'source-only',
@@ -5061,44 +5015,34 @@ export function profile1CriticMarkupRootCount(
   source: string,
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1 = createPhysicalTraversalRecorder(),
+  physicalRecorder: Profile1PhysicalTraversalRecorder = createPhysicalTraversalRecorder(),
   previousPass?: PreviousIntrinsicPass
 ): number | undefined {
-  const execution = createParseExecutionTracker()
   try {
-    const stage = parseIntrinsicStage(source, executionBudget, markdownOptions, false, execution,
+    const stage = parseIntrinsicStage(source, executionBudget, markdownOptions, false,
       physicalRecorder, previousPass)
     return stage.kind === 'complete' ? stage.parsed.roots.length : undefined
   } catch (error) {
     if (!(error instanceof Profile1LogicalNodeLimitError)) throw error
     return undefined
-  } finally {
-    execution.finish()
   }
 }
 
-function parseProfile1DocumentWithExecution(
+function parseProfile1DocumentOrReaderViews(
   source: string,
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptions,
   captureAccountingTrace: boolean,
-  execution: ParseExecutionTracker,
   reuseCache: Profile1DocumentReuseCache | undefined,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  physicalRecorder: Profile1PhysicalTraversalRecorder,
   previousPass: PreviousIntrinsicPass | undefined,
   endsAtDocumentEnd: boolean,
   documentHasAnnotations: boolean,
   readerOnly = false
 ): Profile1DocumentResult | Profile1ReaderViews {
-  const finishResult = <Result extends Profile1DocumentResult | Profile1ReaderViews>(
-    result: Result
-  ): Result => {
-    execution.finish()
-    return result
-  }
   const stage = parseIntrinsicStage(source, executionBudget, markdownOptions, captureAccountingTrace,
-    execution, physicalRecorder, previousPass)
-  if (stage.kind === 'source-only') return finishResult(stage)
+    physicalRecorder, previousPass)
+  if (stage.kind === 'source-only') return stage
   const { parsed, accounting, syntaxIdentity, usesDesktopLimits, markdownDepthLimit } = stage
   const criticMarkupRoots = parsed.roots
   for (const root of criticMarkupRoots) {
@@ -5161,7 +5105,6 @@ function parseProfile1DocumentWithExecution(
   const forkParser = createProfile1MarkdownForkParser(
     graphCore.forkGraph,
     parsed.referenceDefinitions,
-    execution,
     physicalRecorder,
     reuseCache?.markdown,
     parsed.spliceProvenance
@@ -5369,10 +5312,10 @@ function parseProfile1DocumentWithExecution(
         overflow.observed
       )
     if (budgetFailure !== undefined) {
-      return finishResult(Object.freeze({
+      return Object.freeze({
         kind: 'source-only',
         fatalDiagnostic: budgetFailure
-      }))
+      })
     }
   }
   const commentDisplays = (): readonly Profile1ProjectedMarkdown[] => {
@@ -5426,22 +5369,22 @@ function parseProfile1DocumentWithExecution(
     )
     : undefined
   if (projectedDepthDiagnostic !== undefined) {
-    return finishResult(Object.freeze({
+    return Object.freeze({
       kind: 'source-only',
       fatalDiagnostic: projectedDepthDiagnostic
-    }))
+    })
   }
   if (readerOnly) {
     validateMappedProjection(graphCore, original)
     validateMappedProjection(graphCore, revised)
-    return finishResult(Object.freeze({
+    return Object.freeze({
       kind: 'reader',
       criticMarkup,
       diagnostics: createDiagnosticIndex(parsed.diagnostics),
       original,
       revised,
       intrinsic: Object.freeze({ markdownLiterals: parsed.markdownLiterals, roots: parsed.roots })
-    }))
+    })
   }
   const finalized = finalizeProfile1SyntaxGraph(graphCore, {
     diagnostics: createDiagnosticIndex(parsed.diagnostics),
@@ -5469,7 +5412,7 @@ function parseProfile1DocumentWithExecution(
       physicalRecorder
     )
   })
-  return finishResult(captureAccountingTrace
+  return captureAccountingTrace
     ? Object.freeze({ ...products, accountingTrace: accounting.trace() })
-    : products)
+    : products
 }

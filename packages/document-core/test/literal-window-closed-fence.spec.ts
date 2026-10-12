@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
-import { regional } from './support/inputDriver.js'
+import { regionalRevision } from './support/inputDriver.js'
 
 // A tracked key in a literal block is compiled on a window holding that block
 // and the four blocks after it that a literal can absorb. When a closed math block
@@ -32,13 +32,13 @@ describe('a literal block window ending before a closed math block', () => {
         const caret = source.indexOf(literal) + literal.indexOf('\n', literal.indexOf('\n') + 1)
         for (const insert of ['x', '{==h==}{>>c<<}']) {
           const core = createDocumentCore()
-          const revision = regional(core, source, 0)
+          const revision = regionalRevision(core, source, 0)
           const before = inspectDocumentCore(core).documentParses
           const planned = core.trackedEdit(revision, { start: caret + 1, end: caret + 1, insert })
           const parses = inspectDocumentCore(core).documentParses - before
           const control = createDocumentCore()
           planFromDocumentParse(control)
-          const expected = control.trackedEdit(regional(control, source, 0), { start: caret + 1, end: caret + 1, insert })
+          const expected = control.trackedEdit(regionalRevision(control, source, 0), { start: caret + 1, end: caret + 1, insert })
           expect(planned).toEqual(expected)
           if (/^(?:```|~~~|\$\$)[\s\S]*\n(?:```|~~~|\$\$)$/u.test(last)) expect(parses).toBe(0)
         }

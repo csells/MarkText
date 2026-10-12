@@ -22,13 +22,12 @@ import type {
 } from './sourceTape.js'
 import type {
   CriticMarkupNode,
-  SourceOffset,
-  SourceRange,
   SyntaxDiagnostic
 } from '../../revision.js'
+import { sourceOffset, sourceRange } from './sourceRanges.js'
 
 /**
- * The incremental intrinsic parse: a reopen whose edits sit between two
+ * The incremental intrinsic parse: a reparse whose edits sit between two
  * safe points re-scans only that bracket and splices the retained facts of
  * the untouched prefix and suffix around the bracket's fresh mini-parse.
  *
@@ -39,17 +38,6 @@ import type {
  * pass. Narrowness is a guard property, not a design ceiling: each widened
  * guard must widen the equivalence proof with it.
  */
-
-function spliceOffset(value: number): SourceOffset {
-  return value as SourceOffset
-}
-
-function spliceRange(start: number, end: number): SourceRange {
-  return Object.freeze({
-    start: spliceOffset(start),
-    end: spliceOffset(end)
-  })
-}
 
 export interface IntrinsicSpliceBracket {
   /** Bracket start, identical in previous and next coordinates. */
@@ -272,7 +260,7 @@ function shiftSlice(
   return Object.freeze({
     kind: 'source',
     sourceRunId: remapRunId(slice.sourceRunId),
-    range: spliceRange(slice.range.start + delta, slice.range.end + delta)
+    range: sourceRange(slice.range.start + delta, slice.range.end + delta)
   })
 }
 
@@ -349,7 +337,7 @@ function shiftDecision(
   delta: number,
   remapRunId: (id: number) => number
 ): CanonicalMarkerDecision {
-  const range = spliceRange(
+  const range = sourceRange(
     decision.range.start + delta,
     decision.range.end + delta
   )
@@ -424,7 +412,7 @@ function shiftForkLane(
   return Object.freeze({
     id,
     owner,
-    range: spliceRange(lane.range.start + delta, lane.range.end + delta),
+    range: sourceRange(lane.range.start + delta, lane.range.end + delta),
     entryCheckpoint: shiftMarkdownCheckpoint(lane.entryCheckpoint, delta),
     exitCheckpoint: shiftMarkdownCheckpoint(lane.exitCheckpoint, delta),
     transitions: Object.freeze(lane.transitions.map(
@@ -433,7 +421,7 @@ function shiftForkLane(
     armBoundaries: Object.freeze(lane.armBoundaries.map((event) =>
       Object.freeze({
         ...event,
-        sourcePosition: spliceOffset(event.sourcePosition + delta)
+        sourcePosition: sourceOffset(event.sourcePosition + delta)
       })
     )),
     items: Object.freeze(lane.items.map((item) =>
@@ -670,7 +658,7 @@ export function spliceGuardsHold(
  * line facts before the bracket, the mini-parse's lines shifted into place,
  * one synthetic advance transition carrying them, and a tape spliced at the
  * bracket's run boundary. The lane's exit state is the mini-parse's exit,
- * shifted — the bracket reaches the end of the document, so the reopened
+ * shifted — the bracket reaches the end of the document, so the edited
  * document ends exactly as the window did.
  */
 export function spliceIntrinsicFacts(
@@ -790,7 +778,7 @@ export function spliceIntrinsicFacts(
   const tape: TapeRun[] = []
   const pushRun = (role: TapeRun['role'], start: number, end: number): number => {
     const id = tape.length
-    tape.push(Object.freeze({ id, role, range: spliceRange(start, end) }))
+    tape.push(Object.freeze({ id, role, range: sourceRange(start, end) }))
     return id
   }
   for (const run of retained.tape) {
@@ -875,7 +863,7 @@ export function spliceIntrinsicFacts(
         keptSlices.push(Object.freeze({
           kind: 'source' as const,
           sourceRunId: remap(slice.sourceRunId),
-          range: spliceRange(clippedStart + delta, clippedEnd + delta)
+          range: sourceRange(clippedStart + delta, clippedEnd + delta)
         }))
       }
       const keptLines = transition.emittedFacts.lines
@@ -1086,14 +1074,14 @@ export function spliceIntrinsicFacts(
     const markerLane: IntrinsicProfile1ForkLane = Object.freeze({
       id: 0,
       owner: retainedRoot.owner,
-      range: spliceRange(0, nextLength),
+      range: sourceRange(0, nextLength),
       entryCheckpoint: markerFirst.entryCheckpoint,
       exitCheckpoint: markerLast.exitCheckpoint,
       transitions: Object.freeze(markerTransitions),
       armBoundaries: Object.freeze(retainedRoot.armBoundaries.map((event) =>
         Object.freeze({
           ...event,
-          sourcePosition: spliceOffset(
+          sourcePosition: sourceOffset(
             event.sourcePosition >= bracket.endPrevious
               ? event.sourcePosition + bracket.delta
               : event.sourcePosition
@@ -1415,7 +1403,7 @@ export function spliceIntrinsicFacts(
   const lane: IntrinsicProfile1ForkLane = Object.freeze({
     id: retainedRoot.id,
     owner: retainedRoot.owner,
-    range: spliceRange(0, nextLength),
+    range: sourceRange(0, nextLength),
     entryCheckpoint: first.entryCheckpoint,
     exitCheckpoint: last.exitCheckpoint,
     transitions: Object.freeze(transitions),

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
-import { regional } from './support/inputDriver.js'
+import { regionalRevision } from './support/inputDriver.js'
 
 // Ordinary Markdown edits as fast as it does without
 // suggestions. In a long document mixing every block kind, links, code
@@ -63,7 +63,7 @@ describe('ordinary Markdown keys in a long document', () => {
     for (const tracked of [false, true]) {
       for (const key of keys) {
         const core = createDocumentCore()
-        const revision = regional(core, source)
+        const revision = regionalRevision(core, source)
         const caret = revision.source.indexOf(`${block}\n\nThe marked`) + block.indexOf(text) + offset
         const before = inspectDocumentCore(core).documentParses
         const outcome = press(core, revision, caret, key, tracked)
@@ -71,7 +71,7 @@ describe('ordinary Markdown keys in a long document', () => {
         expect(inspectDocumentCore(core).documentParses - before, label).toBeLessThanOrEqual(tracked ? trackedParse ?? 0 : 0)
         const control = createDocumentCore()
         planFromDocumentParse(control)
-        expect(outcome, label).toEqual(press(control, regional(control, source), caret, key, tracked))
+        expect(outcome, label).toEqual(press(control, regionalRevision(control, source), caret, key, tracked))
       }
     }
   }, 120_000)
@@ -105,14 +105,14 @@ describe('the first suggestion in a document with an unfinished opener', () => {
   it('costs the one parse apply() publishes', () => {
     const source = 'Unfinished {== opener.\n\n' + Array.from({ length: 300 }, () => 'Plain words of a paragraph here.').join('\n\n') + '\n'
     const core = createDocumentCore()
-    const revision = regional(core, source)
+    const revision = regionalRevision(core, source)
     const caret = Math.floor(revision.source.length / 2) + 3
     const before = inspectDocumentCore(core).documentParses
     const outcome = press(core, revision, caret, 'insertText', true)
     expect(inspectDocumentCore(core).documentParses - before).toBe(1)
     const control = createDocumentCore()
     planFromDocumentParse(control)
-    expect(outcome).toEqual(press(control, regional(control, source), caret, 'insertText', true))
+    expect(outcome).toEqual(press(control, regionalRevision(control, source), caret, 'insertText', true))
   })
 })
 
@@ -133,7 +133,7 @@ describe('keys inside a label a definition resolves', () => {
     for (const tracked of [false, true]) {
       for (const key of keys) {
         const core = createDocumentCore()
-        const revision = regional(core, source)
+        const revision = regionalRevision(core, source)
         const caret = revision.source.indexOf(block) + block.indexOf(text) + 2
         const before = inspectDocumentCore(core).documentParses
         const outcome = press(core, revision, caret, key, tracked)
@@ -141,7 +141,7 @@ describe('keys inside a label a definition resolves', () => {
         expect(inspectDocumentCore(core).documentParses - before, name).toBeLessThanOrEqual(1)
         const control = createDocumentCore()
         planFromDocumentParse(control)
-        expect(outcome, name).toEqual(press(control, regional(control, source), caret, key, tracked))
+        expect(outcome, name).toEqual(press(control, regionalRevision(control, source), caret, key, tracked))
       }
     }
   }, 120_000)
@@ -154,14 +154,14 @@ describe('a key that changes nothing', () => {
     paragraphs[100] = block
     const source = paragraphs.join('\n\n') + '\n'
     const core = createDocumentCore()
-    const revision = regional(core, source)
+    const revision = regionalRevision(core, source)
     const caret = revision.source.indexOf(block)
     const before = inspectDocumentCore(core).documentParses
     const outcome = press(core, revision, caret, 'deleteContentBackward', false)
     expect(inspectDocumentCore(core).documentParses - before).toBe(0)
     const control = createDocumentCore()
     planFromDocumentParse(control)
-    expect(outcome).toEqual(press(control, regional(control, source), caret, 'deleteContentBackward', false))
+    expect(outcome).toEqual(press(control, regionalRevision(control, source), caret, 'deleteContentBackward', false))
   })
 })
 
@@ -181,7 +181,7 @@ describe('keys in an item of a long list', () => {
     for (const tracked of [false, true]) {
       for (const key of keys) {
         const core = createDocumentCore()
-        const revision = regional(core, source)
+        const revision = regionalRevision(core, source)
         const caret = revision.source.indexOf('number 151 of') + 3
         const before = inspectDocumentCore(core).documentParses
         const outcome = press(core, revision, caret, key, tracked)
@@ -189,7 +189,7 @@ describe('keys in an item of a long list', () => {
         expect(inspectDocumentCore(core).documentParses - before, label).toBe(0)
         const control = createDocumentCore()
         planFromDocumentParse(control)
-        expect(outcome, label).toEqual(press(control, regional(control, source), caret, key, tracked))
+        expect(outcome, label).toEqual(press(control, regionalRevision(control, source), caret, key, tracked))
       }
     }
   }, 120_000)
@@ -208,7 +208,7 @@ describe('keys beside a long fence or list', () => {
       for (const tracked of [false, true]) {
         for (const key of keys) {
           const core = createDocumentCore()
-          const revision = regional(core, source)
+          const revision = regionalRevision(core, source)
           const caret = revision.source.indexOf(where.slice(1)) + where.length - 1
           const before = inspectDocumentCore(core)
           const outcome = press(core, revision, caret, key, tracked)
@@ -220,7 +220,7 @@ describe('keys beside a long fence or list', () => {
             label).toBeLessThan(block.length / 2)
           const control = createDocumentCore()
           planFromDocumentParse(control)
-          expect(outcome, label).toEqual(press(control, regional(control, source), caret, key, tracked))
+          expect(outcome, label).toEqual(press(control, regionalRevision(control, source), caret, key, tracked))
         }
       }
     }
