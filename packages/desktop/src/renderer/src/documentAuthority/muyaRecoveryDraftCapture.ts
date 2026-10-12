@@ -17,7 +17,7 @@ export function createMuyaRecoveryDraftCapture(input: {
     // Vue's mounted editor reference may already be cleared by this point.
     const muya = input.muya
     muya.flush()
-    const nativeState = structuredClone(muya.getState())
+    const nativeState = muya.getState()
     const visibleText = muya.domNode.innerText ?? muya.domNode.textContent ?? ''
     muya.setEditablePaths([])
     captured = {
