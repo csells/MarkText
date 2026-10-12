@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
 import { getMarkdown } from '../helpers/api';
-import { bootCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { editor, floats } from '../helpers/selectors';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
@@ -282,18 +282,18 @@ for (const example of [
             const table = page.locator(editor.table).first();
             const toolbar = await revealColumnToolbar(page, table, example.target ?? 1);
             await toolbar.locator(example.button).click();
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });
             const cell = table.locator('tr').first().locator('th, td').nth(example.survivor).locator('.mu-content');
             expect(await cell.evaluate(node => window.muya!.getSelection()?.anchor.block.domNode === node)).toBe(true);
             await page.keyboard.type('x');
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.next });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.expected });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.source ?? REVIEW_COLUMNS });
+            expect(await reopenCore(page)).toMatchObject({ source: example.next });
+            await coreHistory(page, 'undo');
+            expect(await reopenCore(page)).toMatchObject({ source: example.expected });
+            await coreHistory(page, 'undo');
+            expect(await reopenCore(page)).toMatchObject({ source: example.source ?? REVIEW_COLUMNS });
         }
         finally {
-            await page.evaluate(() => window.coreBoundary.dispose());
+            await disposeCore(page);
         }
     });
 }
@@ -321,15 +321,15 @@ for (const bound of [false, true]) {
             await page.keyboard.type('x');
             expect(await page.evaluate(() => window.muya!.getSelection()?.anchor.block.text)).toBe('xafter');
             if (bound) {
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: 'away\n\n\n\nxafter\n' });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
+                expect(await reopenCore(page)).toMatchObject({ source: 'away\n\n\n\nxafter\n' });
+                await coreHistory(page, 'undo');
+                await coreHistory(page, 'undo');
+                expect(await reopenCore(page)).toMatchObject({ source });
             }
         }
         finally {
             if (bound)
-                await page.evaluate(() => window.coreBoundary.dispose());
+                await disposeCore(page);
         }
     });
 }
@@ -349,7 +349,7 @@ for (const tracked of [false, true]) {
             let toolbar = await revealColumnToolbar(page, table, 0);
             await toolbar.locator('li.item.center').click();
             await page.evaluate(() => window.muya!.flush());
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: aligned }, anchor: 2, caret: 2, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: aligned }, anchor: 2, caret: 2, legacyCalls: [] });
             expect(await columnAligns(table, 0)).toEqual(['center', 'center']);
             expect(await columnAligns(table, 1)).toEqual(['none', 'none']);
             expect(await columnAligns(table, 2)).toEqual(['none', 'none']);
@@ -358,22 +358,22 @@ for (const tracked of [false, true]) {
             toolbar = await revealColumnToolbar(page, table, 0);
             await toolbar.locator('li.item.center').click();
             await page.evaluate(() => window.muya!.flush());
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: toggled }, anchor: 2, caret: 2, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: toggled }, anchor: 2, caret: 2, legacyCalls: [] });
             expect(await columnAligns(table, 0)).toEqual(['none', 'none']);
             await page.keyboard.type('x');
             const next = toggled.replace('away', tracked ? 'aw{++x++}ay' : 'awxay');
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: next });
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ anchor: 3, caret: 3, legacyCalls: [] });
+            expect(await reopenCore(page)).toMatchObject({ source: next });
+            expect(await readCore(page)).toMatchObject({ anchor: 3, caret: 3, legacyCalls: [] });
             for (const expected of [toggled, aligned, source]) {
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+                await coreHistory(page, 'undo');
+                expect(await reopenCore(page)).toMatchObject({ source: expected });
             }
             for (const expected of [aligned, toggled, next]) {
-                await page.evaluate(() => window.coreBoundary.history('redo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+                await coreHistory(page, 'redo');
+                expect(await reopenCore(page)).toMatchObject({ source: expected });
             }
         }
-        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        finally { await disposeCore(page); }
     });
 }
 

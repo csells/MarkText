@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { bootCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const example of [
     { name: 'plain text', source: 'aa\n', afterX: 'xaa\n', afterY: 'xyaa\n', target: 0 },
@@ -14,16 +14,16 @@ for (const example of [
                 range: { start: example.target, end: example.target },
                 accepted: true,
             });
-            expect.soft(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.afterX }, caret: 1 });
+            expect.soft(await readCore(page)).toMatchObject({ source: { source: example.afterX }, caret: 1 });
             await page.keyboard.type('y');
-            expect.soft(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.afterY }, caret: 2 });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect.soft(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.source } });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect.soft(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.afterY } });
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.afterY });
+            expect.soft(await readCore(page)).toMatchObject({ source: { source: example.afterY }, caret: 2 });
+            await coreHistory(page, 'undo');
+            expect.soft(await readCore(page)).toMatchObject({ source: { source: example.source } });
+            await coreHistory(page, 'redo');
+            expect.soft(await readCore(page)).toMatchObject({ source: { source: example.afterY } });
+            expect(await reopenCore(page)).toMatchObject({ source: example.afterY });
         } finally {
-            await page.evaluate(() => window.coreBoundary.dispose());
+            await disposeCore(page);
         }
     });
 }
@@ -40,20 +40,20 @@ test('selected suggestion wraps before the next native key replaces the selected
         // No wait or artificial event: the first action must install its selection
         // synchronously before Chromium delivers the following character.
         await page.keyboard.type('(x');
-        const state = await page.evaluate(() => window.coreBoundary.read());
+        const state = await readCore(page);
         expect(state.actions).toHaveLength(2);
         expect.soft(state.actions[0]).toMatchObject({
             accepted: true,
             result: { source: { source: '(a{++b++}c)\n' }, anchor: 1, caret: 4, text: '(abc)' },
         });
         expect.soft(state).toMatchObject({ source: { source: '(x)\n' }, anchor: 2, caret: 2, text: '(x)' });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect.soft(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: 'a{++b++}c\n' } });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect.soft(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '(x)\n' } });
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: '(x)\n' });
+        await coreHistory(page, 'undo');
+        expect.soft(await readCore(page)).toMatchObject({ source: { source: 'a{++b++}c\n' } });
+        await coreHistory(page, 'redo');
+        expect.soft(await readCore(page)).toMatchObject({ source: { source: '(x)\n' } });
+        expect(await reopenCore(page)).toMatchObject({ source: '(x)\n' });
     } finally {
-        await page.evaluate(() => window.coreBoundary.dispose());
+        await disposeCore(page);
     }
 });
 
@@ -63,17 +63,17 @@ test('native select-all and continuous typing preserve the hidden comment withou
     try {
         await page.keyboard.press('ControlOrMeta+A');
         await page.keyboard.type('hello');
-        const state = await page.evaluate(() => window.coreBoundary.read());
+        const state = await readCore(page);
         expect(state.actions).toHaveLength(5);
         expect(state.actions.every(action => action.accepted)).toBe(true);
         expect.soft(state.actions[0]).toMatchObject({ result: { source: { source: 'h{>>note<<}\n' }, anchor: 1, caret: 1, text: 'h' } });
         expect.soft(state).toMatchObject({ source: { source: 'hello{>>note<<}\n' }, anchor: 5, caret: 5, text: 'hello' });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect.soft(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: original } });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect.soft(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: 'hello{>>note<<}\n' } });
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: 'hello{>>note<<}\n' });
+        await coreHistory(page, 'undo');
+        expect.soft(await readCore(page)).toMatchObject({ source: { source: original } });
+        await coreHistory(page, 'redo');
+        expect.soft(await readCore(page)).toMatchObject({ source: { source: 'hello{>>note<<}\n' } });
+        expect(await reopenCore(page)).toMatchObject({ source: 'hello{>>note<<}\n' });
     } finally {
-        await page.evaluate(() => window.coreBoundary.dispose());
+        await disposeCore(page);
     }
 });

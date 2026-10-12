@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const source of ['```js\ncode\n```\n', '{++```js\ncode\n```++}\n', '~~~js\n']) {
     test(`language picker commits before the next trusted input: ${JSON.stringify(source)}`, async ({ page }) => {
@@ -15,17 +16,17 @@ for (const source of ['```js\ncode\n```\n', '{++```js\ncode\n```++}\n', '~~~js\n
         }, source);
         try {
             await page.locator('.mu-list-picker [data-label="javascript"]').click();
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: changed }, anchor: 0, caret: 0, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: changed }, anchor: 0, caret: 0, legacyCalls: [] });
             await page.keyboard.type('x');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 1, caret: 1, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source } });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+            expect(await readCore(page)).toMatchObject({ source: { source: typed }, anchor: 1, caret: 1, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source } });
+            await coreHistory(page, 'redo');
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: typed });
         }
-        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        finally { await disposeCore(page); }
     });
 }
 
@@ -45,17 +46,17 @@ for (const tracked of [false, true]) {
             muya.replaceCurrentWordInlineUnsafe('teh', 'the');
         }, { source, tracked });
         try {
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: corrected }, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: corrected }, legacyCalls: [] });
             await page.keyboard.type('x');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source } });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+            expect(await readCore(page)).toMatchObject({ source: { source: typed }, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source } });
+            await coreHistory(page, 'redo');
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: typed });
         }
-        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        finally { await disposeCore(page); }
     });
 }
 
@@ -72,15 +73,15 @@ test('native image insertion retains selected CM and the next trusted key follow
         muya.insertImage({ src: 'images/cat.png' });
     }, source);
     try {
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: changed }, legacyCalls: [] });
+        expect(await readCore(page)).toMatchObject({ source: { source: changed }, legacyCalls: [] });
         await page.keyboard.type('x');
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source } });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+        expect(await readCore(page)).toMatchObject({ source: { source: typed }, legacyCalls: [] });
+        await coreHistory(page, 'undo');
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source } });
+        await coreHistory(page, 'redo');
+        await coreHistory(page, 'redo');
+        expect(await reopenCore(page)).toMatchObject({ source: typed });
     }
-    finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    finally { await disposeCore(page); }
 });

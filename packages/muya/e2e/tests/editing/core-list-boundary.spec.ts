@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -36,20 +37,20 @@ for (const example of [
         }, example);
         try {
             await page.keyboard.press('Backspace');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });
             await page.keyboard.type('X');
             const typed = 'typed' in example ? example.typed! : example.expected.replace('a{++', 'Xa{++').replace(/^alpha/u, 'Xalpha');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 1, caret: 1, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0 });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.source });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.expected });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+            expect(await readCore(page)).toMatchObject({ source: { source: typed }, anchor: 1, caret: 1, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0 });
+            await coreHistory(page, 'undo');
+            expect(await reopenCore(page)).toMatchObject({ source: example.source });
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: example.expected });
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: typed });
         }
-        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        finally { await disposeCore(page); }
     });
 }
 

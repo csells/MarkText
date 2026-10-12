@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
 import { getMarkdown } from '../helpers/api';
-import { bootCore, coreSource } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, coreSource, disposeCore } from '../helpers/coreBoundary';
 import { loadMarkdown } from '../helpers/keyboard';
 import { editor } from '../helpers/selectors';
 import { detachedBlocks, nextFrames } from '../helpers/tree';
@@ -75,7 +75,7 @@ for (const key of NON_EDITING_KEYS) {
             expect(await page.evaluate(() => window.coreBoundary.read().legacyCalls)).toEqual([]);
         }
         finally {
-            await page.evaluate(() => window.coreBoundary.dispose());
+            await disposeCore(page);
         }
     });
 }
@@ -111,12 +111,12 @@ test('Core typing over a selection spanning paragraphs still replaces it, and un
         await selectThreeParagraphs(page);
         await page.keyboard.press('x');
         expect(await coreSource(page, { settle: true })).toBe('oxhree\n');
-        await page.evaluate(() => window.coreBoundary.history('undo'));
+        await coreHistory(page, 'undo');
         expect(await coreSource(page, { settle: true })).toBe(DOC);
         expect(await page.evaluate(() => window.coreBoundary.read().legacyCalls)).toEqual([]);
     }
     finally {
-        await page.evaluate(() => window.coreBoundary.dispose());
+        await disposeCore(page);
     }
 });
 
@@ -129,7 +129,7 @@ for (const key of ['Backspace', 'Delete']) {
             expect(await coreSource(page, { settle: true })).toBe('ohree\n');
         }
         finally {
-            await page.evaluate(() => window.coreBoundary.dispose());
+            await disposeCore(page);
         }
     });
 }

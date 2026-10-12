@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const example of [
     { name: 'inline annotation', source: 'same\n\ns{++a++}me{>>keep<<}\n\nlast\n', moved: 'same\n\nlast\n\ns{++a++}me{>>keep<<}\n', typed: 'same\n\nlast\n\ns{++a++}X{>>keep<<}\n' },
@@ -32,16 +33,16 @@ test(`native drag moves ${example.name} before trusted replacement and history`,
         await page.mouse.move(destination.x + 15, destination.y + destination.height - 2);
         await expect(page.locator('.mu-line-ghost')).toBeVisible();
         await page.mouse.up();
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: moved }, anchor: 4, caret: 2, legacyCalls: [] });
+        expect(await readCore(page)).toMatchObject({ source: { source: moved }, anchor: 4, caret: 2, legacyCalls: [] });
         await page.keyboard.type('X');
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 4, caret: 2 });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+        expect(await readCore(page)).toMatchObject({ source: { source: typed }, legacyCalls: [] });
+        await coreHistory(page, 'undo');
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source }, anchor: 4, caret: 2 });
+        await coreHistory(page, 'redo');
+        await coreHistory(page, 'redo');
+        expect(await reopenCore(page)).toMatchObject({ source: typed });
     }
-    finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    finally { await disposeCore(page); }
 });
 }

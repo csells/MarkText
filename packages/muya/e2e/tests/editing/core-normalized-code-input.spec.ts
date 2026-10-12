@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const marked of [false, true]) {
     for (const ending of ['\n', '\r\n', '\r']) {
@@ -21,9 +22,9 @@ for (const marked of [false, true]) {
                 // must own that text position without rounding it to a raw-source boundary.
                 await page.keyboard.type('x');
                 expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: ' x body', anchor: 2, caret: 2, legacyCalls: [] });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
+                await coreHistory(page, 'undo');
                 expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source }, body: '  body', anchor: 1, caret: 1, legacyCalls: [] });
-                await page.evaluate(() => window.coreBoundary.history('redo'));
+                await coreHistory(page, 'redo');
                 expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: ' x body', anchor: 2, caret: 2, legacyCalls: [] });
                 const reopened = await page.evaluate(async () => {
                     const saved = window.coreBoundary.reopen();
@@ -37,7 +38,7 @@ for (const marked of [false, true]) {
                     return { ...window.coreBoundary.read(), body: body.text };
                 });
                 expect(reopened).toMatchObject({ source: { source: typed }, body: ' x body', legacyCalls: [] });
-            } finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+            } finally { await disposeCore(page); }
         });
     }
 }
@@ -62,15 +63,15 @@ test('Backspace at a normalized tab boundary removes only the selected visible c
         expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: deleted }, body: ' body', anchor: 1, caret: 1, legacyCalls: [] });
         await page.keyboard.type('x');
         expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: ' xbody', anchor: 2, caret: 2, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: deleted }, anchor: 1, caret: 1 });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source: deleted }, anchor: 1, caret: 1 });
+        await coreHistory(page, 'undo');
         expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source }, body: '  body', anchor: 2, caret: 2, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 2, caret: 2, legacyCalls: [] });
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
-    } finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        await coreHistory(page, 'redo');
+        await coreHistory(page, 'redo');
+        expect(await readCore(page)).toMatchObject({ source: { source: typed }, anchor: 2, caret: 2, legacyCalls: [] });
+        expect(await reopenCore(page)).toMatchObject({ source: typed });
+    } finally { await disposeCore(page); }
 });
 
 test('a backward normalized tab selection stays selected after wrapping for the next key', async ({ page }) => {
@@ -95,9 +96,9 @@ test('a backward normalized tab selection stays selected after wrapping for the 
         expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: ' (x)body', anchor: 3, caret: 3, legacyCalls: [] });
         // Consecutive insertText keys share Muya's native typing group. Unlike
         // Backspace followed by typing, this sequence has no input-kind boundary.
-        await page.evaluate(() => window.coreBoundary.history('undo'));
+        await coreHistory(page, 'undo');
         expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source }, body: '  body', anchor: 2, caret: 1, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
+        await coreHistory(page, 'redo');
         expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: ' (x)body', anchor: 3, caret: 3, legacyCalls: [] });
         const reopened = await page.evaluate(async () => {
             const saved = window.coreBoundary.reopen();
@@ -111,7 +112,7 @@ test('a backward normalized tab selection stays selected after wrapping for the 
             return { ...window.coreBoundary.read(), body: body.text };
         });
         expect(reopened).toMatchObject({ source: { source: typed }, body: ' (x)body', legacyCalls: [] });
-    } finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    } finally { await disposeCore(page); }
 });
 
 test('tracked wrapping retains normalized indentation and backward selection for the next key', async ({ page }) => {
@@ -136,9 +137,9 @@ test('tracked wrapping retains normalized indentation and backward selection for
         expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: ' (x)body', anchor: 3, caret: 3, legacyCalls: [] });
         // Consecutive insertText keys share Muya's native typing group. Unlike
         // Backspace followed by typing, this sequence has no input-kind boundary.
-        await page.evaluate(() => window.coreBoundary.history('undo'));
+        await coreHistory(page, 'undo');
         expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source }, body: '  body', anchor: 2, caret: 1, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
+        await coreHistory(page, 'redo');
         expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: ' (x)body', anchor: 3, caret: 3, legacyCalls: [] });
         const reopened = await page.evaluate(async () => {
             const saved = window.coreBoundary.reopen();
@@ -155,5 +156,5 @@ test('tracked wrapping retains normalized indentation and backward selection for
             return { ...window.coreBoundary.read(), bodies };
         });
         expect(reopened).toMatchObject({ source: { source: typed }, bodies: ['  body', ' (x)body'], legacyCalls: [] });
-    } finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    } finally { await disposeCore(page); }
 });

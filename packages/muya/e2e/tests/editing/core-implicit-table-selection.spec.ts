@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { bootCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { editor } from '../helpers/selectors';
 import { dragSelect, selectedCount } from '../helpers/tableSelection';
 
@@ -24,13 +24,13 @@ for (const bound of [false, true]) {
             expect((await page.locator(`${editor.table} td`).allTextContents()).map(text => text.trim())).toEqual(['a', 'b', 'c', 'x', '', '']);
             if (bound) {
                 await page.evaluate(() => window.coreBoundary.settle());
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, legacyCalls: [] });
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
+                expect(await readCore(page)).toMatchObject({ source: { source }, legacyCalls: [] });
+                expect(await reopenCore(page)).toMatchObject({ source });
             }
         }
         finally {
             if (bound)
-                await page.evaluate(() => window.coreBoundary.dispose());
+                await disposeCore(page);
         }
     });
 
@@ -62,28 +62,28 @@ for (const bound of [false, true]) {
                 await expect.poll(() => selectedCount(page)).toBe(operation === 'copy' ? 2 : 0);
                 expect((await page.locator(`${editor.table} td`).allTextContents()).map(text => text.trim())).toEqual(['a', 'b', 'c', 'x', '', '']);
                 if (bound) {
-                    expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, legacyCalls: [] });
-                    expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
+                    expect(await readCore(page)).toMatchObject({ source: { source }, legacyCalls: [] });
+                    expect(await reopenCore(page)).toMatchObject({ source });
                 }
                 if (operation === 'cut') {
                     await page.keyboard.type('y');
                     expect((await page.locator(`${editor.table} td`).allTextContents()).map(text => text.trim())).toEqual(['a', 'b', 'c', 'x', 'y', '']);
                     if (bound) {
-                        const saved = await page.evaluate(() => window.coreBoundary.reopen());
+                        const saved = await reopenCore(page);
                         if (saved.type !== 'source')
                             throw new Error('Implicit-cell cut did not produce an acknowledged source');
                         // Typing writes only its own bytes and adds its missing cell minimally (ADR 0007).
                         expect(saved.source).toBe('| a | b | c |\n| --- | --- | --- |\n| x | y |\n');
-                        await page.evaluate(() => window.coreBoundary.history('undo'));
-                        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
-                        await page.evaluate(() => window.coreBoundary.history('redo'));
-                        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: saved.source });
+                        await coreHistory(page, 'undo');
+                        expect(await reopenCore(page)).toMatchObject({ source });
+                        await coreHistory(page, 'redo');
+                        expect(await reopenCore(page)).toMatchObject({ source: saved.source });
                     }
                 }
             }
             finally {
                 if (bound)
-                    await page.evaluate(() => window.coreBoundary.dispose());
+                    await disposeCore(page);
             }
         });
     }
@@ -116,18 +116,18 @@ test('Core pairing in the later implicit cell governs the next key without an ac
             result: { source: { source: '| a | b | c |\n| --- | --- | --- |\n| x | | () |\n' }, anchor: 1, caret: 1 },
         });
         expect((await page.locator(`${editor.table} td`).allTextContents()).map(text => text.trim())).toEqual(['a', 'b', 'c', 'x', '', '(x)']);
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
+        await coreHistory(page, 'undo');
+        expect(await reopenCore(page)).toMatchObject({ source });
         expect(await page.evaluate(() => {
             const selection = window.muya!.getSelection();
             return { offset: selection?.focus.offset, cellIndex: selection?.focus.block.domNode?.closest('td')?.cellIndex };
         })).toEqual({ offset: 0, cellIndex: 2 });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+        await coreHistory(page, 'redo');
+        expect(await reopenCore(page)).toMatchObject({ source: expected });
         expect(await page.evaluate(() => {
             const selection = window.muya!.getSelection();
             return { offset: selection?.focus.offset, cellIndex: selection?.focus.block.domNode?.closest('td')?.cellIndex };
         })).toEqual({ offset: 2, cellIndex: 2 });
     }
-    finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    finally { await disposeCore(page); }
 });

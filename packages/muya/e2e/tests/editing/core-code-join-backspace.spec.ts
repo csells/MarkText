@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore } from '../helpers/coreBoundary';
 import { holdUndoSteps, separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -38,12 +39,12 @@ for (const { name, body, donor, ending, tracked } of examples) {
             // No selection repair or acknowledgement wait before native typing.
             await page.keyboard.type('x');
             expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: `${body}x${donor}`, anchor: body.length + 1, caret: body.length + 1, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
+            await coreHistory(page, 'undo');
             expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: joined }, body: body + donor, anchor: body.length, caret: body.length, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
+            await coreHistory(page, 'undo');
             expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source }, body: 'b', anchor: 0, caret: 0, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            await page.evaluate(() => window.coreBoundary.history('redo'));
+            await coreHistory(page, 'redo');
+            await coreHistory(page, 'redo');
             expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: `${body}x${donor}`, anchor: body.length + 1, caret: body.length + 1, legacyCalls: [] });
             const reopened = await page.evaluate(async () => {
                 const saved = window.coreBoundary.reopen();
@@ -63,7 +64,7 @@ for (const { name, body, donor, ending, tracked } of examples) {
                 legacyCalls: [],
             });
         }
-        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        finally { await disposeCore(page); }
     });
 }
 
@@ -90,9 +91,9 @@ test('typing after a code boundary uses the selected paragraph syntax and result
         await page.keyboard.type('x');
         expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: '*x*', anchor: 2, caret: 2, legacyCalls: [] });
         // Consecutive inserted keys share the native typing group.
-        await page.evaluate(() => window.coreBoundary.history('undo'));
+        await coreHistory(page, 'undo');
         expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source }, body: 'b', anchor: 0, caret: 1, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
+        await coreHistory(page, 'redo');
         expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: '*x*', anchor: 2, caret: 2, legacyCalls: [] });
         const reopened = await page.evaluate(async () => {
             const saved = window.coreBoundary.reopen();
@@ -104,5 +105,5 @@ test('typing after a code boundary uses the selected paragraph syntax and result
         });
         expect(reopened).toMatchObject({ source: { source: typed }, state: [{ name: 'code-block', text: 'a' }, { name: 'paragraph', text: '*x*' }], legacyCalls: [] });
     }
-    finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    finally { await disposeCore(page); }
 });

@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { floats } from '../helpers/selectors';
 import { pauseUndoWindow } from '../helpers/undoWindow';
 
@@ -26,22 +27,22 @@ for (const example of [
         }, example);
         try {
             if (example.command === 'front') await page.locator(`${floats.paragraphFrontMenu} .turn-into-item.order-list`).click();
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: example.expected }, legacyCalls: [] });
             expect(await page.evaluate(() => {
                 const selected = window.muya!.getSelection()!;
                 return { anchor: selected.anchor.offset, focus: selected.focus.offset, text: selected.anchor.block.text };
             })).toEqual({ anchor: 1, focus: 1, text: 'alpha' });
             await page.keyboard.type('X');
             const typed = example.expected.replace('alpha\n', 'aXlpha\n');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: typed }, legacyCalls: [] });
             // Upstream History groups the conversion, from the menu bar or the
             // front menu, with the key typed within its one-second window.
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.source } });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source: example.source } });
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: typed });
         }
-        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        finally { await disposeCore(page); }
     });
 }
 
@@ -72,15 +73,15 @@ test('tracked multiline list conversion uses its resulting selection for the nex
         expect(immediate.afterInput).toMatchObject({ source: { source: typed }, anchor: 1, caret: 1, legacyCalls: [] });
         await page.keyboard.type('Y');
         const following = typed.replace('{++X++}', '{++XY++}');
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: following }, anchor: 2, caret: 2, legacyCalls: [], browserEvents: expect.arrayContaining([expect.objectContaining({ type: 'beforeinput', trusted: true, data: 'Y' })]) });
+        expect(await readCore(page)).toMatchObject({ source: { source: following }, anchor: 2, caret: 2, legacyCalls: [], browserEvents: expect.arrayContaining([expect.objectContaining({ type: 'beforeinput', trusted: true, data: 'Y' })]) });
         // Upstream History groups the conversion with the keys typed within
         // its one-second window.
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 0, caret: 0 });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: following });
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source }, anchor: 0, caret: 0 });
+        await coreHistory(page, 'redo');
+        expect(await reopenCore(page)).toMatchObject({ source: following });
     }
-    finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    finally { await disposeCore(page); }
 });
 
 test('unlisting a fenced item installs the model paragraphs before the next key', async ({ page }) => {
@@ -103,15 +104,15 @@ test('unlisting a fenced item installs the model paragraphs before the next key'
         await page.keyboard.type('X');
         // Untracked typing at an addition's start stays before it.
         const typed = converted.replace('{++first++}', 'X{++first++}');
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 1, caret: 1, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0 });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: converted });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+        expect(await readCore(page)).toMatchObject({ source: { source: typed }, anchor: 1, caret: 1, legacyCalls: [] });
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0 });
+        await coreHistory(page, 'undo');
+        expect(await reopenCore(page)).toMatchObject({ source });
+        await coreHistory(page, 'redo');
+        expect(await reopenCore(page)).toMatchObject({ source: converted });
+        await coreHistory(page, 'redo');
+        expect(await reopenCore(page)).toMatchObject({ source: typed });
     }
-    finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    finally { await disposeCore(page); }
 });
