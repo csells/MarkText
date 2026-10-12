@@ -54,7 +54,7 @@ export function highlightCommentLayout(roots: readonly CriticMarkupAnnotation[])
  * commented text out of the comment. The end edges lead after the Comment;
  * the start edge leads before the Highlight.
  */
-export function insertionOutsideCommentedSpans(pairs: readonly HighlightCommentPair[], position: number): number {
+function insertionOutsideCommentedSpans(pairs: readonly HighlightCommentPair[], position: number): number {
   let current = position
   // A nested pair can end where its enclosing pair's content ends.
   for (let pass = 0; pass <= pairs.length; pass += 1) {

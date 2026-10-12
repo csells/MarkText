@@ -42,7 +42,7 @@ export function setextUnderlineLeadingLine(
 }
 
 /** The underline whose empty setext heading `position` is the caret of, if any. */
-export function setextUnderlineAtLeadingLine(
+function setextUnderlineAtLeadingLine(
   syntax: MarkupSyntax, sourceText: (start: number, end: number) => string, position: number
 ): MarkdownAstNode | undefined {
   const ending = /^(?:\r\n|\r|\n)/u.exec(sourceText(position, position + 2))?.[0]

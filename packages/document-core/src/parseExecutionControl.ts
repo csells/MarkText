@@ -1,5 +1,5 @@
 export const PARSE_SOURCE_CHECKPOINT_INTERVAL = 4_096
-export const PARSE_LOGICAL_NODE_CHECKPOINT_INTERVAL = 2_048
+const PARSE_LOGICAL_NODE_CHECKPOINT_INTERVAL = 2_048
 
 export interface ParseExecutionTracker {
   readonly examineSource: (units: number) => void
