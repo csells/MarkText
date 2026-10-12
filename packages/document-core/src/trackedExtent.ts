@@ -1310,15 +1310,8 @@ function searchWidenedSpelling(
   // suggestion resolves.
   for (const variant of ['exact', 'pair', 'reversed'] as const) {
     for (const span of candidates) {
-      const mapped = toTarget(span)
-      const old = source.slice(span.start, span.end)
-      const next = target.slice(mapped.start, mapped.end)
-      for (const suffix of lineTrims(old, next, true)) {
-        for (const prefix of lineTrims(old.slice(0, old.length - suffix), next.slice(0, next.length - suffix), false)) {
-          const edit = attempt(span, prefix, suffix, variant, 'exact', true, true)
-          if (edit !== undefined) return edit
-        }
-      }
+      const edit = exactly(span, variant)
+      if (edit !== undefined) return edit
     }
   }
   for (const variant of ['pair', 'reversed', 'exact', 'padded-pair', 'padded'] as const) {
