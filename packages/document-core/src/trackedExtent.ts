@@ -7,6 +7,7 @@ import { markupAnnotations } from './markupEditOwnership.js'
 import { positionAfter } from './sourcePosition.js'
 import { FENCED_LITERAL_BLOCKS, SPLITTABLE_LITERAL_BLOCKS } from './literalBlock.js'
 import { isPositionalMarkdownAttribute } from './markdownPositions.js'
+import { commonAffixes } from './textAffixes.js'
 import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
 
 type Preview = (edits: readonly DocumentSourceEdit[]) => DocumentRevision
@@ -593,12 +594,7 @@ const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'u')
  * compared past their common prefix and suffix.
  */
 function addedMarkerEscapes(accepted: string, typed: string): number[] {
-  let prefix = 0
-  const shorter = Math.min(accepted.length, typed.length)
-  while (prefix < shorter && accepted.charCodeAt(prefix) === typed.charCodeAt(prefix)) prefix += 1
-  let suffix = 0
-  while (suffix < shorter - prefix &&
-    accepted.charCodeAt(accepted.length - 1 - suffix) === typed.charCodeAt(typed.length - 1 - suffix)) suffix += 1
+  const { prefix, suffix } = commonAffixes(accepted, typed)
   const escapes: number[] = []
   // An escape added at the start of a run of equal text may be read at either
   // end of it, so the walk backs up to the start of that run.
@@ -1365,12 +1361,8 @@ export function literalHistoryInsertionPoint(
   const nextText = core.sourceSlice(previous, next.range)
   if (!literalBlockText(oldText) || !literalBlockText(nextText)) return undefined
   const at = offset - old.range.start
-  const limit = Math.min(oldText.length, nextText.length)
-  let prefix = 0
-  while (prefix < limit && oldText[prefix] === nextText[prefix]) prefix += 1
+  const { prefix, suffix } = commonAffixes(oldText, nextText)
   if (at <= prefix) return next.range.start + at
-  let suffix = 0
-  while (suffix < limit - prefix && oldText[oldText.length - 1 - suffix] === nextText[nextText.length - 1 - suffix]) suffix += 1
   return oldText.length - at <= suffix ? next.range.end - (oldText.length - at) : next.range.start + prefix
 }
 
@@ -1723,11 +1715,7 @@ const COMPARED_CHANGE_LIMIT = 32 * OWN_DRAFT_SHORTCUT_UNITS
  * any other.
  */
 function changeBetween(before: string, after: string): string | undefined {
-  let start = 0
-  const limit = Math.min(before.length, after.length)
-  while (start < limit && before[start] === after[start]) start += 1
-  let end = 0
-  while (end < limit - start && before[before.length - 1 - end] === after[after.length - 1 - end]) end += 1
+  const { prefix: start, suffix: end } = commonAffixes(before, after)
   const a = before.slice(start, before.length - end)
   const b = after.slice(start, after.length - end)
   // Myers' shortest edit script, bounded.

@@ -86,6 +86,7 @@ export { rebaseDocumentInputSelection, type DocumentSelectionMutation, type Docu
 export { paragraphPrefixPosition, paragraphImageRange } from './paragraphBoundary.js'
 export { isLiteralBlock } from './literalBlock.js'
 export { isPositionalMarkdownAttribute, shiftMarkdownAstNode } from './markdownPositions.js'
+export { commonAffixes } from './textAffixes.js'
 export { setextUnderlineStart, setextUnderlineLeadingLine } from './setextTrailingLine.js'
 
 export type { DocumentModelTextPoint, DocumentModelTextSelection } from './sourceInputPlanning.js'

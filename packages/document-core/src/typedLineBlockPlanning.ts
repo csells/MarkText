@@ -1,6 +1,7 @@
 import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import { annotationsAround } from './internal/annotationsAround.js'
 import { isAnnotationDelimiter } from './annotationDelimiter.js'
+import { commonAffixes } from './textAffixes.js'
 import { containerContinuationPrefix } from './clipboardMarkdown.js'
 import { INLINE_UPDATE_REG, inlineUpdateLayout } from './inputPolicy.js'
 import { syntaxPathAt } from './syntaxPath.js'
@@ -136,11 +137,7 @@ function sourceLineOf(syntax: MarkupSyntax, node: MarkdownAstNode): SourceRange 
 /** Narrows an edit to the text it changes. */
 function narrowed(edit: DocumentSourceEdit, current: string): DocumentSourceEdit | undefined {
   if (current === edit.insert) return undefined
-  let head = 0
-  while (head < current.length && head < edit.insert.length && current[head] === edit.insert[head]) head++
-  let tail = 0
-  while (tail < current.length - head && tail < edit.insert.length - head &&
-    current[current.length - 1 - tail] === edit.insert[edit.insert.length - 1 - tail]) tail++
+  const { prefix: head, suffix: tail } = commonAffixes(current, edit.insert)
   return { start: edit.start + head, end: edit.end - tail, insert: edit.insert.slice(head, edit.insert.length - tail) }
 }
 
