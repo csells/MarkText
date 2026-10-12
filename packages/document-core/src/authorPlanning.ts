@@ -318,7 +318,8 @@ function planHighlightComment(
   return undefined
 }
 
-function allAnnotations(roots: readonly CriticMarkupAnnotation[]): readonly CriticMarkupAnnotation[] {
+/** Every annotation of the trees `roots`, nested ones included. */
+export function allAnnotations(roots: readonly CriticMarkupAnnotation[]): readonly CriticMarkupAnnotation[] {
   const all: CriticMarkupAnnotation[] = []
   const pending = [...roots]
   while (pending.length > 0) {
