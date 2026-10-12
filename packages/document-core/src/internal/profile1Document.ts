@@ -4754,7 +4754,7 @@ export function parseProfile1Window(
   startsAfterOneEmptyLine: boolean = true,
   endsAtBlockStart: boolean = false
 ): Profile1DocumentResult {
-  const retainedAt = windowParses.findIndex(parse =>
+  const matches = (parse: WindowParse): boolean =>
     parse.source === source &&
     parse.executionBudget === executionBudget &&
     parse.captureAccountingTrace === captureAccountingTrace &&
@@ -4763,21 +4763,17 @@ export function parseProfile1Window(
     parse.documentHasAnnotations === documentHasAnnotations &&
     parse.startsAfterOneEmptyLine === startsAfterOneEmptyLine &&
     parse.endsAtBlockStart === endsAtBlockStart &&
-    sameMarkdownOptions(parse.markdownOptions, markdownOptions))
-  // A key's candidates read the same few windows again, so the most recently
-  // read stay first.
-  if (retainedAt > 0) windowParses.unshift(...windowParses.splice(retainedAt, 1))
-  const retained = [...windowParses, ...(largeWindowParse === undefined ? [] : [largeWindowParse])].find(parse =>
-    parse.source === source &&
-    parse.executionBudget === executionBudget &&
-    parse.captureAccountingTrace === captureAccountingTrace &&
-    parse.physicalRecorder === physicalRecorder &&
-    parse.endsAtDocumentEnd === endsAtDocumentEnd &&
-    parse.documentHasAnnotations === documentHasAnnotations &&
-    parse.startsAfterOneEmptyLine === startsAfterOneEmptyLine &&
-    parse.endsAtBlockStart === endsAtBlockStart &&
-    sameMarkdownOptions(parse.markdownOptions, markdownOptions))
-  if (retained !== undefined) return retained.result
+    sameMarkdownOptions(parse.markdownOptions, markdownOptions)
+  const retainedAt = windowParses.findIndex(matches)
+  const retained = windowParses[retainedAt]
+  if (retained !== undefined) {
+    // A key's candidates read the same few windows again, so the most
+    // recently read stay first.
+    windowParses.splice(retainedAt, 1)
+    windowParses.unshift(retained)
+    return retained.result
+  }
+  if (largeWindowParse !== undefined && matches(largeWindowParse)) return largeWindowParse.result
   const result = parseProfile1Document(
     source, executionBudget, markdownOptions, captureAccountingTrace,
     createProfile1DocumentReuseCache(), physicalRecorder, undefined, endsAtDocumentEnd,
