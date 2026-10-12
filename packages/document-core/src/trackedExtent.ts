@@ -1658,6 +1658,12 @@ export function draftTrackedSourceEdit(
       return Object.freeze({ ...edit })
     }
   }
+  // An Addition cannot hold text that its closer would complete, as a typed
+  // `{++` reads with `++}`; a Substitution of nothing proposes the same text.
+  if (owner.kind === 'addition') {
+    const respelled = Object.freeze({ ...owner.range, insert: spellSuggestion('substitution', '', content) })
+    if (oracle.accepts([respelled], 'exact') || oracle.accepts([respelled], 'rendering')) return respelled
+  }
   // Text after the draft that the accepted draft would absorb (an unclosed
   // fence) joins one Substitution whose new arm is that accepted text.
   return widenedTrackedSourceEdit(core, previous, oracle)
