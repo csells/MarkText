@@ -1,16 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
 import { planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
+import { regional } from './support/inputDriver.js'
 
 // A tracked key compiled in a window of the document is taken from the window
 // only where blank lines part the window from the blocks around it: a block
 // the document runs straight into after the window can take in what the key
 // writes at its edge, so the window's untracked result is not the document's.
-
-/** A revision reached by a regional edit, so it holds no document parse. */
-function regional(core: DocumentCore, source: string): DocumentRevision {
-  return core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
-}
 
 function cores(): readonly [DocumentCore, DocumentCore] {
   const control = createDocumentCore()

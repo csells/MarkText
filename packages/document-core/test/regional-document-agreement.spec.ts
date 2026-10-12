@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
 import { planFromGeneralCompile, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
+import { dense, lcg } from './support/inputDriver.js'
 
 // One input gives one output whatever path reads it: every tracked key a
 // core plans regionally, from a window or its regional planners, is the key
@@ -9,12 +10,7 @@ import { planFromGeneralCompile, searchWithoutBudget } from '../src/internal/doc
 // 2,000-block document, and as input actions on documents of literal blocks
 // and literal suggestions.
 
-const lcg = (seed: number) => (): number => {
-  seed = (seed * 1664525 + 1013904223) >>> 0
-  return seed / 2 ** 32
-}
 const lines = (count: number, line: (index: number) => string): string => Array.from({ length: count }, (_, index) => line(index)).join('\n')
-const dense = 'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
 
 function control(): DocumentCore {
   const core = createDocumentCore()

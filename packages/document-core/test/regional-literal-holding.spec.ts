@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { literalHolding } from '../src/internal/profile1/regionalInventory.js'
+import { lcg } from './support/inputDriver.js'
 
 // The literal block holding a run is found by a search over the blocks'
 // ordered ranges; it must be the one a scan of every block finds.
-
-const lcg = (seed: number) => (): number => {
-  seed = (seed * 1664525 + 1013904223) >>> 0
-  return seed / 2 ** 32
-}
 
 describe('the literal block holding a run', () => {
   it.each(Array.from({ length: 40 }, (_, index) => index + 1))('matches a scan, seed %i', seed => {

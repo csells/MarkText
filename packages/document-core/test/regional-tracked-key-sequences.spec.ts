@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
+import { createDocumentCore, type DocumentCore, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
+import { action, dense, lcg, regional } from './support/inputDriver.js'
 
 // Plan 0012 G35: keys pressed one after another beside and inside
 // suggestions, such as Backspace then Delete over the text just struck,
@@ -12,15 +13,8 @@ import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from 
 // no region can apply, such as a suggestion written around a code block,
 // costs the single parse apply() publishes.
 
-const options = { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
-
-const lcg = (seed: number) => (): number => {
-  seed = (seed * 1664525 + 1013904223) >>> 0
-  return seed / 2 ** 32
-}
-
 const blocks = [
-  'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.',
+  dense,
   'Words {--one--}{++two++} and {~~a~>b~~}.',
   'Plain words before {--struck--} and after.',
   'Beside {++added++}{--gone--} and {==marked==} text.',
@@ -48,21 +42,6 @@ const blocks = [
 
 type Key = 'insertText' | 'insertParagraph' | 'deleteContentBackward' | 'deleteContentForward'
 const keys: readonly Key[] = ['insertText', 'insertParagraph', 'deleteContentBackward', 'deleteContentForward']
-
-const action = (caret: number, inputType: Key): DocumentInputAction => ({
-  range: inputType === 'deleteContentBackward'
-    ? { start: Math.max(0, caret - 1), end: caret }
-    : inputType === 'deleteContentForward' ? { start: caret, end: caret + 1 } : { start: caret, end: caret },
-  selection: { ranges: [{ anchor: caret, focus: caret }], primary: 0 },
-  inputType,
-  data: inputType === 'insertText' ? 'x' : null,
-  options
-}) as DocumentInputAction
-
-/** A revision reached by a regional edit, so it holds no document parse. */
-function regional(core: DocumentCore, source: string): DocumentRevision {
-  return core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
-}
 
 interface Step {
   readonly outcome: unknown
@@ -211,7 +190,6 @@ describe('key sequences in suggestion arms\' literal blocks read as the document
 })
 
 describe('key sequences in a long document cost no document parse', () => {
-  const dense = 'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
   const source = ['Warm editing paragraph.', ...Array.from({ length: 300 }, () => dense)].join('\n\n') + '\n'
   const target = source.indexOf(dense, source.length / 2) + 1
   const at = (text: string, offset = 0): number => target + dense.indexOf(text) + offset
@@ -285,7 +263,6 @@ describe('key sequences in a long document cost no document parse', () => {
 })
 
 describe('keys the general compiler plans in a long document', () => {
-  const dense = 'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
   const shapes = [
     { name: 'Delete at the start of emphasis', block: 'Emph *a {++b++} c* and {--d--} e.', text: '*a', offset: 1, key: 'deleteContentForward', parses: 0 },
     { name: 'Backspace after emphasis', block: 'Emph *a {++b++} c* and {--d--} e.', text: 'c* and', offset: 2, key: 'deleteContentBackward', parses: 0 },

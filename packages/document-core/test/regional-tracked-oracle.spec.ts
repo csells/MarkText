@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { createDocumentCore, type DocumentCore, type DocumentRevision } from '../src/index.js'
+import { createDocumentCore } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
+import { regional } from './support/inputDriver.js'
 
 // Plan 0012 G35: a tracked key validates each candidate it considers as
 // apply() would read it. Where the regional inventory admits a candidate,
@@ -12,11 +13,6 @@ const paragraph = (ordinal: number): string =>
   '{~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
 const source = Array.from({ length: 300 }, (_, ordinal) => paragraph(ordinal)).join('\n\n') + '\n'
 const target = source.indexOf(paragraph(150))
-
-/** A revision reached by a regional edit, so it holds no document parse. */
-function regional(core: DocumentCore, text: string): DocumentRevision {
-  return core.apply(core.open(text), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
-}
 
 const after = (text: string, offset = 0): number => source.indexOf(text, target) + 1 + offset
 

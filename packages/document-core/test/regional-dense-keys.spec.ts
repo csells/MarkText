@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
+import { createDocumentCore } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
+import { dense, lcg, press, regional, type Key } from './support/inputDriver.js'
 
 // Plan 0012 G35: in a document dense with suggestions, typing, Enter,
 // Backspace and Delete are planned and proved from the paragraphs around
@@ -8,15 +9,8 @@ import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from 
 // a seeded differential compares each key with a core that plans from its
 // document parse.
 
-const options = { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
-
-const lcg = (seed: number) => (): number => {
-  seed = (seed * 1664525 + 1013904223) >>> 0
-  return seed / 2 ** 32
-}
-
 const blocks = [
-  'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.',
+  dense,
   'Plain words before {--struck--} and after.',
   'Words {--one--}{++two++} and {~~a~>b~~}.',
   'A paragraph of ordinary words.',
@@ -30,38 +24,6 @@ const blocks = [
   '- {++sa++}me{>>keep<<}\n- target\n- end',
   'Line {++one\ntwo++} words.'
 ]
-
-type Key = 'insertText' | 'insertParagraph' | 'insertLineBreak' | 'deleteContentBackward' | 'deleteContentForward'
-
-const action = (caret: number, inputType: Key): DocumentInputAction => ({
-  range: inputType === 'deleteContentBackward'
-    ? { start: Math.max(0, caret - 1), end: caret }
-    : inputType === 'deleteContentForward' ? { start: caret, end: caret + 1 } : { start: caret, end: caret },
-  selection: { ranges: [{ anchor: caret, focus: caret }], primary: 0 },
-  inputType,
-  data: inputType === 'insertText' ? 'x' : null,
-  options
-}) as DocumentInputAction
-
-function regional(core: DocumentCore, source: string): DocumentRevision {
-  return core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
-}
-
-type Outcome = Readonly<{ plan?: unknown, edits?: unknown, selection?: unknown, source?: string, error?: string }>
-
-function press(core: DocumentCore, revision: DocumentRevision, caret: number, key: Key, tracked: boolean): Outcome {
-  try {
-    const input = action(caret, key)
-    const plan = core.planInput(revision, input, { tracked })
-    const edits = core.inputEdits(revision, input, plan, tracked)
-    if (edits === undefined) return { plan }
-    const commit = core.apply(revision, edits, { projections: ['markup'] })
-    const result = core.reconcileInput(revision, plan, commit, input)
-    return { plan, edits, selection: result.selection, source: commit.revision.source }
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) }
-  }
-}
 
 const seeds = Number(process.env.MARKTEXT_DENSE_KEY_SEEDS ?? 12)
 const first = Number(process.env.MARKTEXT_DENSE_KEY_FIRST ?? 1)
@@ -109,7 +71,7 @@ describe('keys in a document dense with suggestions read as the document parse',
 })
 
 describe('keys in a long dense document cost no document parse', () => {
-  const paragraph = 'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
+  const paragraph = dense
   const source = ['Warm editing paragraph.', ...Array.from({ length: 300 }, () => paragraph)].join('\n\n') + '\n'
   const target = source.indexOf(paragraph, source.length / 2)
   const cases: Array<{ name: string, at: number, key: Key, tracked: boolean }> = [

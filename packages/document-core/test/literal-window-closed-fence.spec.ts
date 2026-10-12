@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { createDocumentCore, type DocumentCore, type DocumentRevision } from '../src/index.js'
+import { createDocumentCore } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
+import { regional } from './support/inputDriver.js'
 
 // A tracked key in a literal block is compiled on a window holding that block
 // and the four blocks after it that a literal can absorb. When a closed math block
@@ -23,12 +24,6 @@ const literals = [
 
 const lastRuns = ['```js\nconst c = 2\n```', '~~~\nc\n~~~', '$$\nz\n$$', '<div>\nh\n</div>', 'Plain words.', '```\nnot closed\n``']
 
-/** A revision reached by a regional edit, so it holds no document parse. */
-function regional(core: DocumentCore, source: string): DocumentRevision {
-  const opened = core.open(source)
-  return core.apply(opened, [{ start: 0, end: 0, insert: 'q' }], { projections: ['markup'] }).revision
-}
-
 describe('a literal block window ending before a closed math block', () => {
   for (const literal of literals) {
     for (const last of lastRuns) {
@@ -37,13 +32,13 @@ describe('a literal block window ending before a closed math block', () => {
         const caret = source.indexOf(literal) + literal.indexOf('\n', literal.indexOf('\n') + 1)
         for (const insert of ['x', '{==h==}{>>c<<}']) {
           const core = createDocumentCore()
-          const revision = regional(core, source)
+          const revision = regional(core, source, 0)
           const before = inspectDocumentCore(core).documentParses
           const planned = core.trackedEdit(revision, { start: caret + 1, end: caret + 1, insert })
           const parses = inspectDocumentCore(core).documentParses - before
           const control = createDocumentCore()
           planFromDocumentParse(control)
-          const expected = control.trackedEdit(regional(control, source), { start: caret + 1, end: caret + 1, insert })
+          const expected = control.trackedEdit(regional(control, source, 0), { start: caret + 1, end: caret + 1, insert })
           expect(planned).toEqual(expected)
           if (/^(?:```|~~~|\$\$)[\s\S]*\n(?:```|~~~|\$\$)$/u.test(last)) expect(parses).toBe(0)
         }

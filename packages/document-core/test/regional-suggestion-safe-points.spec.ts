@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
 import { inspectRegionalLeaves, planFromGeneralCompile, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
+import { lcg } from './support/inputDriver.js'
 
 // A root suggestion that opens a block after a blank line starts a region:
 // nothing is open before it, its arms read from that same clean state as
@@ -8,11 +9,6 @@ import { inspectRegionalLeaves, planFromGeneralCompile, searchWithoutBudget } fr
 // the enclosing state resumes unchanged. Windows may therefore start there,
 // and must read every key as the whole document does, also where an arm
 // leaves a fence, math or HTML block open at its boundary.
-
-const lcg = (seed: number) => (): number => {
-  seed = (seed * 1664525 + 1013904223) >>> 0
-  return seed / 2 ** 32
-}
 
 /** Offsets at which the revision's regional leaves start. */
 function leafStarts(core: DocumentCore, revision: DocumentRevision): number[] {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
+import { regional } from './support/inputDriver.js'
 
 const suffix = Array.from({ length: 80 }, (_, index) =>
   `Block ${index}: {++added++} {--removed--} {~~old~>new~~} {==marked==}{>>note<<}.\n\n`
@@ -124,7 +125,7 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     const start = source.indexOf(block)
     const insert = `{~~${block}~>$$\nx + yz\n$$~~}`
     const core = createDocumentCore()
-    const revision = core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
+    const revision = regional(core, source)
     const result = core.apply(revision, [{ start: start + 1, end: start + 1 + block.length, insert }], { projections: ['markup'] })
     expect(result.change.projections[0]?.scope).toBe('regions')
     const fresh = createDocumentCore()
@@ -147,7 +148,7 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     const end = source.indexOf(to, start) + to.length
     const insert = source.slice(start, end).replace(/(.)$/u, 'q$1')
     const core = createDocumentCore()
-    const revision = core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
+    const revision = regional(core, source)
     const shifted = { start: start + 1, end: end + 1 }
     const before = inspectDocumentCore(core)
     const result = core.apply(revision, [{ ...shifted, insert }], { projections: ['markup'] })
@@ -173,7 +174,7 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     const source = 'ordinary target\n\n$$\nx + y\n$$\n\nTail costs $x$ here.\n\n' + suffix + '$$\nz\n$$\n'
     const start = source.indexOf(at) + 2
     const core = createDocumentCore()
-    const revision = core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
+    const revision = regional(core, source)
     const before = inspectDocumentCore(core)
     const result = core.apply(revision, [{ start: start + 1, end: start + 1, insert }], { projections: ['markup'] })
     if (insert === 'q') {
@@ -213,16 +214,14 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     const text = 'Plain words here.\n\n' + ['    indented 0', '    indented 1', '{++\\{--d\\--}++}'].join('\n') +
       '\n$$\nx_{0} + y\nx_{1} + y\n$$\n\n> quoted {~~a~>b~~} line\n\nPlain words here.'
     const start = text.indexOf('x_{1} + y') + 5
-    const regional = (core: ReturnType<typeof createDocumentCore>) =>
-      core.apply(core.open(text), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
     const core = createDocumentCore()
-    const revision = regional(core)
+    const revision = regional(core, text)
     const before = inspectDocumentCore(core).documentParses
     const actual = core.trackedEdit(revision, { start: start + 1, end: start + 1, insert: '\n' })
     expect(inspectDocumentCore(core).documentParses - before).toBeLessThanOrEqual(1)
     const control = createDocumentCore()
     planFromDocumentParse(control)
-    expect(actual).toEqual(control.trackedEdit(regional(control), { start: start + 1, end: start + 1, insert: '\n' }))
+    expect(actual).toEqual(control.trackedEdit(regional(control, text), { start: start + 1, end: start + 1, insert: '\n' }))
   })
 
   // Plan 0012 G35: a heading or a label naming no definition is read in the
@@ -322,7 +321,7 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
   ])('reads $label from its blocks', ({ blocks, old, insert }) => {
     const source = 'ordinary target\n\n' + blocks + suffix
     const core = createDocumentCore()
-    const revision = core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
+    const revision = regional(core, source)
     const start = revision.source.indexOf(old)
     const before = inspectDocumentCore(core)
     const result = core.apply(revision, [{ start, end: start + old.length, insert }], { projections: ['markup'] })
