@@ -3,6 +3,7 @@ import type LangInputContent from '../../block/content/langInputContent';
 import type ParagraphContent from '../../block/content/paragraphContent';
 import type { Muya } from '../../index';
 import { ScrollPage } from '../../block/scrollPage';
+import { recordDocumentCommand } from '../../editor/documentEditing';
 import { firstWordOfInfo, parseFenceLine } from '../../utils';
 import { createDiagramState, diagramTypeOfLang } from '../../utils/diagram/fence';
 import { search } from '../../utils/prism';
@@ -210,18 +211,7 @@ export class CodeBlockLanguageSelector extends BaseScrollFloat {
             const selection = muya.editor.selection.getDOMSelection();
             if (!selection)
                 throw new Error('Code language selector has no model selection');
-            muya.editor.history.recordModelCommand(historyGroup => model.input({
-                kind: 'command',
-                command: 'setCodeLanguage',
-                language: name,
-                selection,
-                options: {
-                    autoPairBracket: muya.options.autoPairBracket,
-                    autoPairQuote: muya.options.autoPairQuote,
-                    autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
-                },
-                historyGroup,
-            }, () => {}));
+            recordDocumentCommand(muya, model, { command: 'setCodeLanguage', language: name, selection }, { flush: false });
             super.selectItem(item);
             return;
         }
