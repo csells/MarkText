@@ -2,7 +2,6 @@ import type CodeMirror from 'codemirror'
 import type {
   DocumentTextSelection,
   MarkdownOptions,
-  DocumentProjectionRequest,
   DocumentSourceEdit,
   CriticMarkupKind,
   DocumentResolutionDecision
@@ -75,7 +74,6 @@ export interface CodeMirrorCoreAdapterOptions {
   /** Revision owning that source, including when mounting an already-edited document. */
   readonly canonicalRevision: number
   readonly insertedLineEnding: CanonicalLineEnding
-  readonly projections?: () => readonly DocumentProjectionRequest[]
   readonly performanceTrace?: Readonly<{
     readonly documentId: string
     readonly clock?: () => number
@@ -158,6 +156,9 @@ export function inspectCodeMirrorCoreAdapter(
 
 const nextMacrotask = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
+// Source mode reads its view from CodeMirror, so no submission asks for a projection.
+const NO_PROJECTIONS = Object.freeze([])
+
 /**
  * Translates each CodeMirror native operation into exact edits in the previous
  * document's UTF-16 coordinate domain. It never reads a full editor snapshot;
@@ -187,7 +188,6 @@ export function createCodeMirrorCoreAdapter(
     createCanonicalEolIndex(options.canonicalSource),
     options.canonicalRevision,
     options.insertedLineEnding,
-    options.projections ?? (() => []),
     options.performanceTrace,
     options.nativeHistoryScope
   )
@@ -201,7 +201,6 @@ function createAdapterWithIndex(
   initialEolIndex: ReturnType<typeof createCanonicalEolIndex>,
   canonicalRevision: number,
   insertedLineEnding: CanonicalLineEnding,
-  projections: () => readonly DocumentProjectionRequest[],
   performanceTrace: CodeMirrorCoreAdapterOptions['performanceTrace'],
   nativeHistoryScope?: string
 ): CodeMirrorCoreAdapter {
@@ -449,21 +448,21 @@ function createAdapterWithIndex(
               beforeSelection: queued.beforeSelection,
               afterSelection: queued.afterSelection
             },
-            projections: projections(),
+            projections: NO_PROJECTIONS,
             ...(queued.nativeHistoryGroup === undefined
               ? {}
               : { nativeHistoryGroup: queued.nativeHistoryGroup })
           }
           : queued.kind === 'history'
             ? queued.command === 'configure'
-              ? { kind: 'configure', options: queued.options!, projections: projections() }
-              : { kind: queued.command, projections: projections() }
+              ? { kind: 'configure', options: queued.options!, projections: NO_PROJECTIONS }
+              : { kind: queued.command, projections: NO_PROJECTIONS }
             : {
               kind: 'resolve',
               authoredRevision: queued.authoredRevision,
               annotation: queued.annotation,
               decision: queued.decision,
-              projections: projections()
+              projections: NO_PROJECTIONS
             }
       )
       acknowledged = submission.acknowledged
