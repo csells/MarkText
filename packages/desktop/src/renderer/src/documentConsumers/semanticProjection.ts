@@ -1,4 +1,5 @@
 import type { MarkdownAstNode } from '@marktext/document-core'
+import { stringAttribute } from './astAttributes'
 
 /** Blocks whose rendered text is searched independently. */
 export const searchableBlockKinds = new Set<MarkdownAstNode['kind']>([
@@ -11,11 +12,6 @@ export const searchableBlockKinds = new Set<MarkdownAstNode['kind']>([
   'diagram',
   'table-cell'
 ])
-
-export const stringAttribute = (node: MarkdownAstNode, name: string): string | undefined => {
-  const value = node.attributes[name]
-  return typeof value === 'string' ? value : undefined
-}
 
 export type SemanticSegment = Readonly<{
   /** The leaf node kind this run of semantic text comes from. */

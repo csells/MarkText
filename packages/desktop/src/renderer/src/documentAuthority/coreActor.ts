@@ -40,11 +40,8 @@ import type {
   CoreReviewOverviewEntry
 } from './coreProtocol'
 import { createMuyaMarkupView } from './muyaMarkupView'
-import {
-  searchableBlockKinds,
-  semanticProjectionOf,
-  stringAttribute
-} from '../documentConsumers/semanticProjection'
+import { stringAttribute } from '../documentConsumers/astAttributes'
+import { searchableBlockKinds, semanticProjectionOf } from '../documentConsumers/semanticProjection'
 import { createReviewOverviewTracker } from './coreReviewOverview'
 import { createConsumerSummaryTracker } from './coreConsumerSummary'
 
