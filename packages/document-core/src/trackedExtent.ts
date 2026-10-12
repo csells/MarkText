@@ -754,7 +754,7 @@ export const DOCUMENT_SEARCH_UNITS = 8192
 export const spelledAsSource = new WeakSet<TrackedOracle>()
 /**
  * Oracles recording a key no spelling of its markup holds, as one splitting a
- * marker, the G47 way: only a spelling whose Accept All and Reject All
+ * marker: only a spelling whose Accept All and Reject All
  * resolve to the operation's bytes, however it reads while pending.
  */
 export const recordedExactly = new WeakSet<TrackedOracle>()
@@ -1369,7 +1369,7 @@ export function splitTrackedHistoryEdit(
   offset: number,
   text: string,
   preview: Preview,
-  // Weigh a split by what Accept All and Reject All leave (G34) rather than
+  // Weigh a split by what Accept All and Reject All leave rather than
   // by the Original view, which a split block literal reads as two blocks.
   byResolution = false
 ): DocumentSourceEdit | undefined {

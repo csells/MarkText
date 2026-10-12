@@ -323,7 +323,7 @@ export const createTrackedSourceEdit = (
         }
         // The proposed block takes the typing only where it stays within the
         // Substitution; typing that breaks the paragraph the Substitution
-        // lives in splits its old arm instead (G34).
+        // lives in splits its old arm instead.
         if (deepest !== undefined && deepest.range.start <= planned.start && planned.end <= deepest.range.end) {
           // The caret domain holds the typing's own place as well.
           const from = Math.min(planned.start, start)

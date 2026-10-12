@@ -131,7 +131,7 @@ export function prepareClipboardMarkdown(
       meta: { align: typeof cell.attributes.alignment === 'string' ? cell.attributes.alignment : 'none' }
     }))
   }))
-  // Owner decision (plan 0012 G24): text after a row's last header column,
+  // ADR 0007: text after a row's last header column,
   // which upstream drops, follows the respelled row as it was written.
   const lines = tableToMarkdown({ children: rows }).split('\n')
   for (const [rowIndex, row] of first.children.entries()) {

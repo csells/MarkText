@@ -43,8 +43,8 @@ export const planAuthor = (
   const layout = highlightCommentLayout(activeRevision.annotations)
   if (request.form === 'comment') {
     const around = innermostHighlightAround(layout, request.range)
-    // A comment on text in a standalone highlight comments on that highlight
-    // (plan 0012 G16); in a commented passage it nests a new pair below.
+    // A comment on text in a standalone highlight comments on that highlight;
+    // in a commented passage it nests a new pair below.
     if (around !== undefined && layout.standalone.includes(around)) {
       return planHighlightComment(around, request.text, preview, diagnosticsOf)
     }
@@ -271,7 +271,7 @@ function innermostHighlightAround(layout: HighlightCommentLayout, range: SourceR
 
 /**
  * Keeps an authored range's delimiters out of a commented span's gap and off
- * its hidden edges (plan 0012 G39): a range that starts at the end of
+ * its hidden edges (Profile 2, V6): a range that starts at the end of
  * commented text starts after its Comment, one that ends at its start ends
  * before its Highlight, and one that covers all its text takes the Comment.
  */
