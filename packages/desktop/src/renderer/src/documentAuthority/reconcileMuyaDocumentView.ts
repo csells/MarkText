@@ -4,7 +4,7 @@ import { asMuyaStates, type MuyaMarkupState, type MuyaMarkupView } from './muyaM
 import isEqual from 'lodash/isEqual'
 
 import type { CoreAppliedReply } from './coreProtocol'
-import { createMuyaModelSelection, rememberHiddenCloserCaret } from './muyaModelSelection'
+import { createMuyaModelSelection, lastTypedKey, rememberHiddenCloserCaret, rememberTypedCloser } from './muyaModelSelection'
 import {
   muyaViewBindingsInRoots,
   muyaViewBindingsNear,
@@ -188,6 +188,7 @@ export function restoreMuyaDocumentSelection(
   options: { projectSource?: boolean } = {}
 ): void {
   rememberHiddenCloserCaret(muya, undefined)
+  rememberTypedCloser(muya, undefined)
   if (options.projectSource && 'ranges' in documentSelection) {
     const { projectSourcePoint } = createMuyaModelSelection(muya, view)
     documentSelection = {
@@ -361,6 +362,16 @@ export function restoreMuyaDocumentSelection(
     }
     if (anchor === undefined || focus === undefined) {
       throw new Error('The accepted model selection has no rendered native boundary')
+    }
+    // A key typed after a `}` that just closed a suggestion lands after it.
+    if (
+      collapsed && inputSelection !== undefined && lastTypedKey(muya) === '}' &&
+      [
+        ...view.decorations.map((item) => item.mark.annotationRange),
+        ...view.comments.map((item) => item.annotationRange)
+      ].some((range) => range.end === inputSelection.start)
+    ) {
+      rememberTypedCloser(muya, inputSelection.start)
     }
     muya.editor.selection.setDOMSelection(anchor, focus)
   }

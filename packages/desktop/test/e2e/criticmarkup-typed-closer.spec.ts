@@ -22,7 +22,7 @@ const forms = [
     typed: '{++crit++}',
     untracked: ['Start {++crit++}\n', 'Start {++crit++}x\n'],
     // An Addition's closer would read a typed `{++` as its own.
-    tracked: ['Start{~~~> {++crit++}~~}\n', 'Start{~~~> {++critx++}~~}\n']
+    tracked: ['Start{~~~> {++crit++}~~}\n', 'Start{~~~> {++crit++}x~~}\n']
   },
   {
     typed: '{--gone--}',
@@ -42,8 +42,7 @@ const forms = [
   {
     typed: '{~~old~>new~~}',
     untracked: ['Start {~~old~>new~~}\n', 'Start {~~old~>new~~}x\n'],
-    // Tracked, typing right after one's own suggestion extends it (Google Docs).
-    tracked: ['Start{++ {~~old~>new~~}++}\n', 'Start{++ {~~old~>newx~~}++}\n']
+    tracked: ['Start{++ {~~old~>new~~}++}\n', 'Start{++ {~~old~>new~~}x++}\n']
   }
 ]
 
@@ -81,3 +80,25 @@ for (const tracked of [false, true]) {
     })
   }
 }
+
+// A tracked `}` that completes markup already in the text proposes the
+// suggestion it closes, and the next key lands after that brace too.
+test('a key after a tracked `}` that closes existing markup lands after it', async() => {
+  const { app, page, filePath } = await launchWithReviewMarkdown('Start {++crit++\n', {
+    suppressErrorDialog: true,
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+  })
+  try {
+    await page.getByTestId('critic-review-track-changes').click()
+    await page.locator('.editor-component .mu-paragraph-content', { hasText: 'Start' }).click()
+    await page.keyboard.press(lineEnd)
+    await page.keyboard.type('}')
+    await save(app, page, filePath, 'Start {~~{++crit++~>{++crit++}~~}\n')
+    await page.keyboard.type('x')
+    await save(app, page, filePath, 'Start {~~{++crit++~>{++crit++}x~~}\n')
+    await expectEditorWindowHidden(app)
+    await expectNoRendererErrors(app)
+  } finally {
+    await app.close()
+  }
+})

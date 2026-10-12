@@ -84,6 +84,26 @@ export function rememberHiddenCloserCaret(muya: Muya, caret: HiddenCloserCaret |
   }, { once: true, capture: true })
 }
 
+/** The last text key each editor sent, read when its result is reconciled. */
+const typedKeys = new WeakMap<Muya, string | null>()
+/** Where a `}` the author just typed closed a suggestion, in source. */
+const typedClosers = new WeakMap<Muya, number>()
+
+export const lastTypedKey = (muya: Muya): string | null | undefined => typedKeys.get(muya)
+
+/** Records, or with `undefined` forgets, the caret after a typed closing `}`. */
+export function rememberTypedCloser(muya: Muya, source: number | undefined): void {
+  if (source === undefined) {
+    typedClosers.delete(muya)
+    return
+  }
+  typedClosers.set(muya, source)
+  // A pointer press places a caret of the user's own.
+  muya.domNode.addEventListener('mousedown', () => {
+    if (typedClosers.get(muya) === source) typedClosers.delete(muya)
+  }, { once: true, capture: true })
+}
+
 /** The model projection is the only source of semantic DOM boundary positions. */
 export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
   const nativeSelection = muya.editor.selection
@@ -895,6 +915,7 @@ export function muyaInputToModel(
   // Bracket pairing completes an annotation's closer one key before its `}`.
   // That `}`, typed where the caret shows, steps over the paired one as it
   // would before a visible `}`, so it goes to the caret the model holds.
+  typedKeys.set(muya, input.inputType === 'insertText' ? input.data : null)
   const hidden = hiddenCloserCarets.get(muya)
   if (
     hidden !== undefined && input.inputType === 'insertText' && input.data === '}' &&
@@ -912,12 +933,17 @@ export function muyaInputToModel(
       ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
     }
   }
+  const closer = typedClosers.get(muya)
+  const afterTypedCloser = closer !== undefined && input.inputType.startsWith('insert') &&
+    'ranges' in selection && selection.ranges.length === 1 &&
+    selection.ranges[0]?.anchor === closer && selection.ranges[0]?.focus === closer
   return {
     selection,
     range,
     inputType: input.inputType,
     data: input.data,
     options: input.options,
+    ...(afterTypedCloser ? { afterTypedCloser } : {}),
     ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
   }
 }

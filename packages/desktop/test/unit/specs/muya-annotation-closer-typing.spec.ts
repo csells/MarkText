@@ -11,7 +11,7 @@ const forms = [
   {
     typed: '{++crit++}',
     untracked: ['Start {++crit++}\n', 'Start {++crit++}x\n'],
-    tracked: ['Start{~~~> {++crit++}~~}\n', 'Start{~~~> {++critx++}~~}\n']
+    tracked: ['Start{~~~> {++crit++}~~}\n', 'Start{~~~> {++crit++}x~~}\n']
   },
   {
     typed: '{--gone--}',
@@ -31,7 +31,7 @@ const forms = [
   {
     typed: '{~~old~>new~~}',
     untracked: ['Start {~~old~>new~~}\n', 'Start {~~old~>new~~}x\n'],
-    tracked: ['Start{++ {~~old~>new~~}++}\n', 'Start{++ {~~old~>newx~~}++}\n']
+    tracked: ['Start{++ {~~old~>new~~}++}\n', 'Start{++ {~~old~>new~~}x++}\n']
   }
 ]
 
@@ -63,8 +63,8 @@ for (const tracked of [false, true]) {
         // Addition, or a Substitution of nothing where an Addition's closer
         // would read a typed `{++` as its own.
         expect(await typeKeys(` ${form.typed}`)).toBe(suggested)
-        // Untracked, typing continues after the suggestion; tracked, it
-        // extends the suggestion it follows, as in Google Docs.
+        // A key typed after the `}` lands after it: untracked as text,
+        // tracked in the author's own surrounding draft.
         expect(await typeKeys('x')).toBe(continued)
       } finally {
         app.dispose()
@@ -72,3 +72,50 @@ for (const tracked of [false, true]) {
     })
   }
 }
+
+// A tracked `}` that completes markup already in the text proposes the
+// suggestion it closes; the next key lands after that brace too.
+it.each([
+  ['Start {++crit++\n', 'Start {~~{++crit++~>{++crit++}~~}\n', 'Start {~~{++crit++~>{++crit++}x~~}\n'],
+  ['Start {~~old~>new~~\n', 'Start {--{~~old~>new~~--}{++{~~old~>new~~}++}\n', 'Start {--{~~old~>new~~--}{++{~~old~>new~~}x++}\n']
+])('types after a tracked `}` that closes existing markup (%j)', async(source, closed, continued) => {
+  const app = bootBoundMuya(source)
+  try {
+    app.track(true)
+    const leaf = app.muya.editor.scrollPage!.firstContentInDescendant()!
+    leaf.setCursor(leaf.text.length, leaf.text.length, true)
+    app.muya.flush()
+    const sources: string[] = []
+    for (const key of '}x') {
+      const target = app.muya.editor.selection.getSelection()?.anchor.block.domNode
+      if (!target?.isConnected) throw new Error('Expected live selection')
+      target.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: key, bubbles: true, cancelable: true }))
+      app.muya.flush()
+      await app.adapter.settled()
+      const reply = app.binding.sourceAtBarrier()
+      if (reply.type !== 'source') throw new Error('Expected source')
+      sources.push(reply.source)
+    }
+    expect(sources).toEqual([closed, continued])
+  } finally {
+    app.dispose()
+  }
+})
+
+// Only a `}` just typed keeps the next key out: a caret placed after one's
+// own suggestion still extends it, as in Google Docs.
+it('extends one\'s own Addition from a caret placed after it', async() => {
+  const app = bootBoundMuya('Start {++a++}\n')
+  try {
+    app.track(true)
+    const leaf = app.muya.editor.scrollPage!.firstContentInDescendant()!
+    leaf.setCursor(leaf.text.length, leaf.text.length, true)
+    app.muya.flush()
+    leaf.domNode!.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: 'x', bubbles: true, cancelable: true }))
+    app.muya.flush()
+    await app.adapter.settled()
+    expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'Start {++ax++}\n' })
+  } finally {
+    app.dispose()
+  }
+})
