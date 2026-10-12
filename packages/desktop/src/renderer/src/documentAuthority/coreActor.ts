@@ -174,7 +174,7 @@ const selectionAstOf = (
   projection: MarkdownProjection,
   start: number,
   end: number
-): MarkdownAst | undefined => {
+): MarkdownAst => {
   const selected = new Map<MarkdownAstNode, MarkdownAstNode>()
   const intersects = (node: MarkdownAstNode): boolean =>
     node.kind === 'document' || (node.range.start < end && node.range.end > start)
@@ -225,11 +225,6 @@ const selectionAstOf = (
 
     let kind = task.node.kind
     if (!fullySelected && task.node.children.length === 0) {
-      const raw = projection.markdown.slice(task.node.range.start, task.node.range.end)
-      const selectedRaw = raw.slice(
-        rangeStart - task.node.range.start,
-        rangeEnd - task.node.range.start
-      )
       if (task.node.kind === 'text') {
         attributes.semanticText = partialTextMeaning(projection.markdown, task.node, rangeStart, rangeEnd)
       } else {
@@ -237,7 +232,7 @@ const selectionAstOf = (
         // source characters; its whole-node meaning no longer applies.
         kind = 'text'
         for (const name of Object.keys(attributes)) delete attributes[name]
-        attributes.semanticText = selectedRaw
+        attributes.semanticText = projection.markdown.slice(rangeStart, rangeEnd)
       }
     }
 
@@ -261,7 +256,8 @@ const selectionAstOf = (
   }
 
   const root = selected.get(projection.ast.root)
-  return root === undefined ? undefined : Object.freeze({ root })
+  if (root === undefined) throw new Error('The selection walk starts at the document root')
+  return Object.freeze({ root })
 }
 
 export function createCoreActor(
@@ -1316,18 +1312,6 @@ export function createCoreActor(
         const start = documentProjection.coordinates.toProjected(request.range.start, 'next')
         const end = documentProjection.coordinates.toProjected(request.range.end, 'previous')
         const markdown = documentProjection.markdown.slice(start, Math.max(start, end))
-        const selectionAst = selectionAstOf(documentProjection, start, Math.max(start, end))
-        if (selectionAst === undefined) {
-          return Object.freeze({
-            type: 'rejected',
-            session,
-            sequence,
-            revision: revisionNumber,
-            accepted: false,
-            reason: 'invalid-edit',
-            sourceLength: revision.sourceLength
-          })
-        }
         return Object.freeze({
           type: 'selection-projection',
           session,
@@ -1339,7 +1323,7 @@ export function createCoreActor(
             kind: 'markdown-consumer-projection',
             name: 'revised',
             markdown,
-            ast: selectionAst
+            ast: selectionAstOf(documentProjection, start, Math.max(start, end))
           })
         })
       }
