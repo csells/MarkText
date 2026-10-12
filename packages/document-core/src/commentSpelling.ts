@@ -1,6 +1,6 @@
 import { createDocumentCore, type DocumentRevision, type DocumentSourceEdit, type MarkdownOptions, type SourceRange } from './documentCore.js'
 import { markupAnnotations } from './markupEditOwnership.js'
-import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape } from './internal/profile1/sourceTape.js'
+import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape } from './criticMarkers.js'
 
 /** A Comment payload's source spelling. */
 export interface DocumentCommentPayloadSpelling {

@@ -5,7 +5,7 @@ import { markupEditOwnership, markupReplacementRange } from './markupEditOwnersh
 import { nativeCriticSpelling, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { positionAfter } from './sourcePosition.js'
 import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
-import { CRITIC_FORM_SPELLING } from './internal/profile1/sourceTape.js'
+import { CRITIC_FORM_SPELLING } from './criticMarkers.js'
 
 function ordinaryCompilationMatches(
   core: DocumentCore, previous: DocumentRevision, inputs: readonly DocumentSourceEdit[],

@@ -1,7 +1,7 @@
 import { CRITIC_TOKENS, commentPayloadCandidates } from './commentSpelling.js'
 import { highlightCommentLayout, type HighlightCommentLayout, type HighlightCommentPair } from './commentedSpans.js'
 import { protectNativeCriticText } from './trackedAuthoring.js'
-import { spellSuggestion } from './internal/profile1/sourceTape.js'
+import { spellSuggestion } from './criticMarkers.js'
 import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, SourceRange } from './documentCore.js'
 
 export type DocumentAuthorForm = 'addition' | 'comment' | 'highlight' | 'substitution'
