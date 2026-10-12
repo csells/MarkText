@@ -22,7 +22,7 @@ import {
   readPerformanceCalibration,
   startPerformanceCalibration
 } from './helpers/performanceCalibration'
-import { performanceRunCalibrationReference } from '../../../../scripts/criticmarkupPerformanceTargets'
+import { nearestRank, performanceRunCalibrationReference } from '../../../../scripts/criticmarkupPerformanceTargets'
 import { FENCE_2000_ARM_SOURCE, ORDINARY_MARKDOWN_WORKLOADS, placeCaretAfterWarmEditingText } from './helpers/ordinaryMarkdownWorkloads'
 
 const enabled = process.env.MARKTEXT_WARM_PERFORMANCE === '1'
@@ -105,10 +105,7 @@ const rendererBuildHashes = (): Record<string, string> => {
 
 const distribution = (values: readonly number[]) => {
   const sorted = [...values].sort((a, b) => a - b)
-  const percentile = (value: number): number | null => sorted.length === 0
-    ? null
-    : sorted[Math.max(0, Math.ceil(sorted.length * value) - 1)]
-  return { count: values.length, p50: percentile(0.5), p95: percentile(0.95), maximum: sorted.at(-1) ?? null }
+  return { count: values.length, p50: nearestRank(sorted, 0.5), p95: nearestRank(sorted, 0.95), maximum: sorted.at(-1) ?? null }
 }
 
 test.describe('warm native-keyboard performance', () => {

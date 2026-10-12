@@ -3,7 +3,7 @@
   "status": "structural-draft-unratified",
   "profile": {
     "path": "specs/language/marktext-markdown-profile-1.md",
-    "sha256": "8c491732ee5c8d9c9b184594287314aafc1dcf11805d3e20fe4e45bfe9423e25"
+    "sha256": "de4d551f08a95d9ae003911c9fcb7e841a0347111290f3044e43833849339187"
   },
   "rules": [
     { "id": "P1", "cases": ["case-P1"] },
@@ -426,7 +426,7 @@
   "profile2": [
     {
       "path": "specs/language/marktext-criticmarkup-profile-2.md",
-      "sha256": "dd1937f85dba939f5f8dd58c0f2fcfbbcbd85d7f7568b592ea04ad370ede54b1",
+      "sha256": "ea7a6d6faaa16546687122807899948a2bea4b5b2766900ba727a9de59fb5478",
       "rules": [
         {
           "id": "L2c",
@@ -606,7 +606,7 @@
     },
     {
       "path": "specs/language/marktext-markdown-profile-2.md",
-      "sha256": "e4bf747c828d3a2d77e9e1a064d0b6fb635bd2a7c5073f5efce312b43e90bd55",
+      "sha256": "0191785c7b79445f6ea1d552b7e771e7f4ee38697d12dbeefa052aa7e5ac8012",
       "rules": [
         {
           "id": "IL1",

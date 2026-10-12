@@ -15,8 +15,8 @@ is permitted only as an explicit document transformation. Hash algorithms,
 framing, snapshot fields, and save implementation are versioned implementation
 details, not language semantics.
 
-Typing never re-spells source it does not change (owner decision, plan 0012
-G24): an edit inside a table or paragraph changes only what was typed. Explicit
+Typing never re-spells source it does not change (owner decision): an edit
+inside a table or paragraph changes only what was typed. Explicit
 commands are explicit transformations and may re-spell the structure they act
 on, as upstream MarkText does: table commands (insert or delete a row or
 column, alignment) re-pad their table, and list Tab/Shift+Tab renumber the

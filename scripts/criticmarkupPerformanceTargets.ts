@@ -75,7 +75,8 @@ export interface PerformanceCalibrationSummary {
   readonly p90: number | null
 }
 
-const nearestRank = (sorted: readonly number[], fraction: number): number | null =>
+/** The nearest-rank quantile of ascending samples at `fraction` in (0, 1]; null when there are none. */
+export const nearestRank = (sorted: readonly number[], fraction: number): number | null =>
   sorted.length === 0 ? null : sorted[Math.max(0, Math.ceil(sorted.length * fraction) - 1)] ?? null
 
 /** p50 and p90 of a run's calibration loop times. */
