@@ -27,9 +27,13 @@ export function reachLegacyMarkdown(owner: ILegacyMarkdownOwner, module: LegacyM
     if (owner.editor?.documentEditing === undefined)
         return;
 
+    const recorded = reaches.length < MAX_RECORDED_REACHES;
+    if (!recorded && !strict && listeners.size === 0)
+        return;
+
     const error = new Error(`${module} was reached while a document model is bound`);
     const reach = { module, stack: error.stack ?? error.message };
-    if (reaches.length < MAX_RECORDED_REACHES)
+    if (recorded)
         reaches.push(reach);
     for (const listener of listeners)
         listener(reach);
