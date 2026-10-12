@@ -5,7 +5,6 @@ import type {
   Profile1SyntaxGraph,
   Profile1SyntaxNode,
   Profile1SyntaxNodeKind,
-  SourceOffset,
   SourceOwner,
   SourceOwnershipIndex,
   SourceOwnershipRun,
@@ -15,6 +14,7 @@ import type {
   Profile1SyntaxAccountingEventKindV1,
   Profile1SyntaxAccountingRecorderV1
 } from './syntaxAccounting.js'
+import { sameRange, sourceRange } from './sourceRanges.js'
 
 export interface SyntaxSourceIdentity {
   readonly key: string
@@ -57,21 +57,6 @@ export interface Profile1SyntaxIdentityRegistry {
   readonly referenceTargets: (nodeId: NodeId) => readonly NodeId[]
   readonly finishOwnership: (source: string) => SourceOwnershipIndex
   readonly finish: () => Profile1SyntaxGraph
-}
-
-function sourceOffset(value: number): SourceOffset {
-  return value as SourceOffset
-}
-
-function sourceRange(start: number, end: number): SourceRange {
-  return Object.freeze({
-    start: sourceOffset(start),
-    end: sourceOffset(end)
-  })
-}
-
-function sameRange(left: SourceRange, right: SourceRange): boolean {
-  return left.start === right.start && left.end === right.end
 }
 
 function sameOwner(left: SourceOwner, right: SourceOwner): boolean {

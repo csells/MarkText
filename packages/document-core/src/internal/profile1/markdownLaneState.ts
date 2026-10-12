@@ -10,7 +10,8 @@ import {
   findGfmExtendedAutolink,
   findInlineHtmlEnd,
   findInlineLinkDestinationEnd,
-  hasEvenBackslashRunBefore
+  hasEvenBackslashRunBefore,
+  isSpaceOrTab
 } from './markdownLexical.js'
 import {
   findMarkdownFenceOpening,
@@ -766,10 +767,6 @@ interface MarkdownContainerOpener {
   readonly startNumber?: number
   readonly delimiterCodeUnit?: number
   readonly contentOffset?: number
-}
-
-function isSpaceOrTab(codeUnit: number): boolean {
-  return codeUnit === 32 || codeUnit === 9
 }
 
 export { advanceColumn as advanceMarkdownColumn }

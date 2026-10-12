@@ -24,6 +24,7 @@ import {
   parseProfile1Document,
   parseProfile1ReaderViews,
   profile1CriticMarkupRootCount,
+  sameMarkdownOptions,
   type PreviousIntrinsicPass,
   type Profile1DocumentProducts,
   type Profile1DocumentReuseCache
@@ -1989,22 +1990,6 @@ function documentCoreError(
     sourceRangeOf(diagnostic.range),
     diagnostic.metadata
   )
-}
-
-function sameMarkdownOptions(
-  left: MarkdownOptionsV1,
-  right: MarkdownOptionsV1
-): boolean {
-  return left.gfm === right.gfm &&
-    left.gfmAutolinks === right.gfmAutolinks &&
-    left.gfmTagFilter === right.gfmTagFilter &&
-    left.frontMatter === right.frontMatter &&
-    left.texMathDollars === right.texMathDollars &&
-    left.texMathGfm === right.texMathGfm &&
-    left.texMathSingleBackslash === right.texMathSingleBackslash &&
-    left.texMathDoubleBackslash === right.texMathDoubleBackslash &&
-    left.footnotes === right.footnotes &&
-    left.subscriptAndSuperscript === right.subscriptAndSuperscript
 }
 
 interface NormalizedProjectionRequests {
