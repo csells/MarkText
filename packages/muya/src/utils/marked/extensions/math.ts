@@ -24,8 +24,9 @@ const INLINE_MATH_TYPES = new Set<string>([
     'displayMathDoubleBackslash',
 ]);
 
-// The openers that carry display rather than inline math.
-const DISPLAY_MATH_MARKERS = new Set(['$$', '\\[', '\\\\[']);
+// The openers pandoc reads as display rather than inline math: `$$` from
+// `tex_math_dollars`, `\[` and `\\[` from the two backslash extensions.
+export const DISPLAY_MATH_MARKERS: ReadonlySet<string> = new Set(['$$', '\\[', '\\\\[']);
 
 /** Render already-recognized math using the same engine and chemistry support as MarkText. */
 export function renderMath(text: string, options: { displayMode?: boolean; throwOnError?: boolean } = {}): string {
