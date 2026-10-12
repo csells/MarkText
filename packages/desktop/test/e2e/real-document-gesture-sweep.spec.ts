@@ -754,15 +754,10 @@ family('structure', 3, {}, async(sweep, index) => {
 
 // A subset with Track Changes on: typing, a trailing space, cut, copy, paste,
 // Enter, Backspace and Delete, with undo and redo.
-// Source mode edits raw text, and returning from it starts with Track Changes
-// off; the sweep turns it back on as a user would.
+// Track Changes stays on through the Source mode trip at the midpoint.
 const trackedMidpoint = async(sweep: Sweep): Promise<void> => {
   await toggleSource(sweep)
-  const toggle = sweep.page.getByTestId('critic-review-track-changes')
-  if (await toggle.getAttribute('aria-pressed') !== 'true') {
-    await sweep.step('turn Track Changes back on', () => toggle.click())
-  }
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(sweep.page.getByTestId('critic-review-track-changes')).toHaveAttribute('aria-pressed', 'true')
 }
 
 family('tracked', 2, { tracked: true, atMidpoint: trackedMidpoint }, async(sweep, index) => {

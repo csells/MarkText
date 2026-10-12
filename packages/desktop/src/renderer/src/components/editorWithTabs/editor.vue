@@ -471,6 +471,7 @@ import {
   createCoreAuthorityPerformanceTestBridge,
   createCoreTrackChangesMode,
   createMuyaPlainTextCoreAdapter,
+  type CoreTrackChangesMode,
   type CoreAppliedReply,
   type CoreAuthorForm,
   type CoreAuthorityPerformanceTrace,
@@ -567,6 +568,8 @@ const props = defineProps<{
   coreTestCrashCoreOwner?: () => void
   coreTestStaleNextTransaction?: () => void
   commentComposerState?: CoreReviewComposerState
+  /** The document's Track Changes mode, which outlives this view. */
+  trackChangesModeFor?: (documentId: string) => CoreTrackChangesMode
   /** True once, for the first view of a newly opened document. */
   claimFreshDocument?: (documentId: string) => boolean
 }>()
@@ -750,7 +753,7 @@ const coreReviewRefresh = createLatestViewRefresh<CoreReviewItemReply>({
   fault: (error) => emit('core-fault', error)
 })
 const coreTrackChangesEnabled = ref(false)
-let coreTrackChangesMode: ReturnType<typeof createCoreTrackChangesMode> | undefined
+let coreTrackChangesMode: CoreTrackChangesMode | undefined
 const toggleCoreTrackChanges = (): void => {
   coreTrackChangesEnabled.value = coreTrackChangesMode?.toggle() ?? false
 }
@@ -3696,7 +3699,9 @@ onMounted(() => {
       acknowledgedView: () => coreAcknowledgedMarkupView ?? props.corePlainTextView
     })
     activeCoreLease.setRecoveryDraftCapture(captureRecoveryDraft)
-    coreTrackChangesMode = createCoreTrackChangesMode()
+    coreTrackChangesMode =
+      props.trackChangesModeFor?.(props.coreLease.documentId) ?? createCoreTrackChangesMode()
+    coreTrackChangesEnabled.value = coreTrackChangesMode.enabled()
     const detachDocumentEditing = muya.editor.bindDocumentEditing({
       emojiContext: (point) =>
         coreAcknowledgedMarkupView === undefined
@@ -4066,7 +4071,6 @@ onMounted(() => {
       coreRecoveryDraftCapture = undefined
       coreBoundLease = undefined
       coreAuthorityPerformanceTrace = undefined
-      coreTrackChangesMode?.reset()
       coreTrackChangesMode = undefined
       coreAuthorSelection.value = undefined
       coreAuthorInvocationSelection.value = undefined
