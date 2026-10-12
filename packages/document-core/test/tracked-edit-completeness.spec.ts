@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { editingReconciliation } from '../src/editingReconciliation.js'
 import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
 import { createDocumentCore, type CriticMarkupAnnotation, type DocumentInputAction, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
 import { positionAfter } from '../src/sourcePosition.js'
@@ -146,7 +147,7 @@ describe('tracked edits reproduce untracked editing', () => {
     })
 
     // The caret follows the typed text into the suggestion.
-    const map = core.editingReconciliation(previous, input, commit)
+    const map = editingReconciliation(core, previous, input, commit, 'visible')
     expect(map).toBeDefined()
     const caret = positionAfter(map!, start + row.insert.length, false)
     expect(caret).toBeGreaterThanOrEqual(planned!.start)
@@ -210,7 +211,7 @@ describe('typing inside tracked history splits it at the caret', () => {
     expect(commit.revision.source).toBe(split)
     expect(core.project(commit.revision, 'original').markdown).toBe(core.project(previous, 'original').markdown)
     expect(core.project(commit.revision, 'revised').markdown).toBe(revised)
-    const map = core.editingReconciliation(previous, input, commit)
+    const map = editingReconciliation(core, previous, input, commit, 'visible')
     expect(map).toBeDefined()
     const caret = positionAfter(map!, at + 1, false)
     expect(split.slice(caret - 1, caret)).toBe('X')
@@ -234,13 +235,13 @@ describe('a final escape completion re-trims when typing continues', () => {
     const first = { start: 3, end: 3, insert: '\\' }
     const commit = core.apply(previous, [core.trackedEdit(previous, first)!])
     expect(commit.revision.source).toBe('abc{++\\\\++}')
-    const caret = positionAfter(core.editingReconciliation(previous, first, commit)!, 4, false)
+    const caret = positionAfter(editingReconciliation(core, previous, first, commit, 'visible')!, 4, false)
     expect(caret).toBe(8)
     const second = { start: caret, end: caret, insert: 'd' }
     const next = core.apply(commit.revision, [core.trackedEdit(commit.revision, second)!])
     expect(next.revision.source).toBe('abc{++\\d++}')
     expect(core.project(next.revision, 'revised').markdown).toBe('abc\\d')
-    expect(positionAfter(core.editingReconciliation(commit.revision, second, next)!, caret + 1, false)).toBe(8)
+    expect(positionAfter(editingReconciliation(core, commit.revision, second, next, 'visible')!, caret + 1, false)).toBe(8)
   })
 })
 
