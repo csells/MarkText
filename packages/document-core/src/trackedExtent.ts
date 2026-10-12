@@ -382,7 +382,11 @@ export function createTrackedOracle(
   const countRoots = trackedRootCounts.get(core)
   const rootCount = (edits: readonly DocumentSourceEdit[]): number =>
     countRoots?.(previous, edits) ?? cachedPreview(edits).annotations.length
-  const previousSource = core.sourceSlice(previous, { start: 0, end: previous.sourceLength })
+  let previousSourceText: string | undefined
+  const previousSource = (): string => {
+    previousSourceText ??= core.sourceSlice(previous, { start: 0, end: previous.sourceLength })
+    return previousSourceText
+  }
   const viewFacts = trackedPreviewFacts.get(target)
   let targetView: string | undefined
   const sameView = (facts: TrackedProjectionFacts): boolean => {
@@ -411,7 +415,7 @@ export function createTrackedOracle(
     const present = (revision: DocumentRevision): boolean => revision.annotations.length > 0
     if (present(candidate) === present(previous) && present(candidate) === present(target)) return false
     const candidateViews = annotated(candidate.source)
-    const previousViews = annotated(previousSource)
+    const previousViews = annotated(previousSource())
     const targetViews = annotated(target.source)
     if (candidateViews === undefined || previousViews === undefined || targetViews === undefined) return false
     if (candidateViews.revisedView !== targetViews.revisedView) return false
@@ -449,7 +453,7 @@ export function createTrackedOracle(
       // signatures parse the Original text alone, while a candidate read
       // regionally may need a whole parse for its Revised view.
       if (!(authored.length > 0 && resolveAuthored(candidate.source, authored, 'accept') === target.source &&
-          resolveAuthored(candidate.source, authored, 'reject') === previousSource &&
+          resolveAuthored(candidate.source, authored, 'reject') === previousSource() &&
           signature(facts.original) === signature(original()) &&
           viewFacts !== undefined && facts.revisedView() === (targetView ??= viewFacts.revisedView()))) return false
     }
@@ -466,14 +470,20 @@ export function createTrackedOracle(
     const candidate = cachedPreview(edits)
     const authored = authoredAnnotations(edits, candidate)
     return authored.length > 0 && resolveAuthored(candidate.source, authored, 'accept') === target.source &&
-      resolveAuthored(candidate.source, authored, 'reject') === previousSource
+      resolveAuthored(candidate.source, authored, 'reject') === previousSource()
   }
+  let revisesVisibleText: boolean | undefined
   return Object.freeze({
     resolvesExactly,
     untracked,
-    untrackedSource: target.source,
-    revisesVisibleText: !(regional.sameAsPrevious(targetFacts, 'revised') ??
-      targetFacts.revised === core.project(previous, 'revised').markdown),
+    get untrackedSource(): string {
+      return target.source
+    },
+    get revisesVisibleText(): boolean {
+      revisesVisibleText ??= !(regional.sameAsPrevious(targetFacts, 'revised') ??
+        targetFacts.revised === core.project(previous, 'revised').markdown)
+      return revisesVisibleText
+    },
     accepts,
     preview: cachedPreview
   })
