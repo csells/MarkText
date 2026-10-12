@@ -1,4 +1,4 @@
-import { characterEntities } from './htmlCharacterEntities.js'
+import { decodeHTMLStrict } from 'entities'
 
 const ESCAPABLE_ASCII_PUNCTUATION = new Set(
   [...'!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~']
@@ -25,7 +25,7 @@ const decodeStrictCharacterReferences = (source: string, onSpelling?: DecodedSpe
     const body = reference.slice(1, -1)
     const value = body.startsWith('#')
       ? decodeNumericReference(body)
-      : Object.hasOwn(characterEntities, body) ? characterEntities[body] ?? reference : reference
+      : decodeHTMLStrict(reference)
     if (value !== reference) onSpelling?.(offset, offset + reference.length, value)
     return value
   }
