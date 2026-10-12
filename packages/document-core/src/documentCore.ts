@@ -2825,8 +2825,12 @@ function createDocumentCoreWithExecutionBudget(
    * which the document would pair it with: the draft is then the document's
    * to settle (see `displayMathReachesPast`).
    */
-  const noteWindowDollarReach = (products: Profile1DocumentProducts, source: string, options: MarkdownOptions): void => {
-    if (windowEndsDocument(core) === false && options.texMathDollars && displayMathReachesPast(products, source)) {
+  const noteWindowDollarReach = (
+    intrinsic: Parameters<typeof displayMathReachesPast>[0],
+    source: string,
+    options: MarkdownOptions
+  ): void => {
+    if (windowEndsDocument(core) === false && options.texMathDollars && displayMathReachesPast(intrinsic, source)) {
       markUnresolvedDraft(core, { start: false, end: true })
     }
   }
@@ -2860,7 +2864,7 @@ function createDocumentCoreWithExecutionBudget(
     }
     inspection.canonicalFactIndexUnits +=
       products.retainedIntrinsic?.tape.length ?? 0
-    noteWindowDollarReach(products, source, resolvedOptions)
+    noteWindowDollarReach(products.retainedIntrinsic, source, resolvedOptions)
     return products
   }
 
@@ -2886,7 +2890,7 @@ function createDocumentCoreWithExecutionBudget(
     }
     inspection.canonicalFactIndexUnits +=
       result.retainedIntrinsic?.tape.length ?? 0
-    noteWindowDollarReach(result, source, resolvedOptions)
+    noteWindowDollarReach(result.retainedIntrinsic, source, resolvedOptions)
     return result
   }
 
@@ -5602,6 +5606,9 @@ function createDocumentCoreWithExecutionBudget(
     inspection.documentProjectionPreparationUnits += source.length
     const reader = parseProfile1ReaderViews(source, executionBudget, state.markdownOptions, physicalRecorder, previousPass)
     if (reader.kind !== 'reader') throw documentCoreError(reader.fatalDiagnostic)
+    // A candidate read from its reader views alone, as a draft's acceptance
+    // in a window is, settles its `$$` lines as a whole parse of it does.
+    noteWindowDollarReach(reader.intrinsic, source, state.markdownOptions)
     let whole: Profile1DocumentProducts | undefined
     const products = (): Profile1DocumentProducts => {
       whole ??= isolatedProducts(source, state.markdownOptions, previousPass)
