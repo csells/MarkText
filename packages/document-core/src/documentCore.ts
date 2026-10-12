@@ -6280,19 +6280,19 @@ function createDocumentCoreWithExecutionBudget(
       const match = /\r\n|\r|\n/u.exec(source.slice(offset, blockEnd))
       return match === null ? blockEnd : offset + match.index + match[0].length
     }
-    const lineStartAt = (offset: number): number => {
+    const lineStartInBlock = (offset: number): number => {
       let at = offset
       while (at > blockStart && !/[\r\n]/u.test(source.slice(at - 1, at))) at -= 1
       return at
     }
-    const editedStart = lineStartAt(edit.start)
+    const editedStart = lineStartInBlock(edit.start)
     const editedEnd = lineEnd(edit.start)
     // The block's first and last lines hold its delimiters, which stand for
     // the lines between them and the edited one; indented code has none,
     // its indentation is its delimiter, and its edited line may be either.
     const indented = /^(?: {4}|\t)/u.test(text)
     const firstLineEnd = indented && editedStart === blockStart ? blockStart : lineEnd(blockStart)
-    const lastStart = indented && editedEnd >= blockEnd ? blockEnd : lineStartAt(blockEnd)
+    const lastStart = indented && editedEnd >= blockEnd ? blockEnd : lineStartInBlock(blockEnd)
     if (editedStart < firstLineEnd || editedEnd > lastStart || (!indented && editedEnd >= blockEnd) ||
         indented && !/^(?: {4}|\t)/u.test(source.slice(editedStart, edit.start)) ||
         !/\S/u.test(source.slice(editedStart, editedEnd) + edit.insert)) return undefined
@@ -7541,8 +7541,8 @@ function createDocumentCoreWithExecutionBudget(
     const to = Math.min(state.source.length, edit.end + 512)
     const text = state.source.slice(from, to)
     const lineStart = from + lineStartBefore(text, edit.start - from)
-    const lineEndAt = text.slice(edit.end - from).search(/[\r\n]/u)
-    const line = state.source.slice(lineStart, lineEndAt === -1 ? to : edit.end + lineEndAt)
+    const editToLineEnd = text.slice(edit.end - from).search(/[\r\n]/u)
+    const line = state.source.slice(lineStart, editToLineEnd === -1 ? to : edit.end + editToLineEnd)
     const marker = /^[ \t]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]+|$)/u.exec(line)
     return /[`$]/u.test(line + edit.insert) || (marker !== null && edit.start <= lineStart + marker[0].length)
   }
