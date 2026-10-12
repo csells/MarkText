@@ -10,7 +10,7 @@ import { hiddenCoreEnv as env } from './reviewGestures'
 // space or Enter starts the next. A click, an arrow key, a selection, a save
 // or a move to another block does not. Tracked typing groups the same way.
 // The caret after the last undo is where the first command began (owner
-// decision, plan 0012), not upstream's.
+// decision), not upstream's.
 
 const source = 'first para here\n\nsecond para here\n'
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))

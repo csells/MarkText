@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { applyMuyaMarkupChanges } from '@/documentAuthority/muyaMarkupChanges'
 import { createMuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 
-// Plan 0012 G35: a view patched with a regional reply reads exactly as the
+// A view patched with a regional reply reads exactly as the
 // view of the whole new revision, whatever the edit: blank-line runs and
 // whitespace-only lines included, where Enter at a paragraph's end lands,
 // stray or unfinished markers beside them, and every block kind, whose

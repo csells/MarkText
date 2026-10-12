@@ -26,7 +26,7 @@ import {
 // Review interaction follows Google Docs (owner rule, 27 Sep): a comment can
 // be added to highlighted or already commented text, its composer opens on its
 // card in the Comments and Suggestions list, and text typed at the edge of
-// commented text stays outside the comment (plan 0012 G16, G31, G39).
+// commented text stays outside the comment.
 
 const composerInCard = (page: Page, prefix = 'critic-review-comment') =>
   page.locator(
@@ -95,7 +95,7 @@ test('Add Comment from the toolbar on a selection inside a standalone highlight 
       const state = await toolbarState(page)
       return state.visible && state.review.includes('add-comment:on')
     }).toBe(true)
-    // Text inside a highlight takes every form (plan 0012 G15).
+    // Text inside a highlight takes every form.
     await expect.poll(async() => (await toolbarState(page)).review).toContain('mark-addition:on')
     await page.locator('.mu-format-picker [data-action="add-comment"]').click()
     await saveComment(page, 'note')

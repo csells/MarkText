@@ -53,7 +53,7 @@ const endOf = (app: BoundMuya, index: number) => {
 const table = '| a | b |\n| --- | --- |\n| c | d |\n'
 
 // Upstream (8d6c198c) writes the whole table afresh after each cell edit; an
-// edit here changes only the bytes it types (ADR 0007; plan 0012 G24).
+// edit here changes only the bytes it types (ADR 0007).
 describe('editing a table cell', () => {
   it.each([
     {
@@ -116,7 +116,7 @@ describe('editing a table cell', () => {
       typed: '| ax | b |\n| --- | --- |\n| c |\n',
       caret: 'ax|'
     },
-    // Owner decision (plan 0012 G24): padding keeps a row's text beyond the
+    // Owner decision: padding keeps a row's text beyond the
     // header's columns, which upstream drops.
     {
       initial: '| a | b |\n| --- | --- |\n| c | d | e |\n',

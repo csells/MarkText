@@ -1032,7 +1032,7 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
     })
   }
 
-  // Plan 0012 B4: the 2,000-line fence's proposed arm. MarkText types there
+  // The 2,000-line fence's proposed arm. MarkText types there
   // with Track Changes on (MARKTEXT_UPSTREAM_WARM_TRACK=1); upstream, which has
   // no tracked mode, reads the same source as ordinary Markdown and types the
   // same keys at the same caret, untracked.

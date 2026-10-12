@@ -8,7 +8,7 @@ import {
   sendIpcToRenderer
 } from './helpers'
 
-// Plan 0012 G42: macOS text-system bindings reach the bound document as
+// macOS text-system bindings reach the bound document as
 // beforeinput types beyond plain typing (Ctrl+T insertTranspose, Ctrl+K
 // deleteHardLineForward, Ctrl+Y insertFromYank). Each is pressed as a real
 // key. Plain documents must end as Chromium's own editing leaves the same

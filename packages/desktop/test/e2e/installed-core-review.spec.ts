@@ -400,8 +400,8 @@ test.describe('installed Core Review authority', () => {
         if (testCase.reviewKind === null) await expect(kind).toHaveCount(0)
         else await expect(kind).toHaveAttribute('data-kind', testCase.reviewKind)
       }
-      // Plan 0012 G13: returning from Source leaves the caret in plain text,
-      // so no card is active until the user selects one; G37: Next does that.
+      // Returning from Source leaves the caret in plain text,
+      // so no card is active until the user selects one; Next does that.
       const selectAfterSource = async(page: Page): Promise<void> => {
         if (testCase.reviewKind !== null) await page.getByTestId('critic-review-next').click()
       }
@@ -666,8 +666,8 @@ test.describe('installed Core Review authority', () => {
         await expect.poll(() => fs.readFileSync(filePath, 'utf8'))
           .toBe(bulkResolutionSource)
         // Undo returns the caret to where it was before the command, outside
-        // every item, so no card is active (plan 0012 G13, owner decision on
-        // review-command undo); Next selects the first item (G37).
+        // every item, so no card is active (owner decision on
+        // review-command undo); Next selects the first item.
         await expect(page.getByTestId('critic-review-kind')).toHaveCount(0)
         await page.getByTestId('critic-review-next').click()
         await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'addition')

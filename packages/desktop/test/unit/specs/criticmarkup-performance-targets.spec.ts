@@ -177,7 +177,7 @@ describe('CriticMarkup performance target protocol', () => {
       .toThrow(/t_present.*frozen positive target/i)
   })
 
-  // Owner decision 2026-10-06 (plan 0012), replacing the 2026-10-04 rule:
+  // Owner decision 2026-10-06, replacing the 2026-10-04 rule:
   // the calibration loop is information beside a run's results and never
   // invalidates, reruns or leaves a run inconclusive.
   describe('calibration as information', () => {

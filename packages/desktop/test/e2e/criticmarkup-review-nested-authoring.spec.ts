@@ -18,7 +18,7 @@ import {
   toolbarState
 } from './reviewGestures'
 
-// Plan 0012 G15: as in Google Docs, text that is itself a suggestion or is
+// As in Google Docs, text that is itself a suggestion or is
 // highlighted or commented can be highlighted, suggested on or commented on
 // again. Every form nests inside any arm (Profile 1 N1). A form that would
 // cross an annotation's delimiters stays unavailable, and its shortcut beeps

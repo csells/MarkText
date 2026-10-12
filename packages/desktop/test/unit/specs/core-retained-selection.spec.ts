@@ -254,7 +254,7 @@ it('rebases a retained rectangle through preceding edits and restores rectangle 
       clipboardResult: {
         selection: {
           kind: 'table-cell',
-          // A paste into a cell writes only its text (ADR 0007; plan 0012 G24).
+          // A paste into a cell writes only its text (ADR 0007).
           cell: { table: { start: 9, end: 42 }, row: 1, column: 0 },
           anchor: 1,
           focus: 1
@@ -314,7 +314,7 @@ it('rejects prepared rectangle paste after its selected cell was replaced', () =
 
 it('replays completed rectangle preparation as its resolved clipboard action after owner recovery', async() => {
   const source = '| a | b |\n| --- | --- |\n| c | d |\n'
-  // A paste into a cell writes only its text (ADR 0007; plan 0012 G24).
+  // A paste into a cell writes only its text (ADR 0007).
   const completed = '| a | b |\n| --- | --- |\n| y | d |\n'
   const manager = createCoreDocumentSessionManager({
     createBinding: () => createEditorCoreBinding(createLocalCoreOwner())

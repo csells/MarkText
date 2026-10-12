@@ -74,7 +74,7 @@ for (const annotated of [false, true]) {
       await expect(image).toHaveAttribute('width', '200')
       await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
       await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(resized)
-      // Image edits join upstream's one-second undo step (plan 0012 G43);
+      // Image edits join upstream's one-second undo step;
       // wait it out so each edit is its own step.
       await page.waitForTimeout(1100)
       await image.click()

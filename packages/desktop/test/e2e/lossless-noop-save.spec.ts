@@ -5,7 +5,7 @@ import * as path from 'node:path'
 
 import { launchWithDoc, sendIpcToRenderer } from './helpers'
 
-// Plan 0012 G41 / ADR 0007: opening a file and saving it without an edit
+// ADR 0007: opening a file and saving it without an edit
 // writes the file's own bytes back, through the real editor and save path
 // (Cmd+S's `mt::editor-ask-file-save` → store → main writeMarkdownFile).
 
@@ -23,7 +23,7 @@ const CASES: ReadonlyArray<readonly [string, Buffer]> = [
   ]
 ]
 
-test.describe('a save without edits writes the original bytes (G41)', () => {
+test.describe('a save without edits writes the original bytes', () => {
   test.describe.configure({ timeout: 60_000 })
 
   for (const [label, bytes] of CASES) {

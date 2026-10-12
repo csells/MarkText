@@ -8,7 +8,7 @@ import { LossyDecodeError } from 'main_renderer/filesystem/encoding'
 import { loadMarkdownFile, writeMarkdownFile } from 'main_renderer/filesystem/markdown'
 import type { LineEnding } from '@shared/types/files'
 
-// Plan 0012 G41: opening and saving without an edit is byte-exact (ADR 0007),
+// Opening and saving without an edit is byte-exact (ADR 0007),
 // an edited save keeps the file's encoding, BOM and EOL policy, and bytes that
 // did not survive decoding are never replaced without consent. These drive the
 // production load and save functions against real files.
