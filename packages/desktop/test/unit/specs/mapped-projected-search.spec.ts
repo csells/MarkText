@@ -10,7 +10,11 @@ describe('Revised search presented in editable Markup', () => {
   it.each([
     { source: 'a{--old--}b', query: 'ab', highlighted: ['a', 'b'] },
     { source: '{~~legacy~>cat~~}', query: 'cat', highlighted: ['cat'] },
-    { source: '- {--old--}{++cat++}\n', query: 'cat', highlighted: ['cat'] }
+    { source: '- {--old--}{++cat++}\n', query: 'cat', highlighted: ['cat'] },
+    // Literal text starts after its opening syntax.
+    { source: 'a `cat` b\n', query: 'cat', highlighted: ['cat'] },
+    { source: '```js\ncat()\n```\n', query: 'cat', highlighted: ['cat'] },
+    { source: 'x\n\n    one\n    cat\n', query: 'cat', highlighted: ['cat'] }
   ])('paints canonical match pieces for $source', ({ source, query, highlighted }) => {
     const actor = createCoreActor()
     actor.handle({ type: 'open', session: 1, sequence: 1, source })
@@ -20,7 +24,11 @@ describe('Revised search presented in editable Markup', () => {
     const revision = core.open(source)
     const view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations)
     const index = createMuyaMarkupPresentationIndex(view)
-    const hosts = view.bindings.map(() => document.createElement('div'))
+    const hosts = view.bindings.map((binding) => {
+      const host = document.createElement('div')
+      host.textContent = binding.text
+      return host
+    })
     const blocks = new Map<number, ProjectedSearchPresentationBlock>()
     const presentation = createProjectedSearchPresentation({
       bindings: () => view.bindings,

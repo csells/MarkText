@@ -35,24 +35,49 @@ export const semanticProjectionOf = (
   node: MarkdownAstNode,
   markdown?: string
 ): SemanticProjection => {
+  const contentStart = node.attributes.contentStart
+  const contentEnd = node.attributes.contentEnd
+  // A literal's text starts after its opening syntax (a backtick run, a
+  // fence line), where its node records its content.
+  const start = typeof contentStart === 'number' ? contentStart : node.range.start
+  const end = typeof contentEnd === 'number' ? contentEnd : node.range.end
   const leaf = (text: string): SemanticProjection => {
-    const raw = markdown?.slice(node.range.start, node.range.end)
+    const raw = markdown?.slice(start, end)
     const suffix = raw?.slice(text.length)
     const isDirect = raw === text || (raw?.startsWith(text) === true && /^\s*$/u.test(suffix ?? ''))
-    return Object.freeze({
-      text,
-      segments: isDirect
-        ? Object.freeze([
+    if (isDirect) {
+      return Object.freeze({
+        text,
+        segments: Object.freeze([
           Object.freeze({
             kind: node.kind,
             semanticStart: 0,
             semanticEnd: text.length,
-            projectionStart: node.range.start,
-            projectionEnd: node.range.start + text.length
+            projectionStart: start,
+            projectionEnd: start + text.length
           })
         ])
-        : Object.freeze([])
-    })
+      })
+    }
+    // Content that drops part of its spelling, as indented code drops each
+    // line's indentation, is spelled line by line by its text children.
+    const segments: SemanticSegment[] = []
+    let cursor = 0
+    for (const child of node.children) {
+      const childText = child.kind === 'text' ? stringAttribute(child, 'semanticText') : undefined
+      if (childText === undefined || childText === '') continue
+      const at = text.indexOf(childText, cursor)
+      if (at < 0 || markdown?.slice(child.range.start, child.range.start + childText.length) !== childText) continue
+      segments.push(Object.freeze({
+        kind: node.kind,
+        semanticStart: at,
+        semanticEnd: at + childText.length,
+        projectionStart: child.range.start,
+        projectionEnd: child.range.start + childText.length
+      }))
+      cursor = at + childText.length
+    }
+    return Object.freeze({ text, segments: Object.freeze(segments) })
   }
   switch (node.kind) {
     case 'text':
