@@ -113,6 +113,17 @@ export function spellSuggestion(kind: Profile1CriticKind, text: string, proposed
   return separator === undefined ? `${open}${text}${close}` : `${open}${text}${separator}${proposed}${close}`
 }
 
+/**
+ * `text` as a suggestion holds it: an odd run of trailing backslashes would
+ * escape the closer after it (E1), so one more backslash makes the last one
+ * literal, rendering the backslash typed.
+ */
+export function completeTrailingEscape(text: string): string {
+  let run = 0
+  while (run < text.length && text[text.length - 1 - run] === '\\') run += 1
+  return run % 2 === 1 ? `${text}\\` : text
+}
+
 /** A Deletion of `old` then an Addition of `next`: two suggestions in place of one Substitution. */
 export function spellSuggestionPair(old: string, next: string): string {
   return spellSuggestion('deletion', old) + spellSuggestion('addition', next)

@@ -7,7 +7,7 @@ import { markupAnnotations } from './markupEditOwnership.js'
 import { positionAfter } from './sourcePosition.js'
 import { FENCED_LITERAL_BLOCKS, SPLITTABLE_LITERAL_BLOCKS } from './literalBlock.js'
 import { isPositionalMarkdownAttribute } from './markdownPositions.js'
-import { CRITIC_MARKER_ALTERNATION, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
+import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
 
 type Preview = (edits: readonly DocumentSourceEdit[]) => DocumentRevision
 
@@ -837,12 +837,6 @@ function insideHistory(annotations: readonly CriticMarkupAnnotation[], span: Sou
     arm.range.start <= span.start && span.end <= arm.range.end))
 }
 
-function trailingBackslashes(value: string): number {
-  let count = 0
-  while (count < value.length && value[value.length - 1 - count] === '\\') count += 1
-  return count
-}
-
 type Variant = 'exact' | 'pair' | 'reversed' | 'padded' | 'padded-pair' | 'shifted' | 'escaped'
 
 /**
@@ -1024,11 +1018,11 @@ function searchWidenedSpelling(
 
   const spell = (old: string, next: string, variant: Variant, atLineEnd: boolean): string | undefined => {
     if (variant === 'escaped') {
-      const oldEscape = trailingBackslashes(old) % 2 === 1 ? '\\' : ''
-      const nextEscape = trailingBackslashes(next) % 2 === 1 ? '\\' : ''
-      if (oldEscape === '' && nextEscape === '') return undefined
-      old += oldEscape
-      next += nextEscape
+      const escapedOld = completeTrailingEscape(old)
+      const escapedNext = completeTrailingEscape(next)
+      if (escapedOld === old && escapedNext === next) return undefined
+      old = escapedOld
+      next = escapedNext
     }
     if (variant === 'padded' || variant === 'padded-pair' || variant === 'shifted') {
       // Block literals complete before the closer and divider when those
@@ -1446,9 +1440,7 @@ export function splitTrackedHistoryEdit(
     acceptedBefore ??= resolvedSuggestions(previousSource, previous.annotations, 'accept')
     return acceptedBefore
   }
-  // A final backslash would escape the Addition's closer; its completed
-  // escape renders the same single backslash.
-  const payload = trailingBackslashes(text) % 2 === 1 ? `${text}\\` : text
+  const payload = completeTrailingEscape(text)
   for (const point of ordered) {
     const left = source({ start: history.range.start, end: point })
     const edit = owner.kind === 'deletion'
@@ -1644,7 +1636,7 @@ export function draftTrackedSourceEdit(
   if (oracle === undefined) return undefined
   const eol = (content.match(EOL) ?? core.sourceSlice(previous, { start: 0, end: previous.sourceLength }).match(EOL))?.[0] ?? '\n'
   const suffixes: string[] = []
-  if (trailingBackslashes(content) % 2 === 1) suffixes.push('\\')
+  if (completeTrailingEscape(content) !== content) suffixes.push('\\')
   if (!EOL.test(content.at(-1) ?? '\n')) suffixes.push(eol)
   for (const equivalence of ['exact', 'rendering'] as const) {
     for (const suffix of ['', ...suffixes]) {
