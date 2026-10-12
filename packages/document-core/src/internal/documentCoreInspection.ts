@@ -81,9 +81,6 @@ export interface DocumentCoreInspection {
   readonly sourceRebaseMaterializationOutputUnits: number
   readonly sourceProjectionMaterializations: number
   readonly sourceProjectionMaterializationOutputUnits: number
-  readonly sourceReopenMaterializations: number
-  readonly sourceReopenMaterializationOutputUnits: number
-  readonly sourceReopenComparisonUnits: number
   readonly sourceRopeRootsAttempted: number
   readonly sourceRopeRootsCommitted: number
   readonly sourceRebases: number
