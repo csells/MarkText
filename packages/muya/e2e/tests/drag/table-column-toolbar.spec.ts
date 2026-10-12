@@ -262,7 +262,7 @@ test.describe('TableColumnToolbar (per-column alignment popup)', () => {
 
 // A column command writes the table afresh; the key typed after it writes only its own bytes (ADR 0007).
 // Tracked typing in a suggested column's empty cell extends that cell's Addition, whose
-// opener must begin the cell (Profile 1 R3b), at the cell's text after its padding space (G24).
+// opener must begin the cell (Profile 1 R3b), at the cell's text after its padding space.
 const REVIEW_COLUMNS = 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n| aa | aa |\n';
 
 for (const example of [
