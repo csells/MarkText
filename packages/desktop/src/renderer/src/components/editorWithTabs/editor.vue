@@ -2110,7 +2110,7 @@ const authorCoreReview = async (
     (selection.anchor.offset === selection.focus.offset &&
       selection.anchor.path.join('/') === selection.focus.path.join('/'))
   ) {
-    // A caret in a standalone highlight comments on that highlight (plan 0012 G16).
+    // A caret in a standalone highlight comments on that highlight.
     if (form === 'comment' && coreReviewHighlightTarget.value !== undefined) {
       coreAuthorInvocationSelection.value = undefined
       await commentOnCoreHighlight(coreReviewHighlightTarget.value)
@@ -2164,7 +2164,7 @@ const authorCoreReview = async (
       coreAuthorSelection.value = undefined
       await refreshCoreReviewItem('next', 0)
       // As in Google Docs, the item just made holds the selection, so its card
-      // is the active one until the caret leaves it (G13).
+      // is the active one until the caret leaves it.
       const authored = outcome.authorResult?.selection.start
       const entry = authored === undefined
         ? undefined
@@ -2244,7 +2244,7 @@ const beginCoreAuthorReview = (
 }
 
 // A selection takes the forms Core can author over it; a caret in a
-// standalone highlight can take a comment on that highlight (plan 0012 G16).
+// standalone highlight can take a comment on that highlight.
 const coreReviewAuthorForms = computed<readonly CoreAuthorForm[]>(() =>
   coreAuthorSelection.value !== undefined
     ? coreAuthorForms.value

@@ -18,7 +18,7 @@ import { CopyType, PasteType } from './types';
 // Windows/Linux, #3491) and every other named key — navigation, Escape, Tab,
 // function, lock and media keys — leave the selection in place. Upstream cut
 // on any key but an arrow or modifier, so Home, End, PageDown or Escape
-// deleted several paragraphs; keeping them is a documented deviation (G26).
+// deleted several paragraphs; keeping them is a deliberate deviation.
 const SELECTION_REPLACING_KEYS = new Set(['Enter', 'Backspace', 'Delete', 'Dead', 'Process']);
 
 export function shouldCrossBlockCut(key: string, metaKey: boolean, ctrlKey: boolean): boolean {
