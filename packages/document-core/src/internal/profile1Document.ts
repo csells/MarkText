@@ -49,7 +49,6 @@ import {
   type Profile1PhysicalTraversalRecorderV1
 } from './profile1/physicalTraversalAccounting.js'
 import {
-  createIntrinsicProfile1InspectionForkRecorder,
   createIntrinsicProfile1ForkRecorder,
   type IntrinsicProfile1ForkBranch,
   type IntrinsicProfile1ForkGraph,
@@ -98,7 +97,6 @@ import {
   type MappedMarkdownMatchingScope
 } from './profile1/markdownParser.js'
 import {
-  createProfile1SyntaxInspectionRegistry,
   createProfile1SyntaxIdentityRegistry,
   defineNodeId,
   type Profile1SyntaxIdentityRegistry,
@@ -186,15 +184,6 @@ interface ParseResourceFailure {
 }
 
 type ParseOutcome = ParseResult | ParseResourceFailure
-
-interface IntrinsicProfile1InspectionResult {
-  readonly kind: 'inspection-complete'
-  readonly markerDecisions: readonly CanonicalMarkerDecision[]
-}
-
-type IntrinsicProfile1PassOutcome =
-  | ParseOutcome
-  | IntrinsicProfile1InspectionResult
 
 interface MutableCanonicalProjectionSegment {
   readonly kind: 'canonical'
@@ -349,15 +338,6 @@ export interface Profile1RegionalReferenceDependency {
 export type Profile1RegionalAdmissionResult =
   | Profile1RegionalAdmission
   | Profile1RegionalReferenceDependency
-
-export interface Profile1ChangedJoinInspection {
-  readonly kind: 'inspected'
-  readonly protectionPositions: readonly number[]
-}
-
-export type Profile1ChangedJoinInspectionResult =
-  | Profile1ChangedJoinInspection
-  | Profile1SourceOnlyProducts
 
 export interface Profile1DocumentReuseCache {
   readonly markdown: Profile1MarkdownReuseCache
@@ -1138,7 +1118,7 @@ function structuralRecoverySuppressionRanges(
   ))
 }
 
-function parseIntrinsicProfile1Pass(
+function parseIntrinsicProfile1(
   source: string,
   syntaxIdentity: Profile1SyntaxIdentityRegistry,
   // Accepted-node depth is enforced after the pass (collectOverDepthNodes).
@@ -1146,14 +1126,13 @@ function parseIntrinsicProfile1Pass(
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
   markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
   execution?: ParseExecutionTracker,
-  outputMode: 'document' | 'changed-join-inspection' = 'document',
   suppressedMarkerRanges?: readonly Readonly<{
     start: number
     end: number
   }>[],
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
   createPhysicalTraversalRecorderV1()
-): IntrinsicProfile1PassOutcome {
+): ParseOutcome {
   const sourceProgression = createIntrinsicProfile1SourceProgression(
     source,
     execution,
@@ -1207,16 +1186,10 @@ function parseIntrinsicProfile1Pass(
   const stagedMarkdownLiterals: MarkdownLiteralRange[] = []
   let firstMarkdownDepthFailure: MarkdownContainerDepthFailure | undefined
   let rootMarkdownCheckpoint = markdownLane.emptyCheckpoint
-  const forkRecorder =
-    outputMode === 'changed-join-inspection'
-      ? createIntrinsicProfile1InspectionForkRecorder(
-        source.length,
-        rootMarkdownCheckpoint
-      )
-      : createIntrinsicProfile1ForkRecorder(
-        source.length,
-        rootMarkdownCheckpoint
-      )
+  const forkRecorder = createIntrinsicProfile1ForkRecorder(
+    source.length,
+    rootMarkdownCheckpoint
+  )
   const noteMarkdownDepthFailure = (checkpoint: MarkdownCheckpoint): void => {
     const failure = markdownLane.containerDepthFailure(checkpoint)
     if (
@@ -1871,12 +1844,6 @@ function parseIntrinsicProfile1Pass(
       )
     })
   }
-  if (outputMode === 'changed-join-inspection') {
-    return Object.freeze({
-      kind: 'inspection-complete',
-      markerDecisions: Object.freeze(markerDecisions)
-    })
-  }
   const canonical = finalizeCanonicalTape(source, markerDecisions, execution)
   const forkGraph = forkRecorder.finish(
     canonical.tape,
@@ -1909,73 +1876,6 @@ function parseIntrinsicProfile1Pass(
       ? {}
       : { recoverySuppressedMarkerRanges })
   })
-}
-
-/**
- * Test-only counter of full CriticMarkup recognitions. Phase 0.5 drives the
- * "one CriticMarkup authority per open" property by shrinking this from ~5
- * (canonical + per-projection guard + per-projection verifier) to 1. It counts
- * `parseIntrinsicProfile1`, not each internal block/inline phase, so one
- * canonical grammar admission remains one recognition.
- */
-function parseIntrinsicProfile1(
-  source: string,
-  syntaxIdentity: Profile1SyntaxIdentityRegistry,
-  cmDepthLimit: number = Number.POSITIVE_INFINITY,
-  markdownDepthLimit: number = Number.POSITIVE_INFINITY,
-  markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
-  execution?: ParseExecutionTracker,
-  suppressedMarkerRanges?: readonly Readonly<{
-    start: number
-    end: number
-  }>[],
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
-  createPhysicalTraversalRecorderV1()
-): ParseOutcome {
-  const discovery = parseIntrinsicProfile1Pass(
-    source,
-    syntaxIdentity,
-    cmDepthLimit,
-    markdownDepthLimit,
-    markdownOptions,
-    execution,
-    'document',
-    suppressedMarkerRanges,
-    physicalRecorder
-  )
-  if (discovery.kind === 'inspection-complete') {
-    throw new Error('Document parse returned inspection-only products')
-  }
-  if (discovery.kind !== 'complete') {
-    return discovery
-  }
-  return discovery
-}
-
-function inspectIntrinsicProfile1ChangedJoins(
-  source: string,
-  syntaxIdentity: Profile1SyntaxIdentityRegistry,
-  cmDepthLimit: number,
-  markdownDepthLimit: number,
-  markdownOptions: MarkdownOptionsV1,
-  execution: ParseExecutionTracker,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1
-): IntrinsicProfile1InspectionResult | ParseResourceFailure {
-  const inspected = parseIntrinsicProfile1Pass(
-    source,
-    syntaxIdentity,
-    cmDepthLimit,
-    markdownDepthLimit,
-    markdownOptions,
-    execution,
-    'changed-join-inspection',
-    undefined,
-    physicalRecorder
-  )
-  if (inspected.kind === 'complete') {
-    throw new Error('Changed-join inspection materialized document products')
-  }
-  return inspected
 }
 
 interface NodeAtDepth {
@@ -4555,158 +4455,6 @@ function createDiagnosticIndex(items: readonly SyntaxDiagnostic[]): DiagnosticIn
  * every document; this necessary-condition check only classifies its work.
  */
 const CRITIC_MARKER_TOKEN = /\{(?:\+\+|--|~~|==|>>)|(?:\+\+|--|~~|==|<<)\}/
-
-function validateChangedJoins(
-  sourceLength: number,
-  joins: readonly number[]
-): void {
-  let previous = -1
-  for (const join of joins) {
-    if (
-      !Number.isSafeInteger(join) ||
-      join < previous ||
-      join > sourceLength
-    ) {
-      throw new RangeError('Changed source joins must be ordered positions')
-    }
-    previous = join
-  }
-}
-
-function hasMarkerCandidateCrossingChangedJoin(
-  source: string,
-  joins: readonly number[],
-  execution: ParseExecutionTracker
-): boolean {
-  for (const join of joins) {
-    // Profile 1 markers are at most three UTF-16 units. Only a spelling that
-    // starts in the preceding two units can strictly contain this join.
-    for (let start = Math.max(0, join - 2); start < join; start += 1) {
-      const marker = findMarker(source, start)
-      if (marker !== undefined && join < start + marker.length) {
-        return true
-      }
-    }
-    execution.examineParserWork(1)
-  }
-  return false
-}
-
-/**
- * Canonical grammar inspection for protective edits at changed joins.
- *
- * The intrinsic parser authenticates accepted CriticMarkup markers, but this
- * mode deliberately stops before projection AST, ownership, Markup, and view
- * materialization. A transformation can therefore protect its sparse draft
- * and perform one final authoritative document parse instead of retaining an
- * entire unprotected candidate revision beside the input revision.
- */
-export function inspectProfile1ChangedCriticMarkerJoins(
-  source: string,
-  executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
-  joins: readonly number[],
-  executionControl?: ParseExecutionControl,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
-  createPhysicalTraversalRecorderV1()
-): Profile1ChangedJoinInspectionResult {
-  validateChangedJoins(source.length, joins)
-  const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
-  const execution = createParseExecutionTracker(executionControl)
-  const finish = <Result extends Profile1ChangedJoinInspectionResult>(
-    result: Result
-  ): Result => {
-    execution.finish()
-    return result
-  }
-  if (
-    usesDesktopLimits &&
-    source.length > DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits
-  ) {
-    return finish(Object.freeze({
-      kind: 'source-only',
-      fatalDiagnostic: createResourceDiagnostic(
-        'CM_RESOURCE_SOURCE_UNITS_EXCEEDED',
-        sourceRange(
-          DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits,
-          DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits
-        ),
-        DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits,
-        source.length
-      )
-    }))
-  }
-  if (!hasMarkerCandidateCrossingChangedJoin(source, joins, execution)) {
-    return finish(Object.freeze({
-      kind: 'inspected',
-      protectionPositions: Object.freeze([])
-    }))
-  }
-
-  const syntaxIdentity = createProfile1SyntaxInspectionRegistry(source.length)
-  const parsed = inspectIntrinsicProfile1ChangedJoins(
-    source,
-    syntaxIdentity,
-    usesDesktopLimits ? DESKTOP_CM_DEPTH_LIMIT : Number.POSITIVE_INFINITY,
-    usesDesktopLimits
-      ? DESKTOP_MARKDOWN_DEPTH_LIMIT
-      : Number.POSITIVE_INFINITY,
-    markdownOptions,
-    execution,
-    physicalRecorder
-  )
-  if (parsed.kind === 'resource-failure') {
-    return finish(Object.freeze({
-      kind: 'source-only',
-      fatalDiagnostic: parsed.fatalDiagnostic
-    }))
-  }
-
-  const acceptedMarkerRunIds = new Set<number>()
-  for (const decision of parsed.markerDecisions) {
-    if (decision.role !== 'close' || decision.action !== 'matched') {
-      continue
-    }
-    acceptedMarkerRunIds.add(decision.runId)
-    if (decision.openerRunId !== undefined) {
-      acceptedMarkerRunIds.add(decision.openerRunId)
-    }
-  }
-  for (const decision of parsed.markerDecisions) {
-    if (
-      decision.role === 'separator' &&
-      acceptedMarkerRunIds.has(decision.openerRunId)
-    ) {
-      acceptedMarkerRunIds.add(decision.runId)
-    }
-  }
-
-  const positions: number[] = []
-  let joinIndex = 0
-  for (const decision of parsed.markerDecisions) {
-    if (!acceptedMarkerRunIds.has(decision.runId)) {
-      continue
-    }
-    const start = Number(decision.range.start)
-    const end = Number(decision.range.end)
-    while (
-      joinIndex < joins.length &&
-      (joins[joinIndex] ?? Number.POSITIVE_INFINITY) <= start
-    ) {
-      joinIndex += 1
-    }
-    const join = joins[joinIndex]
-    if (join === undefined || join >= end) {
-      continue
-    }
-    const position = decision.role === 'close' ? end - 1 : start
-    if (positions.at(-1) !== position) positions.push(position)
-  }
-  return finish(Object.freeze({
-    kind: 'inspected',
-    protectionPositions: Object.freeze(positions)
-  }))
-}
 
 /**
  * The G32 incremental route: when the previous parse's retained facts and
