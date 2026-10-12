@@ -1625,7 +1625,7 @@ describe('document-core facade', () => {
       range: { start: 786_433, end: 786_433 },
       metadata: { limit: '524288', observed: '524289' }
     })
-  }, 30_000)
+  })
 
   it('opens malformed syntax past the former 1,024-diagnostic cap', () => {
     // Stray markers are ordinary text upstream, so their count never refuses
