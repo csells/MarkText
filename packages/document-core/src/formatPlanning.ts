@@ -3,8 +3,9 @@ import type { DocumentInputSelection, DocumentInputTarget } from './inputPlannin
 import { copyDocumentSelection, type DocumentModelTextSelection, type DocumentTextSelection } from './sourceInputPlanning.js'
 import { positionAfter } from './sourcePosition.js'
 import { isLiteralBlock } from './literalBlock.js'
+import { allAnnotations } from './authorPlanning.js'
 import { formatDelimiters } from '@marktext/input-policy'
-import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
+import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import { inlineHtmlFormatPairs } from './documentFormatContext.js'
 import { createTrackedSourceEdit } from './trackedAuthoring.js'
 import { trackedEditableSpans } from './trackedHistoryEditing.js'
@@ -52,18 +53,6 @@ function imageLabelBracketEdits(core: DocumentCore, revision: DocumentRevision, 
   }
   visit(block)
   return edits
-}
-
-function allAnnotations(roots: readonly CriticMarkupAnnotation[]): CriticMarkupAnnotation[] {
-  const result: CriticMarkupAnnotation[] = []
-  const pending = [...roots]
-  while (pending.length > 0) {
-    const annotation = pending.pop()
-    if (annotation === undefined) break
-    result.push(annotation)
-    for (const arm of annotation.arms) pending.push(...arm.annotations)
-  }
-  return result
 }
 
 function canonicalSelection(target: DocumentInputTarget, backward = false): DocumentInputSelection {
