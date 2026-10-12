@@ -3434,13 +3434,12 @@ const flushActiveEditor = () => {
   editor.value?.flush()
 }
 
-// The engine's `focus()` only sets the selection range; the contenteditable
-// also needs DOM focus or no caret blinks.
+// Muya's `focus()` gives the contenteditable DOM focus and then restores the
+// model's exact selection, so the caret blinks where the document has it.
+// Focusing the host first would move the native selection to its start and
+// replace the document selection a command is about to act on.
 const focusEditor = () => {
-  const ed = editor.value
-  if (!ed) return
-  ed.domNode.focus()
-  ed.focus()
+  editor.value?.focus()
 }
 
 // When a focus-trapping modal (the command palette) opens, release the editor's
