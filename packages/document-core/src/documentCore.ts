@@ -24,6 +24,7 @@ import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spe
 import {
   admitProfile1PlainParagraphRegion,
   createProfile1DocumentReuseCache,
+  DEFAULT_MARKDOWN_OPTIONS,
   parseProfile1Document,
   parseProfile1ReaderViews,
   profile1CriticMarkupRootCount,
@@ -782,19 +783,6 @@ export interface DocumentCore {
     range: SourceRange
   ): Readonly<{ projection: MarkdownProjection; span: SourceRange }>
 }
-
-const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
-  gfm: true,
-  gfmAutolinks: true,
-  gfmTagFilter: true,
-  frontMatter: true,
-  texMathDollars: true,
-  texMathGfm: false,
-  texMathSingleBackslash: false,
-  texMathDoubleBackslash: false,
-  footnotes: false,
-  subscriptAndSuperscript: false
-})
 
 // Resource and accounting profiles remain private transitional inputs to the
 // research parser. They are deliberately absent from the MarkText facade.

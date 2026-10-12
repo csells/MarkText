@@ -356,7 +356,8 @@ const FORM_LABEL: Readonly<Record<ImplementedKind, string>> = Object.freeze({
 
 const DESKTOP_MARKDOWN_DEPTH_LIMIT = 128
 const DESKTOP_CM_DEPTH_LIMIT = 16_384
-const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
+/** The Markdown options a document is read with when its host names none. */
+export const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
   gfm: true,
   gfmAutolinks: true,
   gfmTagFilter: true,
@@ -366,8 +367,9 @@ const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
   texMathSingleBackslash: false,
   texMathDoubleBackslash: false,
   footnotes: false,
-  subscriptAndSuperscript: true
+  subscriptAndSuperscript: false
 })
+const MARKDOWN_OPTION_NAMES = Object.keys(DEFAULT_MARKDOWN_OPTIONS) as ReadonlyArray<keyof MarkdownOptions>
 
 function emitCriticMarkerEdges(
   registry: Profile1SyntaxIdentityRegistry,
@@ -4700,16 +4702,7 @@ export function sameMarkdownOptions(
   left: MarkdownOptions,
   right: MarkdownOptions
 ): boolean {
-  return left.gfm === right.gfm &&
-    left.gfmAutolinks === right.gfmAutolinks &&
-    left.gfmTagFilter === right.gfmTagFilter &&
-    left.frontMatter === right.frontMatter &&
-    left.texMathDollars === right.texMathDollars &&
-    left.texMathGfm === right.texMathGfm &&
-    left.texMathSingleBackslash === right.texMathSingleBackslash &&
-    left.texMathDoubleBackslash === right.texMathDoubleBackslash &&
-    left.footnotes === right.footnotes &&
-    left.subscriptAndSuperscript === right.subscriptAndSuperscript
+  return MARKDOWN_OPTION_NAMES.every((name) => left[name] === right[name])
 }
 
 /**

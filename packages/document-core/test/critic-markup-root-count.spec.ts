@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { parseProfile1Document, parseProfile1ReaderViews, profile1CriticMarkupRootCount } from '../src/internal/profile1Document.js'
+import {
+  DEFAULT_MARKDOWN_OPTIONS,
+  parseProfile1Document,
+  parseProfile1ReaderViews,
+  profile1CriticMarkupRootCount
+} from '../src/internal/profile1Document.js'
 import type { ExecutionBudgetId } from '../src/revision.js'
 
 const budget: ExecutionBudgetId = Object.freeze({
   limitsProfile: 'desktop-v1'
 })
+const options = Object.freeze({ ...DEFAULT_MARKDOWN_OPTIONS, subscriptAndSuperscript: true })
 
 const sources = [
   'plain text\n',
@@ -22,18 +28,18 @@ const sources = [
 describe('the intrinsic pass counts a parse\'s root annotations', () => {
   it('as the whole parse holds them', () => {
     for (const source of sources) {
-      const whole = parseProfile1Document(source, budget)
+      const whole = parseProfile1Document(source, budget, options)
       expect(whole.kind, source).toBe('complete')
       if (whole.kind !== 'complete') continue
-      expect(profile1CriticMarkupRootCount(source, budget), source)
+      expect(profile1CriticMarkupRootCount(source, budget, options), source)
         .toBe(whole.criticMarkup.rootCount)
     }
   })
 
   it('as none where the parse fails before projecting', () => {
     const source = `${'>'.repeat(200)} {++deep++}\n`
-    expect(parseProfile1Document(source, budget).kind).toBe('source-only')
-    expect(profile1CriticMarkupRootCount(source, budget)).toBeUndefined()
+    expect(parseProfile1Document(source, budget, options).kind).toBe('source-only')
+    expect(profile1CriticMarkupRootCount(source, budget, options)).toBeUndefined()
   })
 })
 
@@ -41,8 +47,8 @@ describe('reader views read a parse as its whole parse does', () => {
   const projection = (view: { source: string }) => view.source
   it('in their annotations, diagnostics and Original and Revised projections', () => {
     for (const source of sources) {
-      const whole = parseProfile1Document(source, budget)
-      const reader = parseProfile1ReaderViews(source, budget)
+      const whole = parseProfile1Document(source, budget, options)
+      const reader = parseProfile1ReaderViews(source, budget, options)
       expect(whole.kind, source).toBe('complete')
       expect(reader.kind, source).toBe('reader')
       if (whole.kind !== 'complete' || reader.kind !== 'reader') continue
@@ -55,6 +61,6 @@ describe('reader views read a parse as its whole parse does', () => {
 
   it('and fail where the whole parse fails', () => {
     const source = `${'>'.repeat(200)} {++deep++}\n`
-    expect(parseProfile1ReaderViews(source, budget).kind).toBe('source-only')
+    expect(parseProfile1ReaderViews(source, budget, options).kind).toBe('source-only')
   })
 })
