@@ -7,26 +7,26 @@ export const lcg = (seed: number) => (): number => {
 }
 
 /** One paragraph holding every kind of suggestion. */
-export const dense = 'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
+export const denseSuggestionParagraph = 'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
 
 /** A revision reached by a regional edit, so it holds no document parse. */
-export function regional(core: DocumentCore, source: string, at = 1): DocumentRevision {
+export function regionalRevision(core: DocumentCore, source: string, at = 1): DocumentRevision {
   return core.apply(core.open(source), [{ start: at, end: at, insert: 'q' }], { projections: ['markup'] }).revision
 }
 
-export const options = { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
+export const autoPairOptions = { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
 
 export type Key = 'insertText' | 'insertParagraph' | 'insertLineBreak' | 'deleteContentBackward' | 'deleteContentForward'
 
 /** The browser input for one key at a collapsed caret; typing writes `x`. */
-export const action = (caret: number, inputType: Key): DocumentInputAction => ({
+export const keyInputAction = (caret: number, inputType: Key): DocumentInputAction => ({
   range: inputType === 'deleteContentBackward'
     ? { start: Math.max(0, caret - 1), end: caret }
     : inputType === 'deleteContentForward' ? { start: caret, end: caret + 1 } : { start: caret, end: caret },
   selection: { ranges: [{ anchor: caret, focus: caret }], primary: 0 },
   inputType,
   data: inputType === 'insertText' ? 'x' : null,
-  options
+  options: autoPairOptions
 }) as DocumentInputAction
 
 export type Outcome = Readonly<{ plan?: unknown, edits?: unknown, selection?: unknown, source?: string, diagnostics?: unknown, error?: string }>
@@ -41,7 +41,7 @@ export function press(
   { diagnostics = false }: Readonly<{ diagnostics?: boolean }> = {}
 ): Outcome {
   try {
-    const input = action(caret, key)
+    const input = keyInputAction(caret, key)
     const plan = core.planInput(revision, input, { tracked })
     const edits = core.inputEdits(revision, input, plan, tracked)
     if (edits === undefined) return { plan }

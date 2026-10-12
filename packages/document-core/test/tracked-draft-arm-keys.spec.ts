@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentRevision } from '../src/index.js'
-import { dense, lcg } from './support/inputDriver.js'
+import { denseSuggestionParagraph, lcg } from './support/inputDriver.js'
 
 // Typing inside one's own suggestion extends it, as in Google Docs, even where
 // the text typed beside a fence would read otherwise once the suggestion is
@@ -8,7 +8,7 @@ import { dense, lcg } from './support/inputDriver.js'
 // to compile into Substitutions running to the end of the document.
 
 const blocks = [
-  dense, 'Plain words here.', 'Text {==marked *text*==}{>>see **this** {++and that++}<<} end.',
+  denseSuggestionParagraph, 'Plain words here.', 'Text {==marked *text*==}{>>see **this** {++and that++}<<} end.',
   '{==outer {==inner==}{>>nested<<} text==}{>>outer comment<<}', '{=={--gone--}==}{>>only deleted<<} tail.',
   '- item {++one++}\n- item {--two--}', '> quoted {~~a~>b~~} line', '# Heading {++added++}', 'Line one {++x++}\nline two {--y--}.', '', '   ',
   '```js\n' + Array.from({ length: 8 }, (_, i) => `const value${i} = ${i}`).join('\n') + '\n```',
