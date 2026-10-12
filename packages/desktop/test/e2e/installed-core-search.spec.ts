@@ -7,6 +7,7 @@ import type { ElectronApplication, Page } from 'playwright'
 import {
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
+  installedBinary,
   sendIpcToRenderer,
   waitForEditor,
   waitForMenuReady
@@ -31,18 +32,6 @@ const FIND_INPUT = '.search-bar .search input'
 const REPLACE_INPUT = '.search-bar .replace .input-wrapper input'
 const RESULT_COUNTER = '.search-bar .search-result'
 const REPLACE_ALL = '.search-bar .replace .button-group .button.right'
-
-const installedBinary = (): string => {
-  const configured = process.env.MARKTEXT_PACKAGED_APP
-  if (configured === undefined || configured.trim().length === 0) {
-    throw new Error('MARKTEXT_PACKAGED_APP must name the installed MarkText executable')
-  }
-  const absolute = path.resolve(configured)
-  if (!fs.existsSync(absolute)) {
-    throw new Error(`Installed MarkText executable does not exist: ${absolute}`)
-  }
-  return absolute
-}
 
 const launchInstalled = async(
   binary: string,
