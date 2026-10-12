@@ -824,16 +824,6 @@ export function muyaInputToModel(
         options: input.options
       }
     }
-    if (input.command === 'createFootnote') {
-      return {
-        kind: input.kind,
-        command: input.command,
-        identifier: input.identifier,
-        selection,
-        options: input.options,
-        ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
-      }
-    }
     if (input.command === 'changeBlock') {
       const at = input.change.at === undefined ? undefined : domPointToModel(input.change.at)
       if (input.change.at !== undefined && at === undefined) {
@@ -861,78 +851,19 @@ export function muyaInputToModel(
       if (target === undefined) {
         throw new Error('The current model has no cell for the table command target')
       }
+      const { target: _nativeTarget, historyGroup, ...command } = input
       return {
-        kind: input.kind,
-        ...(input.command === 'alignTableColumn'
-          ? { command: input.command, alignment: input.alignment }
-          : input.command === 'moveTableColumn'
-            ? { command: input.command, column: input.column }
-            : { command: input.command, row: input.row }),
+        ...command,
         target,
         selection,
-        options: input.options,
-        ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
+        ...(historyGroup === undefined ? {} : { historyGroup })
       }
     }
-    if (input.command === 'createHtmlBlock') {
-      return {
-        kind: input.kind,
-        command: input.command,
-        replace: input.replace,
-        selectionMode: input.selectionMode,
-        selection,
-        options: input.options,
-        ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
-      }
-    }
+    const { historyGroup, ...command } = input
     return {
-      kind: input.kind,
-      ...(input.command === 'setCodeLanguage'
-        ? {
-          command: input.command,
-          language: input.language,
-          ...(input.infoOffset === undefined ? {} : { infoOffset: input.infoOffset })
-        }
-        : input.command === 'tab'
-          ? { command: input.command, shift: input.shift }
-          : input.command === 'setTaskChecked'
-            ? {
-              command: input.command,
-              checked: input.checked,
-              autoCheck: input.autoCheck,
-              autoMoveCheckedToEnd: input.autoMoveCheckedToEnd
-            }
-            : input.command === 'resetCodeBlock'
-              ? { command: input.command, selectionMode: input.selectionMode }
-              : input.command === 'createMathBlock' || input.command === 'createCodeBlock'
-                ? { command: input.command, replace: input.replace }
-                : input.command === 'changeThematicBreak'
-                  ? { command: input.command, change: Object.freeze({ ...input.change }) }
-                  : input.command === 'createFrontMatter'
-                    ? { command: input.command, replace: input.replace, style: input.style }
-                    : input.command === 'createTable'
-                      ? {
-                        command: input.command,
-                        rows: input.rows,
-                        columns: input.columns,
-                        replace: input.replace
-                      }
-                      : input.command === 'changeList'
-                        ? {
-                          command: input.command,
-                          change: Object.freeze({ ...input.change }),
-                          listOptions: Object.freeze({ ...input.listOptions })
-                        }
-                        : input.command === 'changeHeading'
-                          ? { command: input.command, change: Object.freeze({ ...input.change }) }
-                          : input.command === 'changeBlockquote'
-                            ? { command: input.command, change: Object.freeze({ ...input.change }) }
-                            : 'placement' in input
-                              ? { command: input.command, placement: input.placement }
-                              : { command: input.command }),
+      ...command,
       selection,
-      options: input.options,
-      ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
+      ...(historyGroup === undefined ? {} : { historyGroup })
     }
   }
   const range = domSelectionToTarget(input.range)
