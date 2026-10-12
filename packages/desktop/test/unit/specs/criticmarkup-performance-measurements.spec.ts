@@ -1239,7 +1239,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  // Owner decision 2026-10-06 (plan 0012): the calibration probe is
+  // Owner decision 2026-10-06: the calibration probe is
   // information for both builds; no loop time makes an observation invalid.
   describe.each(['upstream-baseline', 'core-candidate'] as const)('%s calibration', implementation => {
     type CalibratedRaw = {

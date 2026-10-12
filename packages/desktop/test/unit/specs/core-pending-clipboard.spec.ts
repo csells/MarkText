@@ -58,7 +58,7 @@ describe('pending clipboard preparation belongs to its captured document', () =>
         changed: true
       })
       await app.adapter.settled()
-      // A paste into a cell writes only its text (ADR 0007; plan 0012 G24).
+      // A paste into a cell writes only its text (ADR 0007).
       expect(app.binding.sourceAtBarrier()).toMatchObject({
         source: 'before\n\n| a | b | c |\n| --- | --- | --- |\n| x | | y |\n'
       })

@@ -4,7 +4,7 @@ import { createEditorCoreBinding } from '../../../src/renderer/src/documentAutho
 
 // Undo of a review command returns to the selection it ran with, as upstream
 // undo and Google Docs do; no review item is selected unless that selection
-// is inside one (plan 0012 G13). Redo places the caret as the command did.
+// is inside one. Redo places the caret as the command did.
 
 const source = 'A {++new++} B {--old--} C {~~left~>right~~}\n'
 const selectionSet = (anchor: number, focus = anchor) => ({ ranges: [{ anchor, focus }], primary: 0 })

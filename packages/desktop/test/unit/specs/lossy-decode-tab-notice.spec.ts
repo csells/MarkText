@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-// Plan 0012 G41: a file whose bytes did not survive decoding says so on its tab
+// A file whose bytes did not survive decoding says so on its tab
 // when it opens or reloads, the way mixed line endings do.
 
 vi.hoisted(() => {

@@ -223,7 +223,7 @@ describe('desktop locale validation', () => {
     }
   })
 
-  // Plan 0012 G29: `{==…==}` authoring must not share its name with the
+  // `{==…==}` authoring must not share its name with the
   // `==mark==` Highlight format command it sits beside in menus and palette.
   describe('review highlight is named apart from format highlight', () => {
     for (const lang of locales) {

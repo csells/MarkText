@@ -40,7 +40,7 @@ describe('cross-block editing input without an enumerated input type (#5415)', (
     }
   })
 
-  // Plan 0012 G42: the browser must not edit model-owned text on its own.
+  // The browser must not edit model-owned text on its own.
   it('prevents an unenumerated type without stated text over a same-block selection', () => {
     const app = bootBoundMuya('abc\n')
     try {

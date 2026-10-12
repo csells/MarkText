@@ -10,7 +10,7 @@ import {
 } from './helpers'
 
 // Google Docs keeps text typed at the edge of commented text out of the
-// comment (plan 0012 G39), so tracked typing there follows the comment.
+// comment, so tracked typing there follows the comment.
 test('tracks typing at the end of commented text after its comment through save and history', async() => {
   const source = '{==word==}{>>note<<}\n'
   const { app, page, filePath } = await launchWithMarkdown(source, {
