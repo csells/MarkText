@@ -614,7 +614,7 @@ class ParagraphContent extends Format {
     override enterMarksInputBoundary(shift: boolean): boolean {
         if (shift)
             return this.caretLineIsBlank();
-        if (matchBlockConversion(this.text, this.muya.options.texMathDollars))
+        if (matchBlockConversion(this.text, this.muya.options.texMathDollars, this.muya.options.multilineBlockquote))
             return false;
         switch (this._paragraphParentType()) {
             case 'block-quote':
