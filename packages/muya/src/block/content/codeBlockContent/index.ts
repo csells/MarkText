@@ -9,13 +9,11 @@ import type {
 import type { TokenizedFragments } from '../../../utils/prism/tokenizeReusing';
 import type Code from '../../commonMark/codeBlock/code';
 import type HTMLPreview from '../../commonMark/html/htmlPreview';
-import { CLASS_NAMES, HTML_TAGS, VOID_HTML_TAGS } from '../../../config';
-import { adjustOffset, escapeHTML, firstGraphemeLength, firstWordOfInfo, lastGraphemeLength, lineBounds } from '../../../utils';
 import { codeEnter, codeTabExpansion } from '@marktext/input-policy';
-import { CLASS_NAMES, EVENT_KEYS } from '../../../config';
+import { CLASS_NAMES } from '../../../config';
 import { dispatchDocumentBlock, dispatchDocumentTab } from '../../../editor/documentEditing';
 import { paragraphChangedSince, rememberDrawnChildTexts } from '../../../selection/dom';
-import { adjustOffset, escapeHTML, firstGraphemeLength, firstWordOfInfo, isKeyboardEvent, lastGraphemeLength } from '../../../utils';
+import { adjustOffset, escapeHTML, firstGraphemeLength, firstWordOfInfo, lastGraphemeLength } from '../../../utils';
 import { computeLineCount, repositionLineNumberSpans, syncLineNumbersSpans } from '../../../utils/codeBlockLineNumbers';
 import { getHighlightHtml, MARKER_HASH } from '../../../utils/highlightHTML';
 import prism, { loadedLanguages, transformAliasToOrigin, walkTokens } from '../../../utils/prism/index';
