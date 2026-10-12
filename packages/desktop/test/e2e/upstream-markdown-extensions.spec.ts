@@ -31,9 +31,7 @@ test.describe('upstream Markdown extensions typed beside CriticMarkup', () => {
       env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
     })
     try {
-      // Bracket pairing would close each annotation one key early; the
-      // closer-typing unit spec covers that path.
-      await setPreferences(page, { highlightSyntax: true, inlineDiff: true, autoPairBracket: false })
+      await setPreferences(page, { highlightSyntax: true, inlineDiff: true, autoPairBracket: true })
       await page.locator('.editor-component .mu-paragraph-content', { hasText: 'Start' }).click()
       await page.keyboard.press(lineEnd)
       await page.keyboard.type(' {+add+} {++crit++} [-del-] {--gone--} ==hi== {==note==}', { delay: 10 })

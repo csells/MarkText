@@ -4,7 +4,7 @@ import { asMuyaStates, type MuyaMarkupState, type MuyaMarkupView } from './muyaM
 import isEqual from 'lodash/isEqual'
 
 import type { CoreAppliedReply } from './coreProtocol'
-import { createMuyaModelSelection } from './muyaModelSelection'
+import { createMuyaModelSelection, rememberHiddenCloserCaret } from './muyaModelSelection'
 import {
   muyaViewBindingsInRoots,
   muyaViewBindingsNear,
@@ -187,6 +187,7 @@ export function restoreMuyaDocumentSelection(
   documentSelection: DocumentSelection,
   options: { projectSource?: boolean } = {}
 ): void {
+  rememberHiddenCloserCaret(muya, undefined)
   if (options.projectSource && 'ranges' in documentSelection) {
     const { projectSourcePoint } = createMuyaModelSelection(muya, view)
     documentSelection = {
@@ -330,14 +331,31 @@ export function restoreMuyaDocumentSelection(
       cellSelection === undefined &&
       modelTextSelection === undefined
     ) {
-      // Resolve through text so the caret stays on the line that follows. A
-      // boundary after an annotation's hidden closer, as typing its last
-      // marker character leaves the caret, has a DOM point but no text.
-      const projected = projectSourcePoint(inputSelection.start)
+      // Resolve through text so the caret stays on the line that follows.
+      // Bracket pairing completes an annotation's closer before its `}` is
+      // typed, leaving the caret in the hidden closer; it shows at the end of
+      // the annotation's last arm, or after the annotation when the arm is
+      // not shown, and the `}` typed there steps over the paired one.
+      const caretSource = inputSelection.start
+      const closing = [
+        ...view.decorations.map((item) => item.mark.annotationRange),
+        ...view.comments.map((item) => item.annotationRange)
+      ].find((range) => range.end === caretSource + 1)
+      const armEnd = closing === undefined
+        ? undefined
+        : Math.max(...view.decorations
+          .filter((item) => item.mark.annotationRange.end === closing.end)
+          .map((item) => item.range.end))
+      const projected = armEnd !== undefined && Number.isFinite(armEnd) && modelPointToDOM(armEnd, undefined, true) !== undefined
+        ? armEnd
+        : projectSourcePoint(caretSource)
       const shown = modelPointToText(projected)
       anchor = focus = shown === undefined
         ? modelPointToDOM(projected, undefined, true)
         : (muya.editor.selection.getDOMPoint(shown) ?? undefined)
+      if (closing !== undefined && anchor !== undefined) {
+        rememberHiddenCloserCaret(muya, { shown: projected, source: caretSource })
+      }
     }
     if (anchor === undefined || focus === undefined) {
       throw new Error('The accepted model selection has no rendered native boundary')

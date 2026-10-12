@@ -60,6 +60,30 @@ const nativeOffsetAtSource = (segment: MuyaMarkupBinding['segments'][number], so
         ? segment.text.start + source - segment.source.start
         : undefined
 
+/**
+ * A caret the model placed just before an annotation's final `}`, which the
+ * hidden closer gives no rendered position: where it is shown, and its source.
+ */
+interface HiddenCloserCaret {
+  readonly shown: number
+  readonly source: number
+}
+
+const hiddenCloserCarets = new WeakMap<Muya, HiddenCloserCaret>()
+
+/** Records, or with `undefined` forgets, the caret a reconciled view shows in place of a hidden closer position. */
+export function rememberHiddenCloserCaret(muya: Muya, caret: HiddenCloserCaret | undefined): void {
+  if (caret === undefined) {
+    hiddenCloserCarets.delete(muya)
+    return
+  }
+  hiddenCloserCarets.set(muya, caret)
+  // A pointer press places a caret of the user's own.
+  muya.domNode.addEventListener('mousedown', () => {
+    if (hiddenCloserCarets.get(muya) === caret) hiddenCloserCarets.delete(muya)
+  }, { once: true, capture: true })
+}
+
 /** The model projection is the only source of semantic DOM boundary positions. */
 export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
   const nativeSelection = muya.editor.selection
@@ -867,6 +891,26 @@ export function muyaInputToModel(
   const range = domSelectionToTarget(input.range)
   if (range === undefined) {
     throw new Error('The current model has no position for the native input boundary')
+  }
+  // Bracket pairing completes an annotation's closer one key before its `}`.
+  // That `}`, typed where the caret shows, steps over the paired one as it
+  // would before a visible `}`, so it goes to the caret the model holds.
+  const hidden = hiddenCloserCarets.get(muya)
+  if (
+    hidden !== undefined && input.inputType === 'insertText' && input.data === '}' &&
+    'ranges' in selection && selection.ranges.length === 1 &&
+    selection.ranges[0]?.anchor === hidden.shown && selection.ranges[0]?.focus === hidden.shown
+  ) {
+    // Typing it over the paired `}` writes the same text and leaves the caret
+    // after the annotation.
+    return {
+      selection: { ranges: [{ anchor: hidden.source, focus: hidden.source + 1 }], primary: 0 },
+      range: { start: hidden.source, end: hidden.source + 1 },
+      inputType: input.inputType,
+      data: input.data,
+      options: input.options,
+      ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
+    }
   }
   return {
     selection,
