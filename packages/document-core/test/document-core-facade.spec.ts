@@ -938,14 +938,14 @@ describe('document-core facade', () => {
     const nextSource = `B\n\n${negativeSource}`
     const incrementalCore = createDocumentCore()
     const initial = incrementalCore.open(initialSource, { footnotes: true })
-    const reopened = incrementalCore.apply(initial, [{
+    const edited = incrementalCore.apply(initial, [{
       start: 0,
       end: 1,
       insert: 'B'
     }]).revision
     const fullCore = createDocumentCore()
     const full = fullCore.open(nextSource, { footnotes: true })
-    expect(observableRevision(incrementalCore, reopened))
+    expect(observableRevision(incrementalCore, edited))
       .toEqual(observableRevision(fullCore, full))
   })
 
@@ -1035,7 +1035,7 @@ describe('document-core facade', () => {
     const editStart = initialSource.indexOf('abc')
     const incrementalCore = createDocumentCore()
     const initial = incrementalCore.open(initialSource)
-    const reopened = incrementalCore.apply(initial, [{
+    const edited = incrementalCore.apply(initial, [{
       start: editStart,
       end: editStart + 3,
       insert: '++}'
@@ -1043,7 +1043,7 @@ describe('document-core facade', () => {
     const fullCore = createDocumentCore()
     const full = fullCore.open(nextSource)
 
-    expect(observableRevision(incrementalCore, reopened))
+    expect(observableRevision(incrementalCore, edited))
       .toEqual(observableRevision(fullCore, full))
   })
 
@@ -1242,12 +1242,12 @@ describe('document-core facade', () => {
       .toThrow(/does not belong to this revision/)
 
     const nextSource = `${source}!`
-    const reopened = core.apply(revision, [{
+    const edited = core.apply(revision, [{
       start: source.length,
       end: source.length,
       insert: '!'
     }]).revision
-    expect(reopened.source).toBe(nextSource)
+    expect(edited.source).toBe(nextSource)
   })
 
   it('materializes a Comment without another intrinsic parse', () => {
@@ -1639,7 +1639,7 @@ describe('document-core facade', () => {
     expect(core.project(admitted, 'original').markdown).toBe(source)
   })
 
-  it('reopens through retained parser state with full-parse-equivalent results', () => {
+  it('reparses an edit through retained parser state with full-parse-equivalent results', () => {
     const source = 'one\n\nA {++new++} B {--old--}\n\nthree\n'
     const start = source.indexOf('three')
     const edit = {
@@ -1656,14 +1656,14 @@ describe('document-core facade', () => {
     const opened = incrementalCore.open(source)
     const openedMarkup = incrementalCore.project(opened, 'markup')
     const before = inspectDocumentCore(incrementalCore).intrinsicSourceUnits
-    const reopened = incrementalCore.apply(opened, edits).revision
+    const edited = incrementalCore.apply(opened, edits).revision
     const spent =
       inspectDocumentCore(incrementalCore).intrinsicSourceUnits - before
     const fullCore = createDocumentCore()
     const full = fullCore.open(nextSource)
     const fullSpent = inspectDocumentCore(fullCore).intrinsicSourceUnits
 
-    expect(observableRevision(incrementalCore, reopened))
+    expect(observableRevision(incrementalCore, edited))
       .toEqual(observableRevision(fullCore, full))
     expect(incrementalCore.project(opened, 'markup')).toBe(openedMarkup)
     expect(fullSpent).toBeGreaterThanOrEqual(nextSource.length)
@@ -1737,7 +1737,7 @@ describe('document-core facade', () => {
     expect(accepted.revision.source).toBe('head\n\nTAIL\n')
   })
 
-  it('reopens Comment projections with full-parse-equivalent products', () => {
+  it('reparses Comment projections after an edit with full-parse-equivalent products', () => {
     const source = '{>># Note\n\nSee [inside][ref].\n\n[ref]: /old\n<<}\n\ntail\n'
     const start = source.indexOf('/old')
     const edit = { start, end: start + 4, insert: '/new-path' }
@@ -1752,22 +1752,22 @@ describe('document-core facade', () => {
       openedComment
     )
 
-    const reopened = incrementalCore.apply(opened, [edit]).revision
-    const reopenedComment = reopened.annotations[0]
+    const edited = incrementalCore.apply(opened, [edit]).revision
+    const editedComment = edited.annotations[0]
     const fullCore = createDocumentCore()
     const full = fullCore.open(nextSource)
     const fullComment = full.annotations[0]
-    if (reopenedComment === undefined || fullComment === undefined) {
-      throw new Error('Expected reopened Comments')
+    if (editedComment === undefined || fullComment === undefined) {
+      throw new Error('Expected edited Comments')
     }
 
-    expect(observableComment(incrementalCore, reopened, reopenedComment))
+    expect(observableComment(incrementalCore, edited, editedComment))
       .toEqual(observableComment(fullCore, full, fullComment))
     expect(incrementalCore.projectComment(opened, openedComment))
       .toBe(openedProjection)
-    expect(() => incrementalCore.projectComment(reopened, openedComment))
+    expect(() => incrementalCore.projectComment(edited, openedComment))
       .toThrow(/does not belong to this revision/)
-    expect(incrementalCore.projectComment(reopened, reopenedComment).markdown)
+    expect(incrementalCore.projectComment(edited, editedComment).markdown)
       .toContain('/new-path')
   })
 
@@ -1782,15 +1782,15 @@ describe('document-core facade', () => {
     })
     const insert = 'tail\n'
     const nextSource = source + insert
-    const reopened = core.apply(
+    const edited = core.apply(
       previous,
       [{ start: source.length, end: source.length, insert }],
       { markdown: { gfm: true } }
     ).revision
 
-    expect(reopened.annotations).toEqual([])
-    expect(core.project(reopened, 'original').markdown).toBe(nextSource)
-    expect(core.project(reopened, 'revised').markdown).toBe(nextSource)
+    expect(edited.annotations).toEqual([])
+    expect(core.project(edited, 'original').markdown).toBe(nextSource)
+    expect(core.project(edited, 'revised').markdown).toBe(nextSource)
   })
 
   it('rejects invalid edits without changing the previous revision', () => {
@@ -1807,13 +1807,13 @@ describe('document-core facade', () => {
     expect(observableRevision(core, previous)).toEqual(before)
 
     const validSource = 'alpha {++BETA++} omega'
-    const reopened = core.apply(
+    const edited = core.apply(
       previous,
       [{ start: 9, end: 13, insert: 'BETA' }]
     ).revision
 
-    expect(reopened.source).toBe(validSource)
-    expect(core.project(reopened, 'revised').markdown)
+    expect(edited.source).toBe(validSource)
+    expect(core.project(edited, 'revised').markdown)
       .toBe('alpha BETA omega')
   })
 
@@ -1851,14 +1851,14 @@ describe('document-core facade', () => {
     }])).toThrow('CM_RESOURCE_CM_DEPTH_EXCEEDED')
 
     const acceptedSource = 'head\n\nTAIL\n'
-    const reopened = core.apply(current, [{
+    const edited = core.apply(current, [{
       start,
       end: start + 4,
       insert: 'TAIL'
     }]).revision
     const fullCore = createDocumentCore()
     const full = fullCore.open(acceptedSource)
-    expect(observableRevision(core, reopened)).toEqual(observableRevision(
+    expect(observableRevision(core, edited)).toEqual(observableRevision(
       fullCore,
       full
     ))
