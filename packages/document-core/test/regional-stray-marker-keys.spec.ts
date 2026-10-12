@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
-import { lcg, press, regional, type Key } from './support/inputDriver.js'
+import { lcg, press, regionalRevision, type Key } from './support/inputDriver.js'
 
 // Stray and unfinished CriticMarkup markers are text with a
 // diagnostic, and a document holding them is edited from the paragraphs
@@ -49,13 +49,13 @@ describe('keys in a document with stray markers read as the document parse', () 
             const core = createDocumentCore()
             // Agreement is read without the search budget, as the reference searches.
             searchWithoutBudget(core)
-            const revision = regional(core, source)
+            const revision = regionalRevision(core, source)
             const before = inspectDocumentCore(core).documentParses
             const actual = press(core, revision, caret, key, tracked, { diagnostics: true })
             if (inspectDocumentCore(core).documentParses === before) regionalKeys += 1
             const control = createDocumentCore()
             planFromDocumentParse(control)
-            const expected = press(control, regional(control, source), caret, key, tracked, { diagnostics: true })
+            const expected = press(control, regionalRevision(control, source), caret, key, tracked, { diagnostics: true })
             expect(actual, `${JSON.stringify(edited)} @${caret} ${key} tracked=${tracked}`).toEqual(expected)
             if (actual.source !== undefined) {
               const fresh = createDocumentCore().open(actual.source)
@@ -99,7 +99,7 @@ describe('keys in a document with 10,000 stray markers cost no document parse', 
   ]
   it.each(keys)('$name', ({ key, tracked }) => {
     const core = createDocumentCore()
-    const revision = regional(core, source)
+    const revision = regionalRevision(core, source)
     const before = inspectDocumentCore(core).documentParses
     const actual = press(core, revision, target + 1, key, tracked, { diagnostics: true })
     expect(actual.error).toBeUndefined()

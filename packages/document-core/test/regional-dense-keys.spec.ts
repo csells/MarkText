@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
-import { dense, lcg, press, regional, type Key } from './support/inputDriver.js'
+import { denseSuggestionParagraph, lcg, press, regionalRevision, type Key } from './support/inputDriver.js'
 
 // In a document dense with suggestions, typing, Enter,
 // Backspace and Delete are planned and proved from the paragraphs around
@@ -10,7 +10,7 @@ import { dense, lcg, press, regional, type Key } from './support/inputDriver.js'
 // document parse.
 
 const blocks = [
-  dense,
+  denseSuggestionParagraph,
   'Plain words before {--struck--} and after.',
   'Words {--one--}{++two++} and {~~a~>b~~}.',
   'A paragraph of ordinary words.',
@@ -54,13 +54,13 @@ describe('keys in a document dense with suggestions read as the document parse',
             const core = createDocumentCore()
             // Agreement is read without the search budget, as the reference searches.
             searchWithoutBudget(core)
-            const revision = regional(core, source)
+            const revision = regionalRevision(core, source)
             const before = inspectDocumentCore(core).documentParses
             const actual = press(core, revision, caret, key, tracked)
             if (inspectDocumentCore(core).documentParses === before) regionalKeys += 1
             const control = createDocumentCore()
             planFromDocumentParse(control)
-            const expected = press(control, regional(control, source), caret, key, tracked)
+            const expected = press(control, regionalRevision(control, source), caret, key, tracked)
             expect(actual, `${JSON.stringify(edited)} @${caret} ${key} tracked=${tracked}`).toEqual(expected)
           }
         }
@@ -71,7 +71,7 @@ describe('keys in a document dense with suggestions read as the document parse',
 })
 
 describe('keys in a long dense document cost no document parse', () => {
-  const paragraph = dense
+  const paragraph = denseSuggestionParagraph
   const source = ['Warm editing paragraph.', ...Array.from({ length: 300 }, () => paragraph)].join('\n\n') + '\n'
   const target = source.indexOf(paragraph, source.length / 2)
   const cases: Array<{ name: string, at: number, key: Key, tracked: boolean }> = [
@@ -99,7 +99,7 @@ describe('keys in a long dense document cost no document parse', () => {
     const core = createDocumentCore()
     // Agreement is read without the search budget, as the reference searches.
     searchWithoutBudget(core)
-    const revision = regional(core, source)
+    const revision = regionalRevision(core, source)
     const before = inspectDocumentCore(core)
     const actual = press(core, revision, at + 1, key, tracked)
     const after = inspectDocumentCore(core)
@@ -110,7 +110,7 @@ describe('keys in a long dense document cost no document parse', () => {
       .toBeLessThan(key === 'insertText' && (!tracked || name === 'tracked typing in an Addition') ? 100 : 150)
     const control = createDocumentCore()
     planFromDocumentParse(control)
-    expect(actual).toEqual(press(control, regional(control, source), at + 1, key, tracked))
+    expect(actual).toEqual(press(control, regionalRevision(control, source), at + 1, key, tracked))
     const oracle = createDocumentCore()
     const fresh = oracle.open(actual.source ?? '')
     expect(oracle.project(fresh, 'markup').syntax.ast.root.children.length).toBeGreaterThan(300)
