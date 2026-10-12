@@ -3,8 +3,8 @@
 This directory contains generated observations about the recorded upstream MarkText baseline. A
 baseline is an oracle input, not a product specification.
 
-`criticmarkup-representative-documents.json` pins the checked-in corpus used for performance and
-Shadow comparisons. Its hashes make fixture drift explicit, while its coverage labels require the
+`criticmarkup-representative-documents.json` pins the checked-in corpus the performance runs
+compare against the upstream baseline. Its hashes make fixture drift explicit, while its coverage labels require the
 selected set to include plain and long prose, tables, code, Unicode, math, diagrams, images, and
 dense CriticMarkup. The manifest is reproducible evidence, not product-owner ratification.
 
