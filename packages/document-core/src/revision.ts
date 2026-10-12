@@ -421,18 +421,27 @@ export interface SourceOwnershipIndex {
   readonly ownerAt: (sourceOffset: number) => SourceOwnershipRun
 }
 
-export interface MarkdownOptionsV1 {
+export interface MarkdownOptions {
   readonly gfm: boolean
+  /** GFM's extended-autolink extension, independently selectable. */
   readonly gfmAutolinks: boolean
+  /** GFM's disallowed-raw-HTML extension, independently selectable. */
   readonly gfmTagFilter: boolean
   readonly frontMatter: boolean
+  /** pandoc's tex_math_dollars: `$…$` and `$$…$$`. */
   readonly texMathDollars: boolean
+  /** pandoc's tex_math_gfm: `` $`…`$ `` and the ```math fence. */
   readonly texMathGfm: boolean
+  /** pandoc's tex_math_single_backslash: `\(…\)` and `\[…\]`. */
   readonly texMathSingleBackslash: boolean
+  /** pandoc's tex_math_double_backslash: `\\(…\\)` and `\\[…\\]`. */
   readonly texMathDoubleBackslash: boolean
   readonly footnotes: boolean
   readonly subscriptAndSuperscript: boolean
 }
+
+/** @deprecated Use MarkdownOptions. */
+export type MarkdownOptionsV1 = MarkdownOptions
 
 export interface ExecutionBudgetId {
   readonly limitsProfile: string
