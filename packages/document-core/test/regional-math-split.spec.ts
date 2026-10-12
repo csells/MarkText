@@ -5,7 +5,7 @@ import { inspectDocumentCore, planFromGeneralCompile } from '../src/internal/doc
 // A blank line typed with Track Changes into a long document's `$$` block
 // suggests the block again with the blank line in it. The proposed block's
 // `$$` lines follow the divider, so the blank line leaves them unpaired in
-// the intrinsic parse, as in the document (G45). Where no `$$` they could
+// the intrinsic parse, as in the document. Where no `$$` they could
 // pair with lies beyond the blocks around the key, those blocks read the key
 // as the document does, without parsing the document; where one does, the
 // window reads on to it, within a bound past which the document is parsed.
@@ -43,7 +43,7 @@ const typeBlankLine = (source: string, term: string, last = false) => {
   return { core, revision, edit, planned, planParses, applied, applyParses, fresh }
 }
 
-describe('a blank line typed into a long document\'s math block (G45)', () => {
+describe('a blank line typed into a long document\'s math block', () => {
   let typed: ReturnType<typeof typeBlankLine>
   beforeAll(() => {
     typed = typeBlankLine(documentOf([100]), 'x_{2}')

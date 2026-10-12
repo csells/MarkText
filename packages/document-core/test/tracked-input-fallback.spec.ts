@@ -4,7 +4,7 @@ import { keepsTyping, resolveAll } from './support/resolvedSuggestions.js'
 
 // Owner rules: with Track Changes on, every key untracked input accepts is
 // accepted, and Reject All afterwards gives the previous Reject All. Typing
-// into deleted or replaced text splits that suggestion at the caret (G34), so
+// into deleted or replaced text splits that suggestion at the caret, so
 // Accept All keeps the typing and is otherwise unchanged; anywhere else,
 // Accept All gives the untracked result's. These keys land where no spelling
 // the tracked compile weighs reads that way, so the last-resort spelling

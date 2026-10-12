@@ -112,12 +112,6 @@ function inputSyntaxAt(root: MarkdownAstNode, projected: number): {
   return { context, block }
 }
 
-/** Language facts at a position in an existing owned syntax tree. */
-export function documentInputContext(root: MarkdownAstNode, position: number): Readonly<DocumentInputSyntaxContext> | undefined {
-  const located = inputSyntaxAt(root, position)
-  return located === undefined ? undefined : Object.freeze(located.context)
-}
-
 /** Resolve intrinsic cell offsets against the current shared syntax owner. */
 export function inputSourceRange(core: DocumentCore, revision: DocumentRevision, selection: DocumentInputSelection | DocumentInputTarget): SourceRange {
   if ('start' in selection) return selection

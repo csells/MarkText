@@ -5,8 +5,8 @@ import { keepsTyping, resolveAll } from './support/resolvedSuggestions.js'
 // Typing into the old arm of a Substitution of a literal block goes to the
 // same place in its proposed block where that stays within the Substitution.
 // Where it would not, as when a paragraph break typed into the proposed math
-// breaks the paragraph the Substitution lives in, the old arm splits instead
-// (G34): Accept All keeps the typing and Reject All restores the original.
+// breaks the paragraph the Substitution lives in, the old arm splits instead:
+// Accept All keeps the typing and Reject All restores the original.
 
 const lines = (count: number, line: (index: number) => string): string => Array.from({ length: count }, (_, index) => line(index)).join('\n')
 

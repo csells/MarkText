@@ -60,7 +60,6 @@ export interface DocumentCoreInspection {
   readonly sourceRopeMaximumHeight: number
   readonly sourceRopeCurrentHeight: number
   readonly sourceRopeCurrentPieces: number
-  readonly sourceRopeMaximumPieces: number
   readonly sourceSliceCalls: number
   readonly sourceSlicePieces: number
   readonly sourceSliceUnits: number
@@ -69,21 +68,9 @@ export interface DocumentCoreInspection {
   readonly sourceMaterializationOutputUnits: number
   readonly sourceGetterHits: number
   readonly sourceGetterMisses: number
-  readonly sourceCompactions: number
-  readonly sourceCompactionInputPieces: number
-  /** Reduction in the conservative retained-buffer upper bound. */
-  readonly sourceCompactionRetainedUpperBoundReductionUnits: number
-  readonly sourceGetterMaterializations: number
-  readonly sourceGetterMaterializationOutputUnits: number
   readonly sourceFallbackMaterializations: number
-  readonly sourceFallbackMaterializationOutputUnits: number
   readonly sourceRebaseMaterializations: number
-  readonly sourceRebaseMaterializationOutputUnits: number
   readonly sourceProjectionMaterializations: number
-  readonly sourceProjectionMaterializationOutputUnits: number
-  readonly sourceReopenMaterializations: number
-  readonly sourceReopenMaterializationOutputUnits: number
-  readonly sourceReopenComparisonUnits: number
   readonly sourceRopeRootsAttempted: number
   readonly sourceRopeRootsCommitted: number
   readonly sourceRebases: number
@@ -192,6 +179,20 @@ export function checkAppliedReadings(enabled: boolean): void {
 
 export function checksAppliedReadings(): boolean {
   return appliedReadingChecks
+}
+
+let materializedNodeCounts = false
+
+/**
+ * Package-private switch for the inspection counters that walk materialized
+ * trees and event streams. Production skips those walks.
+ */
+export function countMaterializedNodes(enabled: boolean): void {
+  materializedNodeCounts = enabled
+}
+
+export function countsMaterializedNodes(): boolean {
+  return materializedNodeCounts
 }
 
 export function inspectDocumentCore(core: object): DocumentCoreInspection {

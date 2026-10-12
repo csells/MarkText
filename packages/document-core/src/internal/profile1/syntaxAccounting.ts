@@ -1,7 +1,7 @@
 import type { SourceRange } from '../../revision.js'
 import type { ParseExecutionTracker } from '../../parseExecutionControl.js'
 
-export type Profile1SyntaxAccountingEventKindV1 =
+export type Profile1SyntaxAccountingEventKind =
   | 'TapeRun'
   | 'MarkdownNode'
   | 'CriticNode'
@@ -9,24 +9,23 @@ export type Profile1SyntaxAccountingEventKindV1 =
   | 'ArmNode'
   | 'ProjectionSegment'
 
-export interface Profile1SyntaxAccountingEventV1 {
-  readonly kind: Profile1SyntaxAccountingEventKindV1
+export interface Profile1SyntaxAccountingEvent {
+  readonly kind: Profile1SyntaxAccountingEventKind
   readonly range: SourceRange
   readonly key: string
 }
 
-export interface Profile1SyntaxAccountingTraceV1 {
-  readonly schema: 'syntax-accounting-1'
-  readonly events: readonly Profile1SyntaxAccountingEventV1[]
+export interface Profile1SyntaxAccountingTrace {
+  readonly events: readonly Profile1SyntaxAccountingEvent[]
 }
 
 interface AccountingBucket {
   count: number
   readonly ranges: number[] | undefined
-  readonly events: Profile1SyntaxAccountingEventV1[] | undefined
+  readonly events: Profile1SyntaxAccountingEvent[] | undefined
 }
 
-const EVENT_ORDER: readonly Profile1SyntaxAccountingEventKindV1[] =
+const EVENT_ORDER: readonly Profile1SyntaxAccountingEventKind[] =
   Object.freeze([
     'TapeRun',
     'MarkdownNode',
@@ -36,9 +35,9 @@ const EVENT_ORDER: readonly Profile1SyntaxAccountingEventKindV1[] =
     'ProjectionSegment'
   ])
 
-export interface Profile1SyntaxAccountingRecorderV1 {
+export interface Profile1SyntaxAccountingRecorder {
   readonly emit: (
-    kind: Profile1SyntaxAccountingEventKindV1,
+    kind: Profile1SyntaxAccountingEventKind,
     range: SourceRange,
     key: string
   ) => void
@@ -48,7 +47,7 @@ export interface Profile1SyntaxAccountingRecorderV1 {
   readonly firstEventBeyond: (
     limit: number
   ) => Readonly<{ readonly range: SourceRange; readonly observed: number }> | undefined
-  readonly trace: () => Profile1SyntaxAccountingTraceV1
+  readonly trace: () => Profile1SyntaxAccountingTrace
 }
 
 export class Profile1LogicalNodeLimitError extends Error {
@@ -72,12 +71,12 @@ export class Profile1LogicalNodeLimitError extends Error {
  * retain keys to compare the complete ordered trace; no second tree walk or
  * manifest arithmetic participates in admission.
  */
-export function createProfile1SyntaxAccountingRecorderV1(
+export function createProfile1SyntaxAccountingRecorder(
   retainRanges: boolean,
   retainTrace: boolean,
   execution?: ParseExecutionTracker,
   maximumEvents: number = Number.POSITIVE_INFINITY
-): Profile1SyntaxAccountingRecorderV1 {
+): Profile1SyntaxAccountingRecorder {
   if (
     maximumEvents !== Number.POSITIVE_INFINITY &&
     (!Number.isSafeInteger(maximumEvents) || maximumEvents < 0)
@@ -87,7 +86,7 @@ export function createProfile1SyntaxAccountingRecorderV1(
     )
   }
   const buckets = new Map<
-    Profile1SyntaxAccountingEventKindV1,
+    Profile1SyntaxAccountingEventKind,
     AccountingBucket
   >(EVENT_ORDER.map((kind) => [
     kind,
@@ -100,7 +99,7 @@ export function createProfile1SyntaxAccountingRecorderV1(
   let totalEvents = 0
 
   const emit = (
-    kind: Profile1SyntaxAccountingEventKindV1,
+    kind: Profile1SyntaxAccountingEventKind,
     range: SourceRange,
     key: string
   ): void => {
@@ -159,8 +158,8 @@ export function createProfile1SyntaxAccountingRecorderV1(
     return undefined
   }
 
-  const trace = (): Profile1SyntaxAccountingTraceV1 => {
-    const events: Profile1SyntaxAccountingEventV1[] = []
+  const trace = (): Profile1SyntaxAccountingTrace => {
+    const events: Profile1SyntaxAccountingEvent[] = []
     for (const kind of EVENT_ORDER) {
       const bucket = buckets.get(kind)
       if (bucket?.events === undefined) {
@@ -168,10 +167,7 @@ export function createProfile1SyntaxAccountingRecorderV1(
       }
       for (const event of bucket.events) events.push(event)
     }
-    return Object.freeze({
-      schema: 'syntax-accounting-1',
-      events: Object.freeze(events)
-    })
+    return Object.freeze({ events: Object.freeze(events) })
   }
 
   return Object.freeze({

@@ -35,10 +35,6 @@ import type {
   MarkdownMathForm
 } from './markdownTypes.js'
 import { composeMarkdownLiteralRanges } from './markdownTypes.js'
-import type {
-  ProfileParseTraceRecorderV1,
-  ProfileParseTraceViewV1
-} from '../profileParseTraceV1.js'
 import {
   findGfmExtendedAutolink,
   findInlineLinkDestinationEnd
@@ -141,7 +137,7 @@ export function createIntrinsicProfile1SourceProgression(
   }>[],
   footnotesEnabled: boolean = true
 ): IntrinsicProfile1SourceProgression {
-  // Depth degradation (G18): a re-parse suppresses the marker candidates of
+  // Depth degradation: a re-parse suppresses the marker candidates of
   // annotations past the accepted-depth limit, so their bytes flow through
   // the one grammar as exact literal text — tape, forks, lanes, and
   // projections stay consistent by construction. Ranges arrive sorted.
@@ -307,11 +303,6 @@ export function createIntrinsicProfile1SourceProgression(
       source.length
     ))
   })
-}
-
-export interface Profile1ProjectionPlanningTraceV1 {
-  readonly view: ProfileParseTraceViewV1
-  readonly recorder: ProfileParseTraceRecorderV1
 }
 
 interface MappedMarkdownLiteral {
@@ -3620,7 +3611,7 @@ function parseOrderedContainerSequence(
     paragraphLines = []
   }
 
-  // Sub-block reuse (G31): a contiguous list is one region however long it
+  // Sub-block reuse: a contiguous list is one region however long it
   // is, so every keystroke re-emitted every item. Each closed TOP-LEVEL
   // list item is retained as a template keyed exactly like a region —
   // exact window source, line shape, and fully-interior literals — and an
@@ -3939,7 +3930,7 @@ function parseOrderedContainerSequence(
       }
     }
 
-    // Blockquote segments (G31): the quote's interior splits at its own
+    // Blockquote segments: the quote's interior splits at its own
     // blank lines, exactly as top-level regions split at document blanks,
     // and each segment's emitted children are retained as templates.
     const segmentStart =
@@ -5155,10 +5146,10 @@ const MAX_RETAINED_FRAGMENT_ENTRIES = 131_072
 /**
  * Total retention across all cached regions. One region may retain at most
  * the per-entry cap below, so a single oversized block can neither be
- * serialized into a key nor evict the whole working set (G31).
+ * serialized into a key nor evict the whole working set.
  */
-export const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1 = 64 * 1_024 * 1_024
-export const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1 =
+const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES = 64 * 1_024 * 1_024
+const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES =
   4 * 1_024 * 1_024
 const RETAINED_STRING_HEADER_BYTES = 16
 const RETAINED_OBJECT_HEADER_BYTES = 24
@@ -5198,16 +5189,6 @@ interface RetainedFragmentBudget {
 
 const retainedFragmentBudgets = new WeakMap<object, RetainedFragmentBudget>()
 
-export interface Profile1MarkdownReuseRetentionV1 {
-  readonly entries: number
-  readonly keyBytes: number
-  readonly valueBytes: number
-  readonly overheadBytes: number
-  readonly retainedBytes: number
-  readonly maximumRetainedBytes: number
-  readonly maximumRetainedEntryBytes: number
-}
-
 function retainedStringBytes(value: string): number {
   return RETAINED_STRING_HEADER_BYTES + value.length * 2
 }
@@ -5217,7 +5198,7 @@ function retainedStringBytes(value: string): number {
  * re-verifies the exact region source, lines key, and literals key, so a
  * collision can only cause a miss or a skipped retention — never a wrong
  * reuse. Embedding the full region source in the key doubled every entry's
- * retention and pulled the eviction cliff down to ~95 KB of document (G31).
+ * retention and pulled the eviction cliff down to ~95 KB of document.
  */
 function retainedFragmentKeyDigest(serialized: string): string {
   let hashA = 0x811c9dc5
@@ -5258,7 +5239,7 @@ function referenceDefinitionsKeyDigest(
 
 function fragmentSourceCanFit(source: string): boolean {
   return retainedStringBytes(source) + RETAINED_CACHE_ENTRY_BYTES <=
-    PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1
+    PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES
 }
 
 function retainedValueBytes(value: unknown, seen: Set<object>): number {
@@ -5311,20 +5292,6 @@ function retainedValueBytes(value: unknown, seen: Set<object>): number {
     }
   }
   return bytes
-}
-
-function fragmentMapRetention(cache: ReadonlyMap<string, unknown>): Readonly<{
-  readonly entries: number
-  readonly keyBytes: number
-  readonly valueBytes: number
-}> {
-  let keyBytes = 0
-  let valueBytes = 0
-  for (const [key, value] of cache) {
-    keyBytes += retainedStringBytes(key)
-    valueBytes += retainedValueBytes(value, new Set())
-  }
-  return Object.freeze({ entries: cache.size, keyBytes, valueBytes })
 }
 
 function createRetainedFragmentBudget(): RetainedFragmentBudget {
@@ -5382,14 +5349,14 @@ function retainFragmentEntry<Value>(
   const keyBytes = retainedStringBytes(key)
   const valueBytes = retainedValueBytes(value, new Set())
   const retainedBytes = keyBytes + valueBytes + RETAINED_CACHE_ENTRY_BYTES
-  if (retainedBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1) {
+  if (retainedBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES) {
     return
   }
   while (
     budget.entries >= MAX_RETAINED_FRAGMENT_ENTRIES ||
     budget.keyBytes + budget.valueBytes +
       budget.entries * RETAINED_CACHE_ENTRY_BYTES + retainedBytes >
-      PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1
+      PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES
   ) {
     evictOldestFragmentEntry(budget)
   }
@@ -5549,7 +5516,7 @@ function astRegionTemplateCanFit(
   literalsKey: string
 ): boolean {
   return astRegionTemplateBaseBytes(key, source, linesKey, literalsKey) <=
-    PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1
+    PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES
 }
 
 function astRegionTemplateNodesCanFit(
@@ -5565,7 +5532,7 @@ function astRegionTemplateNodesCanFit(
     linesKey,
     literalsKey
   ) + nodes.length * RETAINED_AST_TEMPLATE_NODE_MINIMUM_BYTES
-  if (minimumBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1) {
+  if (minimumBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES) {
     return false
   }
   const pending = [...nodes]
@@ -5576,7 +5543,7 @@ function astRegionTemplateNodesCanFit(
     }
     minimumBytes +=
       node.childCount * RETAINED_AST_TEMPLATE_NODE_MINIMUM_BYTES
-    if (minimumBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1) {
+    if (minimumBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES) {
       return false
     }
     for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
@@ -6389,8 +6356,7 @@ interface AuthenticatedMarkdownDelimiterLookup {
 
 function createAuthenticatedMarkdownDelimiterLookup(
   canonicalIdentityRuns: readonly MappedMarkdownCanonicalIdentityRun[],
-  boundaryPolicy: InlineBoundaryPolicy | undefined,
-  trace?: Profile1ProjectionPlanningTraceV1
+  boundaryPolicy: InlineBoundaryPolicy | undefined
 ): AuthenticatedMarkdownDelimiterLookup {
   const scopeRuns = boundaryPolicy?.scopeRuns ?? []
   const authenticatedRuns: Array<Readonly<{
@@ -6449,7 +6415,6 @@ function createAuthenticatedMarkdownDelimiterLookup(
       // below therefore advances through each authenticated segment at most
       // once instead of charging parallel identity and scope probes per
       // delimiter query.
-      trace?.recorder.recordInlineCodeCloserQuery(trace.view, start, end)
       if (start >= end) {
         return undefined
       }
@@ -6457,7 +6422,6 @@ function createAuthenticatedMarkdownDelimiterLookup(
         (authenticatedRuns[authenticatedRunIndex]?.candidateEnd ??
           Number.POSITIVE_INFINITY) <= start
       ) {
-        trace?.recorder.recordInlineCodeCloserCandidate(trace.view, start, end)
         authenticatedRunIndex += 1
       }
       const authenticated = authenticatedRuns[authenticatedRunIndex]
@@ -6531,14 +6495,8 @@ function inlineCodeDelimiterRuns(
 function analyzeInlineCodeLiteralForExtension(
   literal: MappedMarkdownLiteral,
   backtickRuns: readonly BoundaryBacktickRun[],
-  identityLookup: AuthenticatedMarkdownDelimiterLookup,
-  trace?: Profile1ProjectionPlanningTraceV1
+  identityLookup: AuthenticatedMarkdownDelimiterLookup
 ): InlineCodeLiteralExtensionAnalysis {
-  trace?.recorder.recordInlineCodeExtensionAnalysis(
-    trace.view,
-    literal.start,
-    literal.end
-  )
   const delimiters = inlineCodeDelimiterRuns(literal, backtickRuns)
   const openerEnd = delimiters.opener.end
   const closerStart = delimiters.closer.start
@@ -6709,8 +6667,7 @@ function planBoundaryProjectionEdits(
       { readonly kind: 'respell-enclosing-emphasis-delimiters' }
     >
   >,
-  armTerminationEdits: readonly MarkdownArmBoundaryProjectionEdit[],
-  trace?: Profile1ProjectionPlanningTraceV1
+  armTerminationEdits: readonly MarkdownArmBoundaryProjectionEdit[]
 ): readonly MarkdownArmBoundaryProjectionEdit[] {
   const respellings = [
     ...enclosingEmphasisRespellings.values()
@@ -6894,8 +6851,7 @@ function planBoundaryProjectionEdits(
       projectedBacktickRuns,
       createAuthenticatedMarkdownDelimiterLookup(
         canonicalIdentityRuns,
-        boundaryPolicy,
-        trace
+        boundaryPolicy
       ),
       boundaryPolicy
     )
@@ -7020,8 +6976,7 @@ function planBoundaryProjectionEdits(
       cachedAnalysis ??= analyzeInlineCodeLiteralForExtension(
         literal,
         projectedBacktickRuns,
-        analysisIdentityLookup,
-        trace
+        analysisIdentityLookup
       )
       extension = inlineCodeDelimiterExtension(
         cachedAnalysis,
@@ -7841,7 +7796,7 @@ function forkLaneSafeSourcePoints(
   ).sort((left, right) => left.start - right.start)
   // Indexed candidate lookup: the per-transition scan over every line and
   // every literal made this O(transitions × lines) — tens of milliseconds
-  // of every reopen on a large document (G32).
+  // of every reopen on a large document.
   const blankLineIndexByEnd = new Map<number, number>()
   for (const [index, line] of lines.entries()) {
     if (line.blank && line.containers.length === 0) {
@@ -8162,8 +8117,7 @@ function intrinsicForkRegionLanes(
 }
 
 function forkRegionBoundaryFacts(
-  lane: MappedMarkdownLane,
-  trace?: Profile1ProjectionPlanningTraceV1
+  lane: MappedMarkdownLane
 ): Readonly<{
     readonly boundaryPolicy: InlineBoundaryPolicy | undefined
     readonly matchingScopePolicy: MarkdownMatchingScopePolicy | undefined
@@ -8219,26 +8173,6 @@ function forkRegionBoundaryFacts(
           }
           return Math.min(ceiling, delimiterBoundaries[low] ?? ceiling)
         }),
-        ...(trace === undefined
-          ? {}
-          : {
-            recordInlineCodeCloserQuery: Object.freeze((
-              start: number,
-              end: number
-            ): void => {
-              trace.recorder.recordInlineCodeCloserQuery(trace.view, start, end)
-            }),
-            recordInlineCodeCloserCandidate: Object.freeze((
-              start: number,
-              end: number
-            ): void => {
-              trace.recorder.recordInlineCodeCloserCandidate(
-                trace.view,
-                start,
-                end
-              )
-            })
-          }),
         matchingScopeAt: Object.freeze((offset: number) => {
           const scope = matchingScopeAt(boundaryPolicy, offset)
           return scope === undefined
@@ -8518,13 +8452,12 @@ function parseIntrinsicForkRegionFacts(
   selectionOffset: number,
   containerDepthLimit: number,
   reuse: Map<string, PlainMarkdownLaneParse>,
-  trace?: Profile1ProjectionPlanningTraceV1,
   physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): Readonly<{
     readonly facts: PlainMarkdownLaneParseWithDefinitions
     readonly boundaryPolicy: InlineBoundaryPolicy | undefined
   }> {
-  const boundary = forkRegionBoundaryFacts(lane, trace)
+  const boundary = forkRegionBoundaryFacts(lane)
   const localReferenceDefinitions = scopeConstrainedReferenceDefinitions(
     markdownRegionReferenceDefinitions(
       selectionReferenceDefinitions,
@@ -8554,7 +8487,7 @@ function parseIntrinsicForkRegionFacts(
     ])
     if (
       retainedStringBytes(serialized) + RETAINED_CACHE_ENTRY_BYTES <=
-        PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1
+        PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES
     ) {
       reuseKey = serialized
     }
@@ -8595,54 +8528,6 @@ function parseIntrinsicForkRegionFacts(
       referenceDefinitions: localReferenceDefinitions
     }),
     boundaryPolicy: boundary.boundaryPolicy
-  })
-}
-
-function projectionPlanningTraceAt(
-  trace: Profile1ProjectionPlanningTraceV1 | undefined,
-  offset: number
-): Profile1ProjectionPlanningTraceV1 | undefined {
-  if (trace === undefined || offset === 0) {
-    return trace
-  }
-  const recorder = trace.recorder
-  return Object.freeze({
-    view: trace.view,
-    recorder: Object.freeze({
-      recordInlineCodeExtensionAnalysis: Object.freeze((
-        view: ProfileParseTraceViewV1,
-        start: number,
-        end: number
-      ): void => recorder.recordInlineCodeExtensionAnalysis(
-        view,
-        start + offset,
-        end + offset
-      )),
-      recordInlineCodeCloserQuery: Object.freeze((
-        view: ProfileParseTraceViewV1,
-        start: number,
-        end: number
-      ): void => recorder.recordInlineCodeCloserQuery(
-        view,
-        start + offset,
-        end + offset
-      )),
-      recordInlineCodeCloserCandidate: Object.freeze((
-        view: ProfileParseTraceViewV1,
-        start: number,
-        end: number
-      ): void => recorder.recordInlineCodeCloserCandidate(
-        view,
-        start + offset,
-        end + offset
-      )),
-      recordArmTerminationFenceProbe:
-        recorder.recordArmTerminationFenceProbe,
-      recordCanonicalSourceAdmission: recorder.recordCanonicalSourceAdmission,
-      recordSourceProgression: recorder.recordSourceProgression,
-      recordAuthoritativeMarkdownParse:
-        recorder.recordAuthoritativeMarkdownParse
-    })
   })
 }
 
@@ -8766,8 +8651,7 @@ export interface Profile1MarkdownForkParser {
   readonly admitLiteralFacts: (
     forkLane: IntrinsicProfile1ForkLane,
     lane: MappedMarkdownLane,
-    containerDepthLimit?: number,
-    trace?: Profile1ProjectionPlanningTraceV1
+    containerDepthLimit?: number
   ) => readonly MarkdownLiteralRange[]
   readonly emitAst: (
     requests: readonly Profile1MarkdownForkAstRequest[]
@@ -8775,8 +8659,7 @@ export interface Profile1MarkdownForkParser {
   readonly planArmBoundaryEdits: (
     forkLane: IntrinsicProfile1ForkLane,
     lane: MappedMarkdownLane,
-    containerDepthLimit?: number,
-    trace?: Profile1ProjectionPlanningTraceV1
+    containerDepthLimit?: number
   ) => readonly MarkdownArmBoundaryProjectionEdit[]
 }
 
@@ -8809,29 +8692,6 @@ Profile1MarkdownReuseCache {
   registerRetainedFragmentCache(astRegions, budget)
   registerRetainedFragmentCache(admittedRegionFacts, budget)
   return { astRegions, admittedRegionFacts }
-}
-
-export function profile1MarkdownReuseRetentionV1(
-  reuseCache: Profile1MarkdownReuseCache
-): Profile1MarkdownReuseRetentionV1 {
-  const ast = fragmentMapRetention(
-    astRegionCaches.get(reuseCache.astRegions) ?? new Map()
-  )
-  const admitted = fragmentMapRetention(reuseCache.admittedRegionFacts)
-  const entries = ast.entries + admitted.entries
-  const keyBytes = ast.keyBytes + admitted.keyBytes
-  const valueBytes = ast.valueBytes + admitted.valueBytes
-  const overheadBytes = entries * RETAINED_CACHE_ENTRY_BYTES
-  return Object.freeze({
-    entries,
-    keyBytes,
-    valueBytes,
-    overheadBytes,
-    retainedBytes: keyBytes + valueBytes + overheadBytes,
-    maximumRetainedBytes: PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1,
-    maximumRetainedEntryBytes:
-      PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1
-  })
 }
 
 export interface ForkAstSpliceProvenance {
@@ -8899,8 +8759,7 @@ export function createProfile1MarkdownForkParser(
     lane: MappedMarkdownLane,
     selectionReferenceDefinitions: MarkdownReferenceDefinitionLookup,
     selectionOffset: number,
-    containerDepthLimit: number,
-    trace?: Profile1ProjectionPlanningTraceV1
+    containerDepthLimit: number
   ): ReturnType<typeof parseIntrinsicForkRegionFacts> => {
     const parse = (): ReturnType<typeof parseIntrinsicForkRegionFacts> => parseIntrinsicForkRegionFacts(
       canonicalFactIndex,
@@ -8909,11 +8768,10 @@ export function createProfile1MarkdownForkParser(
       selectionOffset,
       containerDepthLimit,
       admittedRegionFactsCache,
-      trace,
       physicalRecorder
     )
     const definitions = definitionId(selectionReferenceDefinitions)
-    if (trace !== undefined || definitions === undefined) return parse()
+    if (definitions === undefined) return parse()
     const key = JSON.stringify([
       lane.forkView ?? null,
       lane.frontMatterEnabled ?? true,
@@ -8958,8 +8816,7 @@ export function createProfile1MarkdownForkParser(
     admitLiteralFacts: Object.freeze((
       forkLane: IntrinsicProfile1ForkLane,
       lane: MappedMarkdownLane,
-      containerDepthLimit: number = Number.POSITIVE_INFINITY,
-      trace?: Profile1ProjectionPlanningTraceV1
+      containerDepthLimit: number = Number.POSITIVE_INFINITY
     ): readonly MarkdownLiteralRange[] => {
       requireForkLane(forkLane)
       requireMappedForkRead(lane)
@@ -8980,8 +8837,7 @@ export function createProfile1MarkdownForkParser(
           region.lane,
           selectionReferenceDefinitions,
           region.start,
-          containerDepthLimit,
-          projectionPlanningTraceAt(trace, region.start)
+          containerDepthLimit
         )
         literals.push(...emitted.facts.literals.map(
           (literal): MarkdownLiteralRange => Object.freeze({
@@ -9167,8 +9023,7 @@ export function createProfile1MarkdownForkParser(
     planArmBoundaryEdits: Object.freeze((
       forkLane: IntrinsicProfile1ForkLane,
       lane: MappedMarkdownLane,
-      containerDepthLimit: number = Number.POSITIVE_INFINITY,
-      trace?: Profile1ProjectionPlanningTraceV1
+      containerDepthLimit: number = Number.POSITIVE_INFINITY
     ): readonly MarkdownArmBoundaryProjectionEdit[] => {
       requireForkLane(forkLane)
       requireMappedForkRead(lane)
@@ -9213,7 +9068,6 @@ export function createProfile1MarkdownForkParser(
           scopeRejectedReferenceStarts
         )
       for (const region of intrinsicForkRegionLanes(forkLane, planningLane)) {
-        const regionTrace = projectionPlanningTraceAt(trace, region.start)
         const terminationEdits = localArmTerminationEdits(
           lane.armTerminationEdits ?? Object.freeze([]),
           region.start,
@@ -9228,8 +9082,7 @@ export function createProfile1MarkdownForkParser(
           localLane,
           selectionReferenceDefinitions,
           region.start,
-          containerDepthLimit,
-          regionTrace
+          containerDepthLimit
         )
         const planningBoundaryPolicy = emitted.boundaryPolicy === undefined
           ? undefined
@@ -9312,8 +9165,7 @@ export function createProfile1MarkdownForkParser(
             new Set<number>(),
           planningBoundaryPolicy?.enclosingEmphasisRespellings ??
             new Map(),
-          [...terminationEdits, ...tableBoundaryEdits],
-          regionTrace
+          [...terminationEdits, ...tableBoundaryEdits]
         )
         planned.push(...localEdits.map((edit) =>
           rebaseMarkdownBoundaryEdit(edit, region.start)))

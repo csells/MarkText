@@ -52,7 +52,7 @@ describe('Review authoring on the common document model', () => {
     return { source: result, selection: result.slice(planned.selection.start, planned.selection.end) }
   }
 
-  // Plan 0012 G16: a comment on a standalone highlight makes it one commented span.
+  // A comment on a standalone highlight makes it one commented span.
   it.each([
     { name: 'a selection inside it', start: 6, end: 7 },
     { name: 'its whole text', start: 5, end: 8 },
@@ -89,7 +89,7 @@ describe('Review authoring on the common document model', () => {
     expect(authored('x {==abc==}{>>n<<} y', 'addition', 0, 7)).toBeUndefined()
   })
 
-  // Plan 0012 G39: authored syntax never enters the gap of a Highlight+Comment pair.
+  // ADR 0003: authored syntax never enters the gap of a Highlight+Comment pair.
   it.each([
     { form: 'highlight' as const, start: 0, end: 11, expected: '{==x {==abc==}{>>n<<}==} y' },
     { form: 'comment' as const, start: 0, end: 11, expected: '{==x {==abc==}{>>n<<}==}{>>note<<} y' },

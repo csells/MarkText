@@ -1,9 +1,3 @@
-import type { SourceSnapshot } from './sourceSnapshot.js'
-import type {
-  RevisionSemanticHashV1,
-  SourceHashV1
-} from './hashCodec.js'
-
 declare const sourceOffsetBrand: unique symbol
 declare const nodeIdBrand: unique symbol
 
@@ -427,57 +421,30 @@ export interface SourceOwnershipIndex {
   readonly ownerAt: (sourceOffset: number) => SourceOwnershipRun
 }
 
-export type CriticMarkupProfileId = string
-export type MarkdownProfileId = string
-export type LiveHtmlSafetyProfileId = 'live-html-sanitized-v1'
-
-export interface MarkdownOptionsV1 {
-  readonly schema: 'markdown-options-1'
+export interface MarkdownOptions {
   readonly gfm: boolean
+  /** GFM's extended-autolink extension, independently selectable. */
   readonly gfmAutolinks: boolean
+  /** GFM's disallowed-raw-HTML extension, independently selectable. */
   readonly gfmTagFilter: boolean
   readonly frontMatter: boolean
+  /** pandoc's tex_math_dollars: `$…$` and `$$…$$`. */
   readonly texMathDollars: boolean
+  /** pandoc's tex_math_gfm: `` $`…`$ `` and the ```math fence. */
   readonly texMathGfm: boolean
+  /** pandoc's tex_math_single_backslash: `\(…\)` and `\[…\]`. */
   readonly texMathSingleBackslash: boolean
+  /** pandoc's tex_math_double_backslash: `\\(…\\)` and `\\[…\\]`. */
   readonly texMathDoubleBackslash: boolean
   readonly footnotes: boolean
   readonly subscriptAndSuperscript: boolean
 }
 
+/** @deprecated Use MarkdownOptions. */
+export type MarkdownOptionsV1 = MarkdownOptions
+
 export interface ExecutionBudgetId {
   readonly limitsProfile: string
-  readonly accountingSchema: string
-}
-
-export interface ParseConfiguration {
-  readonly criticMarkupProfile: CriticMarkupProfileId
-  readonly markdownProfile: MarkdownProfileId
-  readonly markdownOptions: MarkdownOptionsV1
-  readonly liveHtmlSafetyProfile: LiveHtmlSafetyProfileId
-  readonly executionBudget: ExecutionBudgetId
-}
-
-export interface CompleteDocumentRevision {
-  readonly kind: 'complete'
-  readonly source: SourceSnapshot
-  readonly sourceHash: SourceHashV1
-  readonly semanticHash: RevisionSemanticHashV1
-  readonly configuration: ParseConfiguration
-  readonly syntax: Profile1SyntaxGraph
-  readonly criticMarkup: CriticMarkupForest
-  readonly diagnostics: DiagnosticIndex
-  readonly ownership: SourceOwnershipIndex
-  readonly markup: MarkupProjection
-  /**
-   * Lazily reads the Revised display of one Comment payload.
-   *
-   * @throws RangeError when the identity is not a Comment in this revision.
-   */
-  readonly commentDisplay: (
-    comment: NodeId | UnaryCriticNode<'comment', 'comment'>
-  ) => ProjectedMarkdown
-  readonly projection: (view: 'original' | 'revised' | 'editing') => ProjectedMarkdown
 }
 
 export type ResourceDiagnosticCode =
@@ -492,14 +459,3 @@ export interface ResourceDiagnostic {
   readonly range: SourceRange
   readonly metadata: Readonly<Record<string, string>>
 }
-
-export interface SourceOnlyDocumentRevision {
-  readonly kind: 'source-only'
-  readonly source: SourceSnapshot
-  readonly sourceHash: SourceHashV1
-  readonly semanticHash: RevisionSemanticHashV1
-  readonly configuration: ParseConfiguration
-  readonly fatalDiagnostic: ResourceDiagnostic
-}
-
-export type DocumentRevision = CompleteDocumentRevision | SourceOnlyDocumentRevision

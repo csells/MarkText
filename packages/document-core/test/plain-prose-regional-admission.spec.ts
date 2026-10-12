@@ -54,7 +54,7 @@ it.each([
   expect(result.revision.source).toBe(insert + source.slice(18))
 })
 
-// Plan 0012 G35: an edit that only restructures paragraphs, or adds a
+// An edit that only restructures paragraphs, or adds a
 // suggestion inside one, reparses just those paragraphs.
 it.each([
   { label: 'inline structure in the first paragraph', source: 'ordinary sentence.\n\nsecond paragraph.\n', start: 0, end: 18, insert: '**changed**' },

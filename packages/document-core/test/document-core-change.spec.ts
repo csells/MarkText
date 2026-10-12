@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import {
   createDocumentCore,
@@ -16,11 +16,14 @@ import {
   type OrdinalRange,
   type SourceRange
 } from '../src/index.js'
-import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
+import { countMaterializedNodes, inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
 import { applyExactSourceEdits } from '../src/exactSourceEdits.js'
 import {
   createUnboundedDocumentCoreForInspection
 } from '../src/documentCore.js'
+
+beforeAll(() => countMaterializedNodes(true))
+afterAll(() => countMaterializedNodes(false))
 
 interface ChangeInspection {
   readonly fullProductStoresStrongCurrent: number
@@ -87,7 +90,6 @@ interface ChangeInspection {
   readonly sourceFallbackMaterializations: number
   readonly sourceRebaseMaterializations: number
   readonly sourceProjectionMaterializations: number
-  readonly sourceReopenMaterializations: number
   readonly sourceRopeRootsAttempted: number
   readonly sourceRopeRootsCommitted: number
   readonly sourceRebases: number
@@ -1420,7 +1422,7 @@ describe('document-core semantic changes', () => {
     const large = buildFor(100_000)
     expect(large.nodes).toBeLessThan(small.nodes * 2)
     expect(large.buildUnits).toBeLessThan(small.buildUnits * 110)
-  }, 30_000)
+  })
 
   it('keeps a deeply nested Comment annotation and projection regional', () => {
     const depth = 3_000
@@ -1769,7 +1771,7 @@ describe('document-core semantic changes', () => {
     expect(delta(afterEmpty, beforeEmpty, 'regionalAstMaterializedNodes')).toBe(0)
     expect(delta(afterEmpty, beforeEmpty, 'regionalCoordinateSegments')).toBe(0)
 
-    // A new suggestion inside an ordinary paragraph stays regional (G35);
+    // A new suggestion inside an ordinary paragraph stays regional;
     // a new block kind or changed options still reparse the document.
     const suggestionCore = createDocumentCore()
     const suggestionOpened = suggestionCore.open(emptySource)
@@ -3350,7 +3352,7 @@ describe('document-core semantic changes', () => {
     })
 
     // The single-suggestion index refuses these; the document inventory may
-    // still reparse just their paragraphs (G35), reading as a fresh open.
+    // still reparse just their paragraphs, reading as a fresh open.
     if (commit.change.projections[0]?.scope === 'regions') {
       const oracle = createDocumentCore()
       const fresh = oracle.open(commit.revision.source)
@@ -3744,7 +3746,7 @@ describe('document-core semantic changes', () => {
     { name: 'Enter ends a paragraph', source: 'head\n\ntarget\n\ntail\n\n', at: 12, remove: 0, insert: '\n\n' },
     { name: 'Enter on a whitespace-only line', source: 'head\n\n   \n\ntail\n\n', at: 9, remove: 0, insert: '\n\n' },
     { name: 'a whitespace-only last line joins a paragraph', source: 'head\n\ntarget\n\n \t \n', at: 12, remove: 2, insert: '' }
-  ])('reads whitespace-only lines regionally as the document parse does when $name (G35)', ({
+  ])('reads whitespace-only lines regionally as the document parse does when $name', ({
     source,
     at,
     remove,
@@ -3895,7 +3897,7 @@ describe('document-core semantic changes', () => {
     expect(large.visits).toBeLessThan(small.visits * 3)
     expect(large.allocations).toBeLessThan(small.allocations * 3)
     expect(large.localCopies).toBe(large.allocations)
-  }, 30_000)
+  })
 
   it('lazily projects head and older regional revisions in isolation', () => {
     const source = 'head\n\ntarget word\n\ntail\n\n'
@@ -4432,7 +4434,7 @@ describe('document-core semantic changes', () => {
     expect(inspection.retainedCommittedUpdates).toBe(64)
     expect(inspection.retainedOverlayNodesAllocated).toBeLessThan(2_000)
     expect(inspection.retainedOverlayMaximumDepth).toBeLessThan(32)
-  }, 30_000)
+  })
 
   it('updates boundary and alternating far-region overlay ranks', () => {
     let source = 'guard\n\nfirst word\n\nmiddle word\n\nlast word\n\nguardtail\n\n'
@@ -4808,7 +4810,7 @@ describe('document-core semantic changes', () => {
     }], { projections: ['markup'] })
     const after = inspectionOf(core)
 
-    // A suggestion's inventory keeps the CM document regional (G35); the
+    // A suggestion's inventory keeps the CM document regional; the
     // plain overlay is never touched either way.
     expect(commit.change.projections[0]?.scope).toBe(buildsDependencyIndex ? 'document' : 'regions')
     if (buildsDependencyIndex) {

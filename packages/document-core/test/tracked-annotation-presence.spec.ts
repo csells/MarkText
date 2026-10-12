@@ -31,5 +31,5 @@ describe('tracked typing in a document with an unfinished opener and no annotati
     const fromDocument = plan(true)
     expect(fromDocument).toBeDefined()
     expect(plan(false)).toEqual(fromDocument)
-  }, 30_000)
+  })
 })

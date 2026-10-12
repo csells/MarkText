@@ -10,7 +10,7 @@ import { createDocumentCore, type MarkdownAstNode } from '../src/index.js'
 // document's end. A closer the literal holds as its text (one mid-line in a
 // block literal) forms no suggestion; those sources have nothing to check.
 //
-// Plan 0012, 5 October: a Substitution beginning mid-line whose first arm
+// A Substitution beginning mid-line whose first arm
 // ends a line put its second arm at a line start in the editing view, where
 // a fence or HTML opener the arm reads as text opened a block that ran on
 // past the closer.

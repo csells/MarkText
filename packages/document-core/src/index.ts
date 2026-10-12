@@ -55,7 +55,7 @@ export {
 } from './documentCore.js'
 export { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
 
-export { documentInputContext, type DocumentInputSelection, type DocumentInputTarget, type DocumentInputAction, type DocumentBrowserInputAction, type DocumentCommandInputAction, type DocumentInputPlan, type DocumentInputResult, type DocumentInputSyntaxContext } from './inputPlanning.js'
+export { type DocumentInputSelection, type DocumentInputTarget, type DocumentInputAction, type DocumentBrowserInputAction, type DocumentCommandInputAction, type DocumentInputPlan, type DocumentInputResult, type DocumentInputSyntaxContext } from './inputPlanning.js'
 
 export type { DocumentFormatAction, DocumentFormatPlan } from './formatPlanning.js'
 

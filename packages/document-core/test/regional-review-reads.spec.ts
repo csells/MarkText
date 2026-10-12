@@ -8,7 +8,7 @@ import {
 } from '../src/index.js'
 import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
 
-// Plan 0012 G35: a revision reached by regional edits answers what the
+// A revision reached by regional edits answers what the
 // Review overview reads of its suggestions and Comments from the blocks
 // around them, exactly as a fresh open of its source does, without parsing
 // the whole document again.

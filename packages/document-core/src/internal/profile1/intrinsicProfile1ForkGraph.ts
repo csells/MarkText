@@ -13,6 +13,7 @@ import type {
   MarkdownLiteralRange
 } from './markdownTypes.js'
 import type { TapeRun } from './sourceTape.js'
+import { sourceRange } from './sourceRanges.js'
 
 export type IntrinsicProfile1ForkLaneOwner =
   | Readonly<{ readonly kind: 'document' }>
@@ -156,14 +157,6 @@ export interface IntrinsicProfile1ForkRecorder {
     tape: readonly TapeRun[],
     rootExitCheckpoint: MarkdownCheckpoint
   ) => IntrinsicProfile1ForkGraph
-}
-
-function sourceOffset(value: number): SourceOffset {
-  return value as SourceOffset
-}
-
-function sourceRange(start: number, end: number): SourceRange {
-  return Object.freeze({ start: sourceOffset(start), end: sourceOffset(end) })
 }
 
 function activeProvider(
@@ -500,52 +493,6 @@ export function createIntrinsicProfile1ForkRecorder(
       lanes: Object.freeze(lanes),
       branches: Object.freeze(branches)
     })
-  })
-
-  return Object.freeze({
-    root,
-    forkLane,
-    recordTransition,
-    sealLane,
-    recordArmBoundary,
-    acceptBranch,
-    promoteBranches,
-    finish
-  })
-}
-
-/**
- * Parser-owned fork state for grammar inspections that publish no document.
- *
- * The intrinsic parser still drives the same Markdown checkpoints and arm
- * transitions, but an inspection has no consumer for the immutable fork graph.
- * Retaining every transition would otherwise make a sparse changed-join query
- * cost as much memory as a second complete revision.
- */
-export function createIntrinsicProfile1InspectionForkRecorder(
-  sourceLength: number,
-  rootEntryCheckpoint: MarkdownCheckpoint
-): IntrinsicProfile1ForkRecorder {
-  const rootLane = createMutableLane(rootEntryCheckpoint)
-  rootLane.owner = Object.freeze({ kind: 'document' })
-  rootLane.range = sourceRange(0, sourceLength)
-  const root = Object.freeze({ lane: rootLane })
-  const forkLane = Object.freeze((
-    entryCheckpoint: MarkdownCheckpoint
-  ): IntrinsicProfile1ForkLaneHandle =>
-    Object.freeze({ lane: createMutableLane(entryCheckpoint) }))
-  const recordTransition = Object.freeze((): void => {})
-  const sealLane = Object.freeze((
-    lane: IntrinsicProfile1ForkLaneHandle,
-    exitCheckpoint: MarkdownCheckpoint
-  ): void => {
-    lane.lane.exitCheckpoint = exitCheckpoint
-  })
-  const recordArmBoundary = Object.freeze((): void => {})
-  const acceptBranch = Object.freeze((): void => {})
-  const promoteBranches = Object.freeze((): void => {})
-  const finish = Object.freeze((): never => {
-    throw new Error('Inspection fork state cannot materialize a fork graph')
   })
 
   return Object.freeze({

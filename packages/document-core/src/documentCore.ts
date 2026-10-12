@@ -8,7 +8,6 @@ import { paragraphEnterConversion } from './internal/profile1/markdownParser.js'
 import { planClipboard, type DocumentClipboardAction, type DocumentClipboardPlan } from './clipboardPlanning.js'
 import { planFormat, type DocumentFormatAction, type DocumentFormatPlan } from './formatPlanning.js'
 import { planInput, positionBefore, reconcileInput, inputSourceRange, type DocumentInputAction, type DocumentInputPlan, type DocumentInputResult, type RegionalBlockContext } from './inputPlanning.js'
-import { editingReconciliation } from './editingReconciliation.js'
 import { normalizeEdits, normalizeInputPlan, selectionAfterNormalization, type EditNormalizationOptions, type EditNormalizationReaders } from './editNormalization.js'
 import { paragraphBackwardStructuralTarget } from './paragraphJoinPlanning.js'
 import { isLiteralBlock } from './literalBlock.js'
@@ -25,11 +24,12 @@ import {
   parseProfile1Document,
   parseProfile1ReaderViews,
   profile1CriticMarkupRootCount,
+  sameMarkdownOptions,
   type PreviousIntrinsicPass,
   type Profile1DocumentProducts,
   type Profile1DocumentReuseCache
 } from './internal/profile1Document.js'
-import { createPhysicalTraversalRecorderV1 } from './internal/profile1/physicalTraversalAccounting.js'
+import { createPhysicalTraversalRecorder } from './internal/profile1/physicalTraversalAccounting.js'
 import {
   admitCriticMarkupRegionalChange,
   createCriticMarkupRegionalIndex,
@@ -82,7 +82,7 @@ import {
   type PersistentCanonicalSource,
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
-import { checksAppliedReadings, checksReaderViews, checksReadingWindows, searchesWithoutBudget, planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
+import { checksAppliedReadings, checksReaderViews, checksReadingWindows, countsMaterializedNodes, searchesWithoutBudget, planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves, type DocumentCoreInspection } from './internal/documentCoreInspection.js'
 import { annotationsOverlapping, registerAnnotationsAround } from './internal/annotationsAround.js'
 import {
   createRevisionProductStore,
@@ -100,11 +100,13 @@ import type {
   CriticMarkupNode,
   ExecutionBudgetId,
   MarkdownNode as ParserMarkdownNode,
-  MarkdownOptionsV1,
+  MarkdownOptions,
   NodeId,
   ResourceDiagnostic,
   SyntaxDiagnostic
 } from './revision.js'
+
+export type { MarkdownOptions }
 
 export type CriticMarkupKind =
   | 'addition'
@@ -609,25 +611,6 @@ export interface DocumentApplyOptions {
 
 export type DocumentResolutionDecision = 'accept' | 'reject'
 
-export interface MarkdownOptions {
-  readonly gfm: boolean
-  /** GFM's extended-autolink extension, independently selectable. */
-  readonly gfmAutolinks: boolean
-  /** GFM's disallowed-raw-HTML extension, independently selectable. */
-  readonly gfmTagFilter: boolean
-  readonly frontMatter: boolean
-  /** pandoc's tex_math_dollars: `$…$` and `$$…$$`. */
-  readonly texMathDollars: boolean
-  /** pandoc's tex_math_gfm: `` $`…`$ `` and the ```math fence. */
-  readonly texMathGfm: boolean
-  /** pandoc's tex_math_single_backslash: `\(…\)` and `\[…\]`. */
-  readonly texMathSingleBackslash: boolean
-  /** pandoc's tex_math_double_backslash: `\\(…\\)` and `\\[…\\]`. */
-  readonly texMathDoubleBackslash: boolean
-  readonly footnotes: boolean
-  readonly subscriptAndSuperscript: boolean
-}
-
 export type DocumentCoreErrorCode =
   | 'CM_RESOURCE_SOURCE_UNITS_EXCEEDED'
   | 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED'
@@ -661,8 +644,8 @@ export class DocumentSourceEditError extends RangeError {
 }
 
 /**
- * One document lineage. Successful open and reopen calls advance its current
- * revision. Older revisions remain projectable but cannot be reopened.
+ * One document lineage. Successful open and apply calls advance its current
+ * revision. Older revisions remain projectable but cannot be edited.
  */
 export interface DocumentCore {
   /** Source highlighting from this revision’s shared Markdown and CriticMarkup syntax. */
@@ -696,8 +679,6 @@ export interface DocumentCore {
   inputEdits(previous: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, tracked: boolean): readonly DocumentSourceEdit[] | undefined
   /** Locate a planned input selection in its admitted canonical source. */
   reconcileInput(previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction): DocumentInputResult
-  /** Maps the exact edited payload into admitted syntax, including review arms and escapes. */
-  editingReconciliation(previous: DocumentRevision, input: DocumentSourceEdit, commit: DocumentCommit): readonly DocumentSourceEdit[] | undefined
   /**
    * Plans ordinary editing across a source envelope selected in Markup. Hidden
    * comments and surviving annotation wrappers remain intact. Undefined refuses
@@ -746,16 +727,6 @@ export interface DocumentCore {
   ): DocumentCommit
   /** Reads one bounded canonical-source range without materializing a revision. */
   sourceSlice(revision: DocumentRevision, range: SourceRange): string
-  /**
-   * Transitional compatibility entry point. Core-mode consumers should use
-   * `apply`, which does not accept a separately reconstructed candidate.
-   */
-  reopen(
-    previous: DocumentRevision,
-    source: string,
-    edits: readonly DocumentSourceEdit[],
-    options?: Readonly<Partial<MarkdownOptions>>
-  ): DocumentRevision
   project(
     revision: DocumentRevision,
     projection: MarkdownProjectionName
@@ -828,14 +799,13 @@ const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
 const typedInputTypes: ReadonlySet<string> = new Set(['insertText', 'insertCompositionText', 'insertReplacementText'])
 
 const EXECUTION_BUDGET: ExecutionBudgetId = Object.freeze({
-  limitsProfile: 'desktop-v1',
-  accountingSchema: 'syntax-accounting-1'
+  limitsProfile: 'desktop-v1'
 })
 
 function markdownOptions(
   options: Readonly<Partial<MarkdownOptions>> = {},
   inherited: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS
-): MarkdownOptionsV1 {
+): MarkdownOptions {
   // Profile 1 Y1: an unrecognized configuration name is refused rather than
   // carried into a revision's parse configuration.
   for (const name of Object.keys(options)) {
@@ -863,10 +833,7 @@ function markdownOptions(
     }
   }
 
-  return Object.freeze({
-    schema: 'markdown-options-1',
-    ...resolved
-  })
+  return resolved
 }
 
 interface MaterializedAnnotations {
@@ -2004,22 +1971,6 @@ function documentCoreError(
   )
 }
 
-function sameMarkdownOptions(
-  left: MarkdownOptionsV1,
-  right: MarkdownOptionsV1
-): boolean {
-  return left.gfm === right.gfm &&
-    left.gfmAutolinks === right.gfmAutolinks &&
-    left.gfmTagFilter === right.gfmTagFilter &&
-    left.frontMatter === right.frontMatter &&
-    left.texMathDollars === right.texMathDollars &&
-    left.texMathGfm === right.texMathGfm &&
-    left.texMathSingleBackslash === right.texMathSingleBackslash &&
-    left.texMathDoubleBackslash === right.texMathDoubleBackslash &&
-    left.footnotes === right.footnotes &&
-    left.subscriptAndSuperscript === right.subscriptAndSuperscript
-}
-
 interface NormalizedProjectionRequests {
   readonly markup: boolean
   readonly comments: readonly SourceRange[]
@@ -2087,7 +2038,7 @@ interface FullRevisionState {
     retain?: boolean
   ) => readonly CriticMarkupAnnotation[]
   readonly retainedSummary: RetainedAdmissionSummary | undefined
-  readonly markdownOptions: MarkdownOptionsV1
+  readonly markdownOptions: MarkdownOptions
   readonly retainedIndex: PlainParagraphRetainedIndex | undefined
   readonly criticMarkupIndex: CriticMarkupRegionalIndex | undefined
   readonly commentIndex: CommentRegionalIndex | undefined
@@ -2099,7 +2050,7 @@ interface FullRevisionState {
 interface RegionalRevisionState {
   readonly kind: 'regional'
   readonly source: PersistentCanonicalSource
-  readonly markdownOptions: MarkdownOptionsV1
+  readonly markdownOptions: MarkdownOptions
   readonly retainedIndex: PlainParagraphRetainedIndex | undefined
   readonly criticMarkupIndex: CriticMarkupRegionalIndex | undefined
   readonly commentIndex: CommentRegionalIndex | undefined
@@ -2120,89 +2071,20 @@ interface RegionalRevisionState {
 
 type RevisionState = FullRevisionState | RegionalRevisionState
 
-interface MutableDocumentCoreInspection {
-  intrinsicSourceUnits: number
-  documentParses: number
-  documentParseSourceUnits: number
-  regionalIntrinsicSourceUnits: number
-  regionalFastApplies: number
-  documentProjectionPreparationUnits: number
-  documentMarkupEventUnits: number
-  documentAstMaterializedNodes: number
-  documentCoordinateSegments: number
-  documentAnnotationMaterializedNodes: number
-  annotationFactTables: number
-  fullProductStoresStrongCurrent: number
-  fullProductStoresStrongPeak: number
-  fullProductStoreReleases: number
-  keystrokesAppliedAsTyped: number
-  canonicalFactIndexUnits: number
-  regionalProjectionPreparationUnits: number
-  regionalMarkupEventUnits: number
-  regionalAstMaterializedNodes: number
-  regionalCoordinateSegments: number
-  regionalCommentProjectionPreparationUnits: number
-  regionalCommentAstMaterializedNodes: number
-  regionalCommentCoordinateSegments: number
-  regionalInventoryBuildUnits: number
-  regionalInventoryLookupComparisons: number
-  regionalInventoryNodesVisited: number
-  regionalInventoryNodesAllocated: number
-  regionalInventoryNodesShared: number
-  regionalInventoryChangedLeaves: number
-  regionalInventoryRootsAttempted: number
-  regionalInventoryRootsCommitted: number
-  regionalInventoryLocalAnnotationMaterializedNodes: number
-  regionalInventoryCandidateRegionParses: number
-  regionalInventoryCandidateRegionParseSourceUnits: number
-  regionalInventoryAnnotationMaterializedNodes: number
-  retainedFactInputStructuralUnits: number
-  retainedFactOutputStructuralUnits: number
-  retainedInitialBuildUnits: number
-  retainedIndexLookupComparisons: number
-  retainedOverlayNodeVisits: number
-  retainedOverlayNodesAllocated: number
-  retainedOverlayNodesReused: number
-  retainedChangedLeafUnits: number
-  retainedCommittedUpdates: number
-  retainedLocalIndexUnitsCopied: number
-  retainedOverlayMaximumDepth: number
-  sourceRopeNodeVisits: number
-  sourceRopeNodesAllocated: number
-  sourceRopePiecesAllocated: number
-  sourceRopeCoalesces: number
-  sourceRopeRebalances: number
-  sourceRopeMaximumDepth: number
-  sourceRopeMaximumHeight: number
-  sourceRopeCurrentHeight: number
-  sourceRopeCurrentPieces: number
-  sourceRopeMaximumPieces: number
-  sourceSliceCalls: number
-  sourceSlicePieces: number
-  sourceSliceUnits: number
-  sourceMaterializations: number
-  sourceMaterializationPieces: number
-  sourceMaterializationOutputUnits: number
-  sourceGetterHits: number
-  sourceGetterMisses: number
-  sourceCompactions: number
-  sourceCompactionInputPieces: number
-  sourceCompactionRetainedUpperBoundReductionUnits: number
-  sourceGetterMaterializations: number
-  sourceGetterMaterializationOutputUnits: number
-  sourceFallbackMaterializations: number
-  sourceFallbackMaterializationOutputUnits: number
-  sourceRebaseMaterializations: number
-  sourceRebaseMaterializationOutputUnits: number
-  sourceProjectionMaterializations: number
-  sourceProjectionMaterializationOutputUnits: number
-  sourceReopenMaterializations: number
-  sourceReopenMaterializationOutputUnits: number
-  sourceReopenComparisonUnits: number
-  sourceRopeRootsAttempted: number
-  sourceRopeRootsCommitted: number
-  sourceRebases: number
-  sourceCurrentRetainedBufferUnitsUpperBound: number
+/** The reader derives these from the recorders and the current source. */
+type DerivedInspectionKey =
+  | 'intrinsicSourceUnits'
+  | 'regionalIntrinsicSourceUnits'
+  | 'regionalCommentProjectionPreparationUnits'
+  | 'retainedFactInputStructuralUnits'
+  | 'retainedFactOutputStructuralUnits'
+  | 'documentRetainedFactOutputStructuralUnits'
+  | 'sourceRopeCurrentHeight'
+  | 'sourceRopeCurrentPieces'
+  | 'sourceCurrentRetainedBufferUnitsUpperBound'
+
+type MutableDocumentCoreInspection = {
+  -readonly [Key in Exclude<keyof DocumentCoreInspection, DerivedInspectionKey>]: number
 }
 
 export function createDocumentCore(): DocumentCore {
@@ -2212,8 +2094,7 @@ export function createDocumentCore(): DocumentCore {
 /** Package-private seam for structural tests outside production admission. */
 export function createUnboundedDocumentCoreForInspection(): DocumentCore {
   return createDocumentCoreWithExecutionBudget(Object.freeze({
-    limitsProfile: 'inspection-unbounded',
-    accountingSchema: 'syntax-accounting-1'
+    limitsProfile: 'inspection-unbounded'
   }))
 }
 
@@ -2677,7 +2558,7 @@ function createDocumentCoreWithExecutionBudget(
     previous: CanonicalSourceView,
     next: CanonicalSourceView,
     edits: readonly DocumentSourceEdit[],
-    options: MarkdownOptionsV1
+    options: MarkdownOptions
   ): boolean => {
     let dollarFree = dollarFreeSources.get(previous)
     if (dollarFree === undefined) {
@@ -2736,13 +2617,11 @@ function createDocumentCoreWithExecutionBudget(
     state.kind === 'regional' && state.regionalInventory !== undefined && dollarsKept(state.source, edits)
   const dollarsKept = (source: CanonicalSourceView, edits: readonly DocumentSourceEdit[]): boolean =>
     edits.every(edit => !/[$\\]/u.test(edit.insert + source.slice(edit.start, edit.end)))
-  const physicalRecorder = createPhysicalTraversalRecorderV1()
-  const regionalPhysicalRecorder = createPhysicalTraversalRecorderV1()
+  const physicalRecorder = createPhysicalTraversalRecorder()
+  const regionalPhysicalRecorder = createPhysicalTraversalRecorder()
   const inspection: MutableDocumentCoreInspection = {
-    intrinsicSourceUnits: 0,
     documentParses: 0,
     documentParseSourceUnits: 0,
-    regionalIntrinsicSourceUnits: 0,
     regionalFastApplies: 0,
     documentProjectionPreparationUnits: 0,
     documentMarkupEventUnits: 0,
@@ -2759,7 +2638,6 @@ function createDocumentCoreWithExecutionBudget(
     regionalMarkupEventUnits: 0,
     regionalAstMaterializedNodes: 0,
     regionalCoordinateSegments: 0,
-    regionalCommentProjectionPreparationUnits: 0,
     regionalCommentAstMaterializedNodes: 0,
     regionalCommentCoordinateSegments: 0,
     regionalInventoryBuildUnits: 0,
@@ -2774,8 +2652,6 @@ function createDocumentCoreWithExecutionBudget(
     regionalInventoryCandidateRegionParses: 0,
     regionalInventoryCandidateRegionParseSourceUnits: 0,
     regionalInventoryAnnotationMaterializedNodes: 0,
-    retainedFactInputStructuralUnits: 0,
-    retainedFactOutputStructuralUnits: 0,
     retainedInitialBuildUnits: 0,
     retainedIndexLookupComparisons: 0,
     retainedOverlayNodeVisits: 0,
@@ -2792,9 +2668,6 @@ function createDocumentCoreWithExecutionBudget(
     sourceRopeRebalances: 0,
     sourceRopeMaximumDepth: 0,
     sourceRopeMaximumHeight: 0,
-    sourceRopeCurrentHeight: 0,
-    sourceRopeCurrentPieces: 0,
-    sourceRopeMaximumPieces: 0,
     sourceSliceCalls: 0,
     sourceSlicePieces: 0,
     sourceSliceUnits: 0,
@@ -2803,24 +2676,12 @@ function createDocumentCoreWithExecutionBudget(
     sourceMaterializationOutputUnits: 0,
     sourceGetterHits: 0,
     sourceGetterMisses: 0,
-    sourceCompactions: 0,
-    sourceCompactionInputPieces: 0,
-    sourceCompactionRetainedUpperBoundReductionUnits: 0,
-    sourceGetterMaterializations: 0,
-    sourceGetterMaterializationOutputUnits: 0,
     sourceFallbackMaterializations: 0,
-    sourceFallbackMaterializationOutputUnits: 0,
     sourceRebaseMaterializations: 0,
-    sourceRebaseMaterializationOutputUnits: 0,
     sourceProjectionMaterializations: 0,
-    sourceProjectionMaterializationOutputUnits: 0,
-    sourceReopenMaterializations: 0,
-    sourceReopenMaterializationOutputUnits: 0,
-    sourceReopenComparisonUnits: 0,
     sourceRopeRootsAttempted: 0,
     sourceRopeRootsCommitted: 0,
-    sourceRebases: 0,
-    sourceCurrentRetainedBufferUnitsUpperBound: 0
+    sourceRebases: 0
   }
   const sourceRecorder: PersistentCanonicalSourceRecorder = Object.freeze({
     recordNodeVisit: (depth: number): void => {
@@ -2830,14 +2691,10 @@ function createDocumentCoreWithExecutionBudget(
         depth
       )
     },
-    recordRootShape: (height: number, pieces: number): void => {
+    recordRootShape: (height: number): void => {
       inspection.sourceRopeMaximumHeight = Math.max(
         inspection.sourceRopeMaximumHeight,
         height
-      )
-      inspection.sourceRopeMaximumPieces = Math.max(
-        inspection.sourceRopeMaximumPieces,
-        pieces
       )
     },
     recordNodeAllocation: (piece: boolean): void => {
@@ -2863,21 +2720,12 @@ function createDocumentCoreWithExecutionBudget(
       inspection.sourceMaterializations += 1
       inspection.sourceMaterializationPieces += pieces
       inspection.sourceMaterializationOutputUnits += units
-      if (reason === 'getter') {
-        inspection.sourceGetterMaterializations += 1
-        inspection.sourceGetterMaterializationOutputUnits += units
-      } else if (reason === 'fallback') {
+      if (reason === 'fallback') {
         inspection.sourceFallbackMaterializations += 1
-        inspection.sourceFallbackMaterializationOutputUnits += units
       } else if (reason === 'projection') {
         inspection.sourceProjectionMaterializations += 1
-        inspection.sourceProjectionMaterializationOutputUnits += units
       } else if (reason === 'rebase') {
         inspection.sourceRebaseMaterializations += 1
-        inspection.sourceRebaseMaterializationOutputUnits += units
-      } else {
-        inspection.sourceReopenMaterializations += 1
-        inspection.sourceReopenMaterializationOutputUnits += units
       }
     },
     recordGetterHit: (): void => {
@@ -2886,15 +2734,7 @@ function createDocumentCoreWithExecutionBudget(
     recordGetterMiss: (): void => {
       inspection.sourceGetterMisses += 1
     },
-    recordCompaction: (
-      pieces: number,
-      retainedUpperBoundReductionUnits: number,
-      fragmentationRebase: boolean
-    ): void => {
-      inspection.sourceCompactions += 1
-      inspection.sourceCompactionInputPieces += pieces
-      inspection.sourceCompactionRetainedUpperBoundReductionUnits +=
-        retainedUpperBoundReductionUnits
+    recordCompaction: (fragmentationRebase: boolean): void => {
       if (fragmentationRebase) {
         inspection.sourceRebases += 1
       }
@@ -3029,14 +2869,14 @@ function createDocumentCoreWithExecutionBudget(
    * which the document would pair it with: the draft is then the document's
    * to settle (see `displayMathReachesPast`).
    */
-  const noteWindowDollarReach = (products: Profile1DocumentProducts, source: string, options: MarkdownOptionsV1): void => {
+  const noteWindowDollarReach = (products: Profile1DocumentProducts, source: string, options: MarkdownOptions): void => {
     if (windowEndsDocument(core) === false && options.texMathDollars && displayMathReachesPast(products, source)) {
       markUnresolvedDraft(core, { start: false, end: true })
     }
   }
   const parse = (
     source: string,
-    resolvedOptions: MarkdownOptionsV1,
+    resolvedOptions: MarkdownOptions,
     previousPass?: PreviousIntrinsicPass
   ): Profile1DocumentProducts => {
     let products
@@ -3047,10 +2887,8 @@ function createDocumentCoreWithExecutionBudget(
       products = parseProfile1Document(
         source,
         executionBudget,
-        undefined,
         resolvedOptions,
         false,
-        undefined,
         // The general-compile reference reads every source whole.
         plansFromGeneralCompile(core) ? createProfile1DocumentReuseCache() : reuseCache,
         physicalRecorder,
@@ -3072,7 +2910,7 @@ function createDocumentCoreWithExecutionBudget(
 
   const isolatedProducts = (
     source: string,
-    resolvedOptions: MarkdownOptionsV1,
+    resolvedOptions: MarkdownOptions,
     previousPass?: PreviousIntrinsicPass
   ): Profile1DocumentProducts => {
     inspection.documentParses += 1
@@ -3081,10 +2919,8 @@ function createDocumentCoreWithExecutionBudget(
     const result = parseProfile1Document(
       source,
       executionBudget,
-      undefined,
       resolvedOptions,
       false,
-      undefined,
       createProfile1DocumentReuseCache(),
       physicalRecorder,
       previousPass
@@ -3109,7 +2945,7 @@ function createDocumentCoreWithExecutionBudget(
   const publish = (
     source: PersistentCanonicalSource,
     products: Profile1DocumentProducts,
-    resolvedOptions: MarkdownOptionsV1
+    resolvedOptions: MarkdownOptions
   ): DocumentRevision => {
     let productStore: RevisionProductStore<Profile1DocumentProducts> | undefined
     try {
@@ -3185,8 +3021,10 @@ function createDocumentCoreWithExecutionBudget(
               candidate: Profile1DocumentProducts
             ): readonly CriticMarkupAnnotation[] => {
               const materialized = annotationsOf(candidate).annotations
-              inspection.documentAnnotationMaterializedNodes +=
-                countCriticMarkupAnnotationNodes(materialized)
+              if (countsMaterializedNodes()) {
+                inspection.documentAnnotationMaterializedNodes +=
+                  countCriticMarkupAnnotationNodes(materialized)
+              }
               return materialized
             }
             memoizedAnnotations = availableProducts === undefined
@@ -3233,7 +3071,7 @@ function createDocumentCoreWithExecutionBudget(
       productStore?.releaseStrong()
       // Parsing updates provenance state before facade materialization. If
       // publication fails, discard that candidate state so the current head
-      // can still be reopened safely.
+      // can still be edited safely.
       reuseCache = createProfile1DocumentReuseCache()
       throw error
     }
@@ -3241,7 +3079,7 @@ function createDocumentCoreWithExecutionBudget(
 
   const publishRegional = (
     source: PersistentCanonicalSource,
-    resolvedOptions: MarkdownOptionsV1,
+    resolvedOptions: MarkdownOptions,
     retainedIndex: PlainParagraphRetainedIndex | undefined,
     criticMarkupIndex: CriticMarkupRegionalIndex | undefined,
     annotations: readonly CriticMarkupAnnotation[] = Object.freeze([]),
@@ -3298,7 +3136,7 @@ function createDocumentCoreWithExecutionBudget(
    */
   const inventoryRevision = (
     source: PersistentCanonicalSource,
-    resolvedOptions: MarkdownOptionsV1,
+    resolvedOptions: MarkdownOptions,
     inventory: RegionalInventory,
     regionalComments: RegionalRevisionState['regionalComments'] = Object.freeze([])
   ): DocumentRevision => {
@@ -3352,7 +3190,7 @@ function createDocumentCoreWithExecutionBudget(
 
   const publishInventoryRegional = (
     source: PersistentCanonicalSource,
-    resolvedOptions: MarkdownOptionsV1,
+    resolvedOptions: MarkdownOptions,
     inventory: RegionalInventory,
     regionalComments: RegionalRevisionState['regionalComments'] = Object.freeze([])
   ): DocumentRevision => {
@@ -3666,7 +3504,7 @@ function createDocumentCoreWithExecutionBudget(
     previousState: RevisionState,
     source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
-    resolvedOptions: MarkdownOptionsV1,
+    resolvedOptions: MarkdownOptions,
     requests: NormalizedProjectionRequests,
     inventory: RegionalInventory | undefined = previousState.regionalInventory,
     preview = false
@@ -3721,8 +3559,10 @@ function createDocumentCoreWithExecutionBudget(
       if (cached !== undefined) return cached
       const value = annotationsOf(products)
       materializedByProducts.set(products, value)
-      inspection.regionalInventoryLocalAnnotationMaterializedNodes +=
-        countCriticMarkupAnnotationNodes(value.annotations)
+      if (countsMaterializedNodes()) {
+        inspection.regionalInventoryLocalAnnotationMaterializedNodes +=
+          countCriticMarkupAnnotationNodes(value.annotations)
+      }
       return value
     }
     const projections: DocumentProjectionChange[] = []
@@ -4002,8 +3842,10 @@ function createDocumentCoreWithExecutionBudget(
         coordinates
       }))
       regionalComments.push(Object.freeze({ annotation, projection }))
-      inspection.regionalCommentAstMaterializedNodes +=
-        countMarkdownAstNodes(ast.root)
+      if (countsMaterializedNodes()) {
+        inspection.regionalCommentAstMaterializedNodes +=
+          countMarkdownAstNodes(ast.root)
+      }
       inspection.regionalCommentCoordinateSegments += coordinates.length
     }
     if (commentReplacements.length > 0) {
@@ -4060,14 +3902,16 @@ function createDocumentCoreWithExecutionBudget(
       recordPrepared(impact.nextProducts, impact.nextWindow.length)
     }
     inspection.regionalProjectionPreparationUnits += preparedSourceUnits
-    inspection.regionalMarkupEventUnits += counted.events.reduce(
-      (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
-      0
-    )
-    inspection.regionalAstMaterializedNodes += counted.blocks.reduce(
-      (total, block) => total + countMarkdownAstNodes(block),
-      0
-    )
+    if (countsMaterializedNodes()) {
+      inspection.regionalMarkupEventUnits += counted.events.reduce(
+        (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
+        0
+      )
+      inspection.regionalAstMaterializedNodes += counted.blocks.reduce(
+        (total, block) => total + countMarkdownAstNodes(block),
+        0
+      )
+    }
     inspection.regionalCoordinateSegments += counted.coordinates.length
     return Object.freeze({
       kind: 'applied',
@@ -4080,7 +3924,7 @@ function createDocumentCoreWithExecutionBudget(
     previousState: RevisionState,
     source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
-    resolvedOptions: MarkdownOptionsV1
+    resolvedOptions: MarkdownOptions
   ): Readonly<{
     readonly revision: DocumentRevision
     readonly projection: MarkupRegionProjectionChange
@@ -4183,14 +4027,16 @@ function createDocumentCoreWithExecutionBudget(
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits +=
       admission.previousWindow.length + admission.nextWindow.length
-    inspection.regionalMarkupEventUnits += events.reduce(
-      (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
-      0
-    )
-    inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
-      (total, block) => total + countMarkdownAstNodes(block),
-      0
-    )
+    if (countsMaterializedNodes()) {
+      inspection.regionalMarkupEventUnits += events.reduce(
+        (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
+        0
+      )
+      inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
+        (total, block) => total + countMarkdownAstNodes(block),
+        0
+      )
+    }
     inspection.regionalCoordinateSegments += coordinates.length
     return Object.freeze({
       revision,
@@ -4206,7 +4052,7 @@ function createDocumentCoreWithExecutionBudget(
     previousState: RevisionState,
     source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
-    resolvedOptions: MarkdownOptionsV1,
+    resolvedOptions: MarkdownOptions,
     requests: NormalizedProjectionRequests
   ): Readonly<{
     readonly revision: DocumentRevision
@@ -4340,15 +4186,17 @@ function createDocumentCoreWithExecutionBudget(
         scope: 'regions',
         replacements: Object.freeze([replacement])
       }))
-      inspection.regionalMarkupEventUnits += events.reduce(
-        (total, event) => total +
-          (event.kind === 'text' ? event.text.length : 1),
-        0
-      )
-      inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
-        (total, block) => total + countMarkdownAstNodes(block),
-        0
-      )
+      if (countsMaterializedNodes()) {
+        inspection.regionalMarkupEventUnits += events.reduce(
+          (total, event) => total +
+            (event.kind === 'text' ? event.text.length : 1),
+          0
+        )
+        inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
+          (total, block) => total + countMarkdownAstNodes(block),
+          0
+        )
+      }
       inspection.regionalCoordinateSegments += coordinates.length
     }
     projections.push(Object.freeze({
@@ -4370,11 +4218,15 @@ function createDocumentCoreWithExecutionBudget(
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits +=
       admission.previousWindow.length + admission.nextWindow.length
-    inspection.regionalAstMaterializedNodes += countMarkdownAstNodes(ast.root)
+    if (countsMaterializedNodes()) {
+      inspection.regionalAstMaterializedNodes += countMarkdownAstNodes(ast.root)
+    }
     inspection.regionalCoordinateSegments += commentCoordinates.length
-    inspection.regionalCommentAstMaterializedNodes += countMarkdownAstNodes(
-      ast.root
-    )
+    if (countsMaterializedNodes()) {
+      inspection.regionalCommentAstMaterializedNodes += countMarkdownAstNodes(
+        ast.root
+      )
+    }
     inspection.regionalCommentCoordinateSegments += commentCoordinates.length
     return Object.freeze({
       revision,
@@ -4386,7 +4238,7 @@ function createDocumentCoreWithExecutionBudget(
     previousState: RevisionState,
     source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
-    resolvedOptions: MarkdownOptionsV1
+    resolvedOptions: MarkdownOptions
   ): Readonly<{
     readonly kind: 'applied'
     readonly revision: DocumentRevision
@@ -4590,14 +4442,16 @@ function createDocumentCoreWithExecutionBudget(
     )
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits += regionSource.length
-    inspection.regionalMarkupEventUnits += events.reduce(
-      (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
-      0
-    )
-    inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
-      (total, block) => total + countMarkdownAstNodes(block),
-      0
-    )
+    if (countsMaterializedNodes()) {
+      inspection.regionalMarkupEventUnits += events.reduce(
+        (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
+        0
+      )
+      inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
+        (total, block) => total + countMarkdownAstNodes(block),
+        0
+      )
+    }
     inspection.regionalCoordinateSegments += coordinates.length
     return Object.freeze({
       kind: 'applied',
@@ -4614,7 +4468,7 @@ function createDocumentCoreWithExecutionBudget(
     previousState: RevisionState,
     source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
-    resolvedOptions: MarkdownOptionsV1
+    resolvedOptions: MarkdownOptions
   ): Readonly<{
     readonly kind: 'applied'
     readonly revision: DocumentRevision
@@ -5112,9 +4966,11 @@ function createDocumentCoreWithExecutionBudget(
           state.source.length
         )
         inspection.documentMarkupEventUnits += markup.events.length
-        inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
-          markup.syntax.ast.root
-        )
+        if (countsMaterializedNodes()) {
+          inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
+            markup.syntax.ast.root
+          )
+        }
         inspection.documentCoordinateSegments +=
           facts.products.editing().mappedTape.length
         return markup
@@ -5129,9 +4985,11 @@ function createDocumentCoreWithExecutionBudget(
         ast: markdownAstOf(projected),
         coordinates: projectionCoordinatesOf(projected, state.source.length)
       })
-      inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
-        markdown.ast.root
-      )
+      if (countsMaterializedNodes()) {
+        inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
+          markdown.ast.root
+        )
+      }
       inspection.documentCoordinateSegments += projected.mappedTape.length
       return markdown
     }, revision === currentRevision)
@@ -5317,8 +5175,10 @@ function createDocumentCoreWithExecutionBudget(
     if (materialized === undefined) {
       materialized = annotationsOf(products)
       windowAnnotations.set(products, materialized)
-      inspection.regionalInventoryLocalAnnotationMaterializedNodes +=
-        countCriticMarkupAnnotationNodes(materialized.annotations)
+      if (countsMaterializedNodes()) {
+        inspection.regionalInventoryLocalAnnotationMaterializedNodes +=
+          countCriticMarkupAnnotationNodes(materialized.annotations)
+      }
     }
     return materialized
   }
@@ -5422,7 +5282,9 @@ function createDocumentCoreWithExecutionBudget(
             projected, window.nextWindow.length, window.sourceStart, state.source.length
           )
         })
-        inspection.regionalAstMaterializedNodes += countMarkdownAstNodes(projection.ast.root)
+        if (countsMaterializedNodes()) {
+          inspection.regionalAstMaterializedNodes += countMarkdownAstNodes(projection.ast.root)
+        }
       }
     }
     projection ??= projectRevision(revision, name)
@@ -6497,7 +6359,7 @@ function createDocumentCoreWithExecutionBudget(
     const shortCore = createDocumentCoreWithExecutionBudget(executionBudget)
     windowCores.add(shortCore)
     if (equivalenceDeferred(core)) deferEquivalence(shortCore)
-    const { schema: _schema, ...options } = state.markdownOptions
+    const options = state.markdownOptions
     const opened = shortCore.open(short, blockStart === 0 ? options : { ...options, frontMatter: false })
     const shortPreview = sourceEditPreviews.get(shortCore)
     if (opened.annotations.length !== 0 || opened.diagnostics.length !== 0 || shortPreview === undefined) return undefined
@@ -7439,7 +7301,7 @@ function createDocumentCoreWithExecutionBudget(
     windowCores.add(windowCore)
     markWindowCompileCore(windowCore, { startsDocument: sourceStart === 0, endsDocument: windowEnd === state.source.length })
     if (equivalenceDeferred(core)) deferEquivalence(windowCore)
-    const { schema: _schema, ...options } = state.markdownOptions
+    const options = state.markdownOptions
     const opened = windowCore.open(windowSource, sourceStart === 0 ? options : { ...options, frontMatter: false })
     const within = <T extends { range: SourceRange }>(items: readonly T[], start: number, end: number): T[] =>
       items.filter(item => item.range.start >= start && item.range.end <= end)
@@ -7613,7 +7475,7 @@ function createDocumentCoreWithExecutionBudget(
       : blocksAround.kept(() => windowCore.apply(opened, compiled).revision,
         { start: first.start - sourceStart, end: last.end - sourceStart }, delta, windowEdges)
     // A result splitting the deleted or replaced text that holds the edit
-    // (G34) is that suggestion's, read and weighed within it whatever window
+    // is that suggestion's, read and weighed within it whatever window
     // holds it. Where the window has no block of context beyond a blank line,
     // it is read again with the blocks the document has there: where they
     // keep their structure under the edit and under the result, the result
@@ -8111,11 +7973,10 @@ function createDocumentCoreWithExecutionBudget(
 
   // A source with every annotation accepted or rejected, read on a core of
   // its own so this core's current revision stays.
-  const resolvedSource = (source: string, decision: 'accept' | 'reject', options: MarkdownOptionsV1): string => {
+  const resolvedSource = (source: string, decision: 'accept' | 'reject', options: MarkdownOptions): string => {
     const resolver = createDocumentCoreWithExecutionBudget(executionBudget)
     windowCores.add(resolver)
-    const { schema: _schema, ...open } = options
-    let revision = resolver.open(source, open)
+    let revision = resolver.open(source, options)
     for (let pass = 0; pass < 64 && revision.annotations.length > 0; pass += 1) {
       const current = revision
       revision = resolver.apply(current, current.annotations.map(annotation => {
@@ -8212,7 +8073,7 @@ function createDocumentCoreWithExecutionBudget(
         : undefined
     }
     if (historySplit(previous.annotations, source, untracked, 'before') !== undefined) {
-      // Owner ruling G34: text typed into deleted or replaced text splits that
+      // Owner ruling: text typed into deleted or replaced text splits that
       // suggestion at the caret, so the typing survives Accept All while
       // Reject All restores the original. A spelling that drops it is no
       // spelling of the key, so none is weighed below.
@@ -8304,8 +8165,8 @@ function createDocumentCoreWithExecutionBudget(
   ): readonly DocumentSourceEdit[] | undefined => {
     const planned = planNativeEditsCompiled(previous, input, tracked, typed)
     if (!tracked || windowCores.has(core)) return planned
-    // Typing into deleted or replaced text must survive Accept All as typed
-    // (G34): a plan that writes it inside deleted or replaced text, or adds
+    // Typing into deleted or replaced text must survive Accept All as typed:
+    // a plan that writes it inside deleted or replaced text, or adds
     // to it, is no spelling of the key.
     const typing = input.map(edit => edit.insert).join('')
     if (planned !== undefined && planned.length > 0 && typing.length > 0 &&
@@ -8433,7 +8294,7 @@ function createDocumentCoreWithExecutionBudget(
     const candidateCore = createDocumentCoreWithExecutionBudget(executionBudget)
     if (tracked) deferEquivalence(candidateCore)
     if (plansFromGeneralCompile(core)) planFromGeneralCompile(candidateCore)
-    const { schema: _schema, ...options } = state.markdownOptions
+    const options = state.markdownOptions
     let candidate = candidateCore.open(previous.source, options)
     const result: DocumentSourceEdit[] = []
     const authored: Array<{ edit: DocumentSourceEdit, annotation: CriticMarkupAnnotation }> = []
@@ -8552,7 +8413,7 @@ function createDocumentCoreWithExecutionBudget(
       parseWindow: (source, atDocumentStart) => {
         const windowCore = createDocumentCoreWithExecutionBudget(executionBudget)
         windowCores.add(windowCore)
-        const { schema: _schema, ...options } = state.markdownOptions
+        const options = state.markdownOptions
         return windowCore.project(windowCore.open(source, atDocumentStart ? options : { ...options, frontMatter: false }), 'markup').syntax
       },
       // Only a revision already read by regions has an inventory; otherwise
@@ -8569,7 +8430,7 @@ function createDocumentCoreWithExecutionBudget(
 
   // A Comment payload is its own subdocument under the document's options (R5).
   const payloadDiagnostics = (previous: DocumentRevision) => {
-    const { schema: _schema, ...options } = currentStateOf(previous).markdownOptions
+    const options = currentStateOf(previous).markdownOptions
     return (payload: string) => createDocumentCore().open(payload, options).diagnostics
   }
 
@@ -8582,7 +8443,7 @@ function createDocumentCoreWithExecutionBudget(
     },
     planClipboard(previous: DocumentRevision, action: DocumentClipboardAction) {
       // Cut and paste change only their own bytes, in a table too (ADR 0007;
-      // owner decision 25 Sep, plan 0012 G24).
+      // owner decision 25 Sep).
       const plan = planUnspelledClipboard(previous, commentedSpanSafeClipboard(previous, action, at => rootsAround(previous, at)))
       // A tracked plan was normalized before its suggestions were spelled.
       if (action.kind === 'table' || action.tracked) return plan
@@ -8853,15 +8714,6 @@ function createDocumentCoreWithExecutionBudget(
       if (!stateByRevision.has(previous) || commit !== null && !stateByRevision.has(commit.revision)) throw new Error('Document revision belongs to another core')
       return reconcileInput(core, previous, policy, commit, commentedSpanSafeInput(previous, action, at => rootsAround(previous, at)))
     },
-    editingReconciliation(previous: DocumentRevision, input: DocumentSourceEdit, commit: DocumentCommit) {
-      const previousState = stateByRevision.get(previous)
-      if (previousState === undefined || !stateByRevision.has(commit.revision)) throw new Error('Document revision belongs to another core')
-      const edits = stableSourceEdits([input])
-      preflightSourceEdits(previousState.source.length, edits)
-      const edit = edits[0]
-      if (edit === undefined) throw new Error('Editing reconciliation input is missing')
-      return editingReconciliation(core, previous, edit, commit, 'visible')
-    },
     markupEdits(previous: DocumentRevision, edits: readonly DocumentSourceEdit[]) {
       return planNativeEdits(previous, edits, false)
     },
@@ -9040,48 +8892,6 @@ function createDocumentCoreWithExecutionBudget(
       return state.source.slice(range.start, range.end)
     },
 
-    reopen(
-      previous: DocumentRevision,
-      source: string,
-      edits: readonly DocumentSourceEdit[],
-      options?: Readonly<Partial<MarkdownOptions>>
-    ): DocumentRevision {
-      const previousState = currentStateOf(previous)
-      if (typeof source !== 'string') {
-        throw new TypeError('Document source must be a string')
-      }
-
-      const stableEdits = stableSourceEdits(edits)
-      preflightSourceEdits(previousState.source.length, stableEdits)
-      rejectSurrogateSplits(previousState.source, stableEdits)
-      let candidate: PersistentCanonicalSource
-      try {
-        candidate = previousState.source.applyExact(
-          stableEdits,
-          'Document core source edit'
-        )
-      } catch (error) {
-        if (error instanceof RangeError) {
-          throw new DocumentSourceEditError(error.message)
-        }
-        throw error
-      }
-      const reproduced = candidate.materialize('reopen')
-      inspection.sourceReopenComparisonUnits += reproduced.length
-      if (reproduced !== source) {
-        throw new Error(
-          'Document core reopen source does not match its exact edits'
-        )
-      }
-      return applyCandidate(
-        previousState,
-        candidate,
-        stableEdits,
-        options,
-        'reopen'
-      )
-    },
-
     sourceSyntax(revision: DocumentRevision) {
       const markup = projectRevision(revision, 'markup')
       const state = stateByRevision.get(revision)
@@ -9164,7 +8974,7 @@ function createDocumentCoreWithExecutionBudget(
     inspection.documentParses += 1
     inspection.documentParseSourceUnits += source.length
     inspection.documentProjectionPreparationUnits += source.length
-    const products = parseProfile1Document(source, executionBudget, undefined, markdownOptions(), false, undefined,
+    const products = parseProfile1Document(source, executionBudget, markdownOptions(), false,
       createProfile1DocumentReuseCache(), physicalRecorder, undefined, true, true)
     if (products.kind !== 'complete') throw documentCoreError(products.fatalDiagnostic)
     return Object.freeze({

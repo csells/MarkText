@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { editingReconciliation } from '../src/editingReconciliation.js'
 import { createDocumentCore } from '../src/index.js'
 
 describe('common editing operation reconciliation', () => {
@@ -13,12 +14,12 @@ describe('common editing operation reconciliation', () => {
     if (edit === undefined) throw new Error('Expected tracked insertion')
     const commit = core.apply(previous, [edit])
     expect(commit.revision.source).toBe(source)
-    expect(core.editingReconciliation(previous, input, commit)).toEqual(mapping)
+    expect(editingReconciliation(core, previous, input, commit, 'visible')).toEqual(mapping)
     for (const invalid of [{ ...edit, insert: 'Y' }, { start: edit.start + 1, end: edit.start + 1, insert: 'X' }]) {
       const independent = createDocumentCore()
       const before = independent.open(previous.source)
       const altered = independent.apply(before, [invalid])
-      expect(independent.editingReconciliation(before, input, altered)).toBeUndefined()
+      expect(editingReconciliation(independent, before, input, altered, 'visible')).toBeUndefined()
     }
   })
   it('leaves an unchanged native payload in the same coordinate domain', () => {
@@ -27,7 +28,7 @@ describe('common editing operation reconciliation', () => {
     const input = { start: 4, end: 4, insert: 'x' }
     const commit = core.apply(previous, core.markupEdit(previous, input)!)
     expect(commit.revision.source).toBe('seedx')
-    expect(core.editingReconciliation(previous, input, commit)).toEqual([])
+    expect(editingReconciliation(core, previous, input, commit, 'visible')).toEqual([])
   })
 
   it('reports the exact protective spelling inserted inside an existing arm', () => {
@@ -36,7 +37,7 @@ describe('common editing operation reconciliation', () => {
     const input = { start: 7, end: 7, insert: '++}{--x--}' }
     const commit = core.apply(previous, core.markupEdit(previous, input)!)
     expect(commit.revision.source).toBe('{++seed\\++}\\{--x\\--}++}')
-    expect(core.editingReconciliation(previous, input, commit)).toEqual([
+    expect(editingReconciliation(core, previous, input, commit, 'visible')).toEqual([
       { start: 7, end: 7, insert: '\\' },
       { start: 10, end: 10, insert: '\\' },
       { start: 14, end: 14, insert: '\\' }
@@ -49,7 +50,7 @@ describe('common editing operation reconciliation', () => {
     const input = { start: 1, end: 3, insert: 'X' }
     const commit = core.apply(previous, [core.trackedEdit(previous, input)!])
     expect(commit.revision.source).toBe('a{~~bc~>X~~}def')
-    expect(core.editingReconciliation(previous, input, commit)).toEqual([
+    expect(editingReconciliation(core, previous, input, commit, 'visible')).toEqual([
       { start: 1, end: 1, insert: '{~~bc~>' },
       { start: 2, end: 2, insert: '~~}' }
     ])
@@ -61,7 +62,7 @@ describe('common editing operation reconciliation', () => {
     const input = { start: 4, end: 4, insert: '++}' }
     const commit = core.apply(previous, [core.trackedEdit(previous, input)!])
     expect(commit.revision.source).toBe('seed{++\\++}++}')
-    expect(core.editingReconciliation(previous, input, commit)).toEqual([
+    expect(editingReconciliation(core, previous, input, commit, 'visible')).toEqual([
       { start: 4, end: 4, insert: '{++\\' },
       { start: 7, end: 7, insert: '++}' }
     ])
@@ -73,7 +74,7 @@ describe('common editing operation reconciliation', () => {
     const input = { start: 1, end: 3, insert: '' }
     const commit = core.apply(previous, [core.trackedEdit(previous, input)!])
     expect(commit.revision.source).toBe('a{--bc--}def')
-    expect(core.editingReconciliation(previous, input, commit)).toEqual([
+    expect(editingReconciliation(core, previous, input, commit, 'visible')).toEqual([
       { start: 1, end: 1, insert: '{--bc--}' }
     ])
   })
@@ -83,7 +84,7 @@ describe('common editing operation reconciliation', () => {
     const previous = core.open('seed')
     const input = { start: 4, end: 4, insert: 'x' }
     const commit = core.apply(previous, [{ ...input, insert: 'y' }])
-    expect(core.editingReconciliation(previous, input, commit)).toBeUndefined()
+    expect(editingReconciliation(core, previous, input, commit, 'visible')).toBeUndefined()
   })
 
   it('leaves unsupported compound topology explicit', () => {
@@ -91,19 +92,7 @@ describe('common editing operation reconciliation', () => {
     const previous = core.open('abcdef')
     const input = { start: 1, end: 3, insert: 'X' }
     const commit = core.apply(previous, [input, { start: 5, end: 6, insert: 'Y' }])
-    expect(core.editingReconciliation(previous, input, commit)).toBeUndefined()
-  })
-
-  it('rejects revision handles from another document owner', () => {
-    const core = createDocumentCore()
-    const other = createDocumentCore()
-    const previous = core.open('seed')
-    const foreign = other.open('seed')
-    const input = { start: 4, end: 4, insert: 'x' }
-    const commit = core.apply(previous, [input])
-    const foreignCommit = other.apply(foreign, [input])
-    expect(() => core.editingReconciliation(foreign, input, commit)).toThrow('another core')
-    expect(() => core.editingReconciliation(previous, input, foreignCommit)).toThrow('another core')
+    expect(editingReconciliation(core, previous, input, commit, 'visible')).toBeUndefined()
   })
 })
 
@@ -113,7 +102,7 @@ it('maps ordinary replacement when compilation removes the remaining annotation 
   const input = { start: 0, end: 5, insert: 'a' }
   const commit = core.apply(previous, core.markupEdit(previous, input)!)
   expect(commit.revision.source).toBe('aa')
-  expect(core.editingReconciliation(previous, input, commit)).toEqual([
+  expect(editingReconciliation(core, previous, input, commit, 'visible')).toEqual([
     { start: 1, end: 4, insert: '' }
   ])
 })
@@ -125,7 +114,7 @@ it('maps retained hidden comments into a whole-document raw replacement domain',
   const input = { start: 0, end: source.length - 1, insert: 'hello' }
   const commit = core.apply(previous, core.markupEdit(previous, input)!)
   expect(commit.revision.source).toBe('hello{>>note<<}\n')
-  expect(core.editingReconciliation(previous, input, commit)).toEqual([
+  expect(editingReconciliation(core, previous, input, commit, 'visible')).toEqual([
     { start: 5, end: 5, insert: '{>>note<<}' }
   ])
 })

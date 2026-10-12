@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
 
-// Plan 0012 G35: every document upstream MarkText opens must open. Upstream
+// Every document upstream MarkText opens must open. Upstream
 // has no node ceiling, so large ordinary and densely reviewed documents open,
 // project every view the desktop reads, and accept typing, Enter and a tracked
 // insertion that each read exactly as a fresh parse of the edited source.
@@ -82,7 +82,7 @@ describe('documents larger than the former 65,536-node ceiling', () => {
   }, 120_000)
 })
 
-// Plan 0012 G35: a stray marker is ordinary text upstream, so no count of
+// A stray marker is ordinary text upstream, so no count of
 // them refuses a document. The builder records every stray marker and
 // annotation it writes, so the expected diagnostics, annotations and views
 // come from the construction rather than from the parser under test.

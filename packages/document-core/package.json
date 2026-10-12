@@ -28,7 +28,6 @@
     "lint": "eslint src test vitest.config.ts --ignore-pattern 'test/fixtures/*.json'",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
-    "differential": "tsx test/differential/markdownDifferential.ts",
     "check": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "devDependencies": {

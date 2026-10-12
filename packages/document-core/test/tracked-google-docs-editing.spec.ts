@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type CriticMarkupAnnotation, type DocumentCore, type DocumentInputAction, type DocumentRevision, type SourceRange } from '../src/index.js'
 
-// Owner decision (plan 0012 G34, 27 Sep): with Track Changes on, editing
+// Owner decision (27 Sep): with Track Changes on, editing
 // over existing suggestions follows Google Docs, observed hands-on. Each case
 // runs the production input path (planInput, inputEdits, apply,
 // reconcileInput) with the caret and target range the editing view sends,

@@ -15,7 +15,7 @@ const typeInCell = (source: string, row: number, column: number, anchor: number,
   return { plan, source: commit.revision.source, selection: core.reconcileInput(revision, plan, commit, action).selection }
 }
 
-// ADR 0007 (owner decision 25 Sep, plan 0012 G24): typing in a cell changes
+// ADR 0007 (owner decision 25 Sep): typing in a cell changes
 // only the typed bytes; only explicit table commands write the table afresh.
 it('changes only the typed bytes for an untracked cell edit', () => {
   const typed = typeInCell('|a|b|\n|:-|-:|\n|c|d|\n', 1, 0, 1, 'x', false)

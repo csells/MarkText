@@ -46,7 +46,7 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     }
   })
 
-  // Plan 0012 G35: markers pair as one stack across the document and backtick
+  // Markers pair as one stack across the document and backtick
   // runs pair beyond their paragraphs, so a new annotation is regional where
   // every other marker pairs and no such run can reach it.
   it('reparses only the paragraph an ordinary edit adds an annotation to', () => {
@@ -66,7 +66,7 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
   })
 
-  // Plan 0012 G35: a document's start and end read at its projection's start
+  // A document's start and end read at its projection's start
   // and end, also beside markers the projection omits there.
   it.each([
     { label: 'begins with a Highlight', text: '{==outer {==inner==}{>>nested<<} text==}{>>outer comment<<}\n\n' + suffix, at: 'Block 40' },
@@ -89,7 +89,7 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     }
   })
 
-  // Plan 0012 G35: a Substitution of a whole fenced code or math block pairs
+  // A Substitution of a whole fenced code or math block pairs
   // its delimiter runs with each other alone, as the struck block's paired in
   // place, so it is read from its blocks beside the document's suggestions.
   it.each([
@@ -136,7 +136,7 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     }
   })
 
-  // Plan 0012 G35: an edit across the divider of a Substitution of one such
+  // An edit across the divider of a Substitution of one such
   // block by another rewrites both blocks whole, which pair as before.
   it.each([
     { label: 'fenced code', substitution: '{~~```js\nconst a = 1\n```\n~>```js\nconst a = 2\n```\n~~}', from: '1\n```', to: 'const a = 2' },
@@ -163,7 +163,7 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     }
   })
 
-  // Plan 0012 G35: an edit beside dollar runs that writes and removes none
+  // An edit beside dollar runs that writes and removes none
   // moves no run, so where both windows read the same literals around it the
   // runs pair as before, even in a document with display math.
   it.each([
@@ -189,7 +189,7 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     }
   })
 
-  // Plan 0012 G35: a fence's backtick runs pair with each other alone, so a
+  // A fence's backtick runs pair with each other alone, so a
   // paragraph beside it that splits or joins is read from its blocks.
   it('reads a paragraph split beside a fence from its blocks', () => {
     const source = 'ordinary target\n\n```js\nconst a = 1\n```\n\n' + suffix
@@ -206,7 +206,7 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
   })
 
-  // Plan 0012 G35: a tracked key whose window compile reaches the window's
+  // A tracked key whose window compile reaches the window's
   // context is compiled again in a window wider than that context, so the
   // key costs the one parse apply() publishes, not the document compile's.
   it('widens a tracked key\'s window past its context', () => {
@@ -225,7 +225,7 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     expect(actual).toEqual(control.trackedEdit(regional(control), { start: start + 1, end: start + 1, insert: '\n' }))
   })
 
-  // Plan 0012 G35: a heading or a label naming no definition is read in the
+  // A heading or a label naming no definition is read in the
   // blocks around it, as the whole document reads it.
   it.each([
     { label: 'new Markdown structure', insert: '\n\n# heading\n\n' },
@@ -273,7 +273,7 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
   })
 
-  // Plan 0012 G35: a split or a joined paragraph reparses only the
+  // A split or a joined paragraph reparses only the
   // paragraphs it changes.
   it.each([
     { label: 'a paragraph split', at: (source: string) => source.indexOf('target') + 2, length: 0, insert: '\n\n' },
