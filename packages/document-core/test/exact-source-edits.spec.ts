@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { applyExactSourceEdits } from '../src/exactSourceEdits.js'
+import { applyExactSourceEdits } from './support/exactSourceEdits.js'
 
 describe('exact source edits', () => {
   it('applies base-coordinate edits without normalizing untouched source', () => {

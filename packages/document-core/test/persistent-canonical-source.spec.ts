@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { applyExactSourceEdits } from '../src/exactSourceEdits.js'
+import { applyExactSourceEdits } from './support/exactSourceEdits.js'
 import {
   createPersistentCanonicalSource,
   type PersistentCanonicalSourceRecorder

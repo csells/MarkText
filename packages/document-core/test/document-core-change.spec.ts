@@ -17,7 +17,7 @@ import {
   type SourceRange
 } from '../src/index.js'
 import { countMaterializedNodes, inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
-import { applyExactSourceEdits } from '../src/exactSourceEdits.js'
+import { applyExactSourceEdits } from './support/exactSourceEdits.js'
 import {
   createUnboundedDocumentCoreForInspection
 } from '../src/documentCore.js'
