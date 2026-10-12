@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import { applyInputPairing } from '@marktext/input-policy';
+import { describe, expect, it } from 'vitest';
 
 const options = { autoPairBracket: true, autoPairQuote: true, autoPairMarkdownSyntax: true };
 const context = { isInInlineMath: false, isInInlineCode: false, type: 'format' };
