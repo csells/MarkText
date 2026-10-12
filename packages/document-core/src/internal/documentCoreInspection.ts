@@ -181,6 +181,20 @@ export function checksAppliedReadings(): boolean {
   return appliedReadingChecks
 }
 
+let materializedNodeCounts = false
+
+/**
+ * Package-private switch for the inspection counters that walk materialized
+ * trees and event streams. Production skips those walks.
+ */
+export function countMaterializedNodes(enabled: boolean): void {
+  materializedNodeCounts = enabled
+}
+
+export function countsMaterializedNodes(): boolean {
+  return materializedNodeCounts
+}
+
 export function inspectDocumentCore(core: object): DocumentCoreInspection {
   const reader = READERS.get(core)
   if (reader === undefined) {

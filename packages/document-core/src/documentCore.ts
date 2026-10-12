@@ -81,7 +81,7 @@ import {
   type PersistentCanonicalSource,
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
-import { checksAppliedReadings, checksReaderViews, checksReadingWindows, searchesWithoutBudget, planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves, type DocumentCoreInspection } from './internal/documentCoreInspection.js'
+import { checksAppliedReadings, checksReaderViews, checksReadingWindows, countsMaterializedNodes, searchesWithoutBudget, planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves, type DocumentCoreInspection } from './internal/documentCoreInspection.js'
 import { annotationsOverlapping, registerAnnotationsAround } from './internal/annotationsAround.js'
 import {
   createRevisionProductStore,
@@ -3058,8 +3058,10 @@ function createDocumentCoreWithExecutionBudget(
               candidate: Profile1DocumentProducts
             ): readonly CriticMarkupAnnotation[] => {
               const materialized = annotationsOf(candidate).annotations
-              inspection.documentAnnotationMaterializedNodes +=
-                countCriticMarkupAnnotationNodes(materialized)
+              if (countsMaterializedNodes()) {
+                inspection.documentAnnotationMaterializedNodes +=
+                  countCriticMarkupAnnotationNodes(materialized)
+              }
               return materialized
             }
             memoizedAnnotations = availableProducts === undefined
@@ -3594,8 +3596,10 @@ function createDocumentCoreWithExecutionBudget(
       if (cached !== undefined) return cached
       const value = annotationsOf(products)
       materializedByProducts.set(products, value)
-      inspection.regionalInventoryLocalAnnotationMaterializedNodes +=
-        countCriticMarkupAnnotationNodes(value.annotations)
+      if (countsMaterializedNodes()) {
+        inspection.regionalInventoryLocalAnnotationMaterializedNodes +=
+          countCriticMarkupAnnotationNodes(value.annotations)
+      }
       return value
     }
     const projections: DocumentProjectionChange[] = []
@@ -3875,8 +3879,10 @@ function createDocumentCoreWithExecutionBudget(
         coordinates
       }))
       regionalComments.push(Object.freeze({ annotation, projection }))
-      inspection.regionalCommentAstMaterializedNodes +=
-        countMarkdownAstNodes(ast.root)
+      if (countsMaterializedNodes()) {
+        inspection.regionalCommentAstMaterializedNodes +=
+          countMarkdownAstNodes(ast.root)
+      }
       inspection.regionalCommentCoordinateSegments += coordinates.length
     }
     if (commentReplacements.length > 0) {
@@ -3933,14 +3939,16 @@ function createDocumentCoreWithExecutionBudget(
       recordPrepared(impact.nextProducts, impact.nextWindow.length)
     }
     inspection.regionalProjectionPreparationUnits += preparedSourceUnits
-    inspection.regionalMarkupEventUnits += counted.events.reduce(
-      (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
-      0
-    )
-    inspection.regionalAstMaterializedNodes += counted.blocks.reduce(
-      (total, block) => total + countMarkdownAstNodes(block),
-      0
-    )
+    if (countsMaterializedNodes()) {
+      inspection.regionalMarkupEventUnits += counted.events.reduce(
+        (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
+        0
+      )
+      inspection.regionalAstMaterializedNodes += counted.blocks.reduce(
+        (total, block) => total + countMarkdownAstNodes(block),
+        0
+      )
+    }
     inspection.regionalCoordinateSegments += counted.coordinates.length
     return Object.freeze({
       kind: 'applied',
@@ -4056,14 +4064,16 @@ function createDocumentCoreWithExecutionBudget(
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits +=
       admission.previousWindow.length + admission.nextWindow.length
-    inspection.regionalMarkupEventUnits += events.reduce(
-      (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
-      0
-    )
-    inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
-      (total, block) => total + countMarkdownAstNodes(block),
-      0
-    )
+    if (countsMaterializedNodes()) {
+      inspection.regionalMarkupEventUnits += events.reduce(
+        (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
+        0
+      )
+      inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
+        (total, block) => total + countMarkdownAstNodes(block),
+        0
+      )
+    }
     inspection.regionalCoordinateSegments += coordinates.length
     return Object.freeze({
       revision,
@@ -4213,15 +4223,17 @@ function createDocumentCoreWithExecutionBudget(
         scope: 'regions',
         replacements: Object.freeze([replacement])
       }))
-      inspection.regionalMarkupEventUnits += events.reduce(
-        (total, event) => total +
-          (event.kind === 'text' ? event.text.length : 1),
-        0
-      )
-      inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
-        (total, block) => total + countMarkdownAstNodes(block),
-        0
-      )
+      if (countsMaterializedNodes()) {
+        inspection.regionalMarkupEventUnits += events.reduce(
+          (total, event) => total +
+            (event.kind === 'text' ? event.text.length : 1),
+          0
+        )
+        inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
+          (total, block) => total + countMarkdownAstNodes(block),
+          0
+        )
+      }
       inspection.regionalCoordinateSegments += coordinates.length
     }
     projections.push(Object.freeze({
@@ -4243,11 +4255,15 @@ function createDocumentCoreWithExecutionBudget(
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits +=
       admission.previousWindow.length + admission.nextWindow.length
-    inspection.regionalAstMaterializedNodes += countMarkdownAstNodes(ast.root)
+    if (countsMaterializedNodes()) {
+      inspection.regionalAstMaterializedNodes += countMarkdownAstNodes(ast.root)
+    }
     inspection.regionalCoordinateSegments += commentCoordinates.length
-    inspection.regionalCommentAstMaterializedNodes += countMarkdownAstNodes(
-      ast.root
-    )
+    if (countsMaterializedNodes()) {
+      inspection.regionalCommentAstMaterializedNodes += countMarkdownAstNodes(
+        ast.root
+      )
+    }
     inspection.regionalCommentCoordinateSegments += commentCoordinates.length
     return Object.freeze({
       revision,
@@ -4463,14 +4479,16 @@ function createDocumentCoreWithExecutionBudget(
     )
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits += regionSource.length
-    inspection.regionalMarkupEventUnits += events.reduce(
-      (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
-      0
-    )
-    inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
-      (total, block) => total + countMarkdownAstNodes(block),
-      0
-    )
+    if (countsMaterializedNodes()) {
+      inspection.regionalMarkupEventUnits += events.reduce(
+        (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
+        0
+      )
+      inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
+        (total, block) => total + countMarkdownAstNodes(block),
+        0
+      )
+    }
     inspection.regionalCoordinateSegments += coordinates.length
     return Object.freeze({
       kind: 'applied',
@@ -4985,9 +5003,11 @@ function createDocumentCoreWithExecutionBudget(
           state.source.length
         )
         inspection.documentMarkupEventUnits += markup.events.length
-        inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
-          markup.syntax.ast.root
-        )
+        if (countsMaterializedNodes()) {
+          inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
+            markup.syntax.ast.root
+          )
+        }
         inspection.documentCoordinateSegments +=
           facts.products.editing().mappedTape.length
         return markup
@@ -5002,9 +5022,11 @@ function createDocumentCoreWithExecutionBudget(
         ast: markdownAstOf(projected),
         coordinates: projectionCoordinatesOf(projected, state.source.length)
       })
-      inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
-        markdown.ast.root
-      )
+      if (countsMaterializedNodes()) {
+        inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
+          markdown.ast.root
+        )
+      }
       inspection.documentCoordinateSegments += projected.mappedTape.length
       return markdown
     }, revision === currentRevision)
@@ -5190,8 +5212,10 @@ function createDocumentCoreWithExecutionBudget(
     if (materialized === undefined) {
       materialized = annotationsOf(products)
       windowAnnotations.set(products, materialized)
-      inspection.regionalInventoryLocalAnnotationMaterializedNodes +=
-        countCriticMarkupAnnotationNodes(materialized.annotations)
+      if (countsMaterializedNodes()) {
+        inspection.regionalInventoryLocalAnnotationMaterializedNodes +=
+          countCriticMarkupAnnotationNodes(materialized.annotations)
+      }
     }
     return materialized
   }
@@ -5295,7 +5319,9 @@ function createDocumentCoreWithExecutionBudget(
             projected, window.nextWindow.length, window.sourceStart, state.source.length
           )
         })
-        inspection.regionalAstMaterializedNodes += countMarkdownAstNodes(projection.ast.root)
+        if (countsMaterializedNodes()) {
+          inspection.regionalAstMaterializedNodes += countMarkdownAstNodes(projection.ast.root)
+        }
       }
     }
     projection ??= projectRevision(revision, name)
