@@ -334,6 +334,16 @@ function planRegionalLineBreak(core: DocumentCore, revision: DocumentRevision, a
     : undefined
 }
 
+const SUBSTITUTION_OPENER = '{~~'
+const SUBSTITUTION_CLOSER = '~~}'
+
+/** Whether text before `at` on its line ends in a Substitution's opener, or opens one it has not closed. */
+function withinSubstitutionSyntax(core: DocumentCore, revision: DocumentRevision, at: number): boolean {
+  const preceding = core.sourceSlice(revision, { start: Math.max(0, at - 256), end: at })
+  const line = preceding.slice(Math.max(preceding.lastIndexOf('\n'), preceding.lastIndexOf('\r')) + 1)
+  return /\{~?$/u.test(line) || line.lastIndexOf(SUBSTITUTION_OPENER) > line.lastIndexOf(SUBSTITUTION_CLOSER)
+}
+
 /** Plans native input against the current revision's owned syntax, without reparsing a draft. */
 function planSourceInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction<SourceRange>, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, selectedCell?: ReturnType<typeof resolveTableCell>, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined, regionalContext?: (position: number) => RegionalBlockContext | undefined): DocumentSourceInputPlan {
   if ('kind' in action) return planStructuralInput(core, revision, action, enterConversion, physicalLines, selectedCell)
@@ -428,7 +438,13 @@ function planSourceInput(core: DocumentCore, revision: DocumentRevision, action:
     options: pairingOptions,
     context
   })
-  const paired = pairing(options)
+  // A `~` in a Substitution's opener, or within one still open on its line,
+  // is CriticMarkup syntax rather than strikethrough: CriticMarkup keeps the
+  // shapes it shares with Markdown extensions (owner decision, 12 October
+  // 2026), so it pairs with nothing, as its other markers do.
+  const paired = pairing(data === '~' && options.autoPairMarkdownSyntax && withinSubstitutionSyntax(core, revision, range.start)
+    ? { ...options, autoPairMarkdownSyntax: false }
+    : options)
   // Stepping over a matching delimiter would place the caret inside the
   // annotation's syntax, which has no caret position; type the key instead.
   const admitted = paired.kind === 'selection' && delimiterAfter !== undefined
