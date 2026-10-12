@@ -7,6 +7,7 @@ import { markupAnnotations as annotationTree, markupReplacementRange } from './m
 import { historyInsertionPoint, substitutionBeforeDeletion, substitutionDraftInsertionPoint, trackedEditableSpans, trackedPartsSeparate, withinHistory } from './trackedHistoryEditing.js'
 import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
 import { FENCED_LITERAL_BLOCKS } from './literalBlock.js'
+import { lineStartBefore } from './sourceLines.js'
 import { CRITIC_MARKER_ALTERNATION, spellSuggestion } from './internal/profile1/sourceTape.js'
 import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, escapesLiteralContent, isWindowCompileCore, markUnresolvedDraft, reachesWindowEdge, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
 
@@ -132,7 +133,7 @@ function withinBlockLiteral(core: DocumentCore, revision: DocumentRevision, edit
       delimiter.test(text.slice(lastLineStart))
   }
   const local = { start: edit.start - start, end: edit.end - start }
-  const lineStart = Math.max(text.lastIndexOf('\n', local.start - 1), text.lastIndexOf('\r', local.start - 1)) + 1
+  const lineStart = lineStartBefore(text, local.start)
   return block.kind === 'code-block' && !/[\r\n]/u.test(edit.insert + text.slice(local.start, local.end)) &&
     text.startsWith('    ', lineStart) && local.start - lineStart >= 4
 }

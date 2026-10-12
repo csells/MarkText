@@ -13,6 +13,7 @@ import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSo
 import type { DocumentInputAction, DocumentSourceInputPlan } from './inputPlanning.js'
 import { resolveTableCell } from './tableSelection.js'
 import { positionAfter } from './sourcePosition.js'
+import { lineEndAt, lineStartAt, lineStartBefore, physicalLineAt } from './sourceLines.js'
 import { materializeTableCellEdit, tableRowCompletion } from './tableCellEditing.js'
 import { paragraphPrefixPosition, paragraphImageRange } from './paragraphBoundary.js'
 import { literalJoinParagraphText, tableJoinParagraphText, emptyParagraphJoinContainer, paragraphJoinBlock, paragraphJoinAdjacent, paragraphJoinTrailingEdits, paragraphLeadingLineJoin } from './paragraphJoinPlanning.js'
@@ -615,22 +616,12 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         const last = payload.at(-1)
         if (first === undefined || last === undefined || payload.some(node => node.kind !== 'text' && node.kind !== 'soft-break')) throw new RangeError('Code reset requires its owned literal payload')
         const lines = physicalLines()
-        const lineAt = (offset: number) => {
-          let low = 0
-          let high = lines.count
-          while (low < high) {
-            const middle = low + Math.floor((high - low) / 2)
-            if (lines.at(middle).start <= offset) low = middle + 1
-            else high = middle
-          }
-          return lines.at(Math.max(0, low - 1))
-        }
-        const prefixEnd = (line: ReturnType<typeof lineAt>) => Math.max(line.start,
+        const prefixEnd = (line: ReturnType<typeof physicalLineAt>) => Math.max(line.start,
           ...line.listMarkers.map(marker => marker.contentOffset),
           ...line.listIndentations.map(marker => marker.end),
           ...line.blockquoteMarkers.map(marker => marker.end))
-        const opener = lineAt(code.range.start)
-        const closer = lineAt(Math.max(code.range.start, code.range.end - 1))
+        const opener = physicalLineAt(lines, code.range.start)
+        const closer = physicalLineAt(lines, Math.max(code.range.start, code.range.end - 1))
         const from = sourceAt(prefixEnd(opener))
         const payloadStart = sourceAt(first.range.start)
         const payloadEnd = projection.coordinates.toSource(last.range.end, 'previous')
@@ -640,10 +631,10 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
           if (to > from) edits.push({ start: from, end: to, insert: '' })
         }
         remove(from, payloadStart)
-        let previousLine = lineAt(first.range.start).start
+        let previousLine = physicalLineAt(lines, first.range.start).start
         for (const child of payload) {
           if (child.kind === 'soft-break') continue
-          const line = lineAt(child.range.start)
+          const line = physicalLineAt(lines, child.range.start)
           const range = { start: sourceAt(child.range.start), end: projection.coordinates.toSource(child.range.end, 'previous') }
           if (line.start !== previousLine) {
             remove(sourceAt(prefixEnd(line)), range.start)
@@ -1135,7 +1126,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     }
     // The policy reads the code's own line, after its container prefix.
     const offset = start - from
-    const lineStart = Math.max(body.lastIndexOf('\n', offset - 1), body.lastIndexOf('\r', offset - 1)) + 1
+    const lineStart = lineStartBefore(body, offset)
     const lineEnd = body.slice(lineStart).search(/\r|\n/u)
     const sourceLine = body.slice(lineStart, lineEnd === -1 ? body.length : lineStart + lineEnd)
     const strip = prefix !== '' && sourceLine.startsWith(prefix) && offset - lineStart >= prefix.length ? prefix.length : 0
@@ -1260,28 +1251,11 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     ? lineEnding + (block?.kind === 'paragraph' || block?.kind === 'heading' ? containerContinuationPrefix(core, revision, projection, block, blockContainers) : '')
     : newParagraph
   const list = [...ancestors].reverse().find(node => node.kind === 'list')
-  const lineStartOf = (position: number): number => {
-    for (let span = 256; ; span *= 4) {
-      const from = Math.max(0, position - span)
-      const text = core.sourceSlice(revision, { start: from, end: position })
-      const found = Math.max(text.lastIndexOf('\n'), text.lastIndexOf('\r'))
-      if (found >= 0) return from + found + 1
-      if (from === 0) return 0
-    }
-  }
-  const lineEndOf = (position: number): number => {
-    for (let span = 256; ; span *= 4) {
-      const to = Math.min(revision.sourceLength, position + span)
-      const found = core.sourceSlice(revision, { start: position, end: to }).search(/[\r\n]/u)
-      if (found >= 0) return position + found
-      if (to === revision.sourceLength) return to
-    }
-  }
   // The marker line of an item split after `item`, continuing its containers.
   // Upstream continues a task item, bullet or ordered, as an unchecked one.
   const siblingMarker = (item: MarkdownAstNode): string => {
     const itemStart = sourceAt(item.range.start)
-    const markerLineEnd = lineEndOf(itemStart)
+    const markerLineEnd = lineEndAt(core, revision, itemStart)
     const firstStart = item.children[0] === undefined ? markerLineEnd : sourceAt(item.children[0].range.start)
     const task = item.attributes.task === true
     let marker = core.sourceSlice(revision, { start: itemStart, end: task ? sourceAt(Number(item.attributes.taskMarkerStart)) : Math.min(firstStart, markerLineEnd) })
@@ -1301,12 +1275,12 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     if (moved === undefined) throw new RangeError('List item split has no moved block')
     const marker = siblingMarker(item)
     const movedStart = sourceAt(moved.range.start)
-    const lineStart = lineStartOf(movedStart)
+    const lineStart = lineStartAt(core, revision, movedStart)
     let leaf = moved
     while (!['paragraph', 'heading'].includes(leaf.kind) && !isLiteralBlock(leaf.kind) && leaf.children[0] !== undefined) leaf = leaf.children[0]
     const leafFrom = sourceAt(typeof leaf.attributes.contentStart === 'number' ? leaf.attributes.contentStart : leaf.range.start)
     // A task paragraph's text begins after its checkbox's separating space.
-    const leafStart = leafFrom + (leaf.kind === 'paragraph' ? core.sourceSlice(revision, { start: leafFrom, end: Math.min(lineEndOf(leafFrom), leafFrom + 8) }).search(/[^ \t]|$/u) : 0)
+    const leafStart = leafFrom + (leaf.kind === 'paragraph' ? core.sourceSlice(revision, { start: leafFrom, end: Math.min(lineEndAt(core, revision, leafFrom), leafFrom + 8) }).search(/[^ \t]|$/u) : 0)
     // A task checkbox begins a paragraph, so another block moved into a new
     // task item keeps its own line beneath the new marker line.
     if (moved.kind !== 'paragraph' && marker.endsWith('[ ] ')) {
@@ -1319,7 +1293,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
   if (block !== undefined && paragraphBreak && item !== undefined && blockContainers.at(-1) === item && item.children.length === 1) {
     const marker = siblingMarker(item)
     const contentStart = sourceAt(block.range.start)
-    const lineStart = lineStartOf(contentStart)
+    const lineStart = lineStartAt(core, revision, contentStart)
     // Content written on the line after its marker is split at its start as
     // upstream writes both items: the new marker replaces that line's indent.
     if (start === end && start === contentStart && lineStart > sourceAt(item.range.start)) {

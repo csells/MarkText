@@ -12,6 +12,7 @@ import { editingReconciliation } from './editingReconciliation.js'
 import { normalizeEdits, normalizeInputPlan, selectionAfterNormalization, type EditNormalizationOptions, type EditNormalizationReaders } from './editNormalization.js'
 import { paragraphBackwardStructuralTarget } from './paragraphJoinPlanning.js'
 import { FENCED_LITERAL_BLOCKS, isLiteralBlock } from './literalBlock.js'
+import { lineStartBefore } from './sourceLines.js'
 import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
@@ -2527,7 +2528,7 @@ function historySplit(
   }
   // A split point never cuts a suggestion nested in the arm: the typing goes
   // before the one holding the caret.
-  const lineStart = (offset: number): number => Math.max(source.lastIndexOf('\n', offset - 1), source.lastIndexOf('\r', offset - 1)) + 1
+  const lineStart = (offset: number): number => lineStartBefore(source, offset)
   const points = edits.map(edit => {
     const point = at === 'caret' ? edit.start : at === 'line' ? Math.max(arm.range.start, lineStart(edit.start)) : arm.range.start
     return arm.annotations.find(nested => nested.range.start < point && point < nested.range.end)?.range.start ?? point
@@ -7721,7 +7722,7 @@ function createDocumentCoreWithExecutionBudget(
     const from = Math.max(0, edit.start - 512)
     const to = Math.min(state.source.length, edit.end + 512)
     const text = state.source.slice(from, to)
-    const lineStart = from + Math.max(text.lastIndexOf('\n', edit.start - from - 1), text.lastIndexOf('\r', edit.start - from - 1)) + 1
+    const lineStart = from + lineStartBefore(text, edit.start - from)
     const lineEndAt = text.slice(edit.end - from).search(/[\r\n]/u)
     const line = state.source.slice(lineStart, lineEndAt === -1 ? to : edit.end + lineEndAt)
     const marker = /^[ \t]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]+|$)/u.exec(line)
@@ -7784,7 +7785,7 @@ function createDocumentCoreWithExecutionBudget(
     const next = source.slice(0, edit.start) + edit.insert + source.slice(edit.end)
     if (editsMayRepairMath(state.source, { length: next.length, slice: (from: number, to: number) => next.slice(from, to) },
       [edit], state.markdownOptions)) return undefined
-    const lineStartOf = (at: number): number => Math.max(source.lastIndexOf('\n', at - 1), source.lastIndexOf('\r', at - 1)) + 1
+    const lineStartOf = (at: number): number => lineStartBefore(source, at)
     const keyLine = lineStartOf(edit.start)
     let candidate = before.blocks.findIndex(block => block.end >= keyLine)
     if (candidate === -1) candidate = before.blocks.length
