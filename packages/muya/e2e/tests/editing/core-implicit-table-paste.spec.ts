@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import { expect, test } from '../fixtures/muya';
+import { bootCore } from '../helpers/coreBoundary';
 import { editor } from '../helpers/selectors';
 
 const source = '| a | b | c |\n| --- | --- | --- |\n| x |\n';
@@ -92,11 +93,7 @@ for (const bound of [false, true]) {
 }
 
 test('Core delayed plain paste retains the later implicit target and the intervening cell caret', async ({ page }) => {
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-    }, source);
+    await bootCore(page, source);
     try {
         await page.locator(editor.table).first().locator('tr').nth(1).locator('td').nth(2).click();
         await page.evaluate(() => {
@@ -142,11 +139,7 @@ test('Core delayed plain paste retains the later implicit target and the interve
 
 // Chromium CDP exercises composition ordering, not a native macOS IME panel.
 test('Core delayed paste waits for Chromium composition and captures its committed cell caret', async ({ page }) => {
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-    }, source);
+    await bootCore(page, source);
     const cdp = await page.context().newCDPSession(page);
     try {
         await page.locator(editor.table).first().locator('tr').nth(1).locator('td').nth(2).click();

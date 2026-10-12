@@ -1,13 +1,9 @@
 import { expect, test } from '../fixtures/muya';
+import { bootCore } from '../helpers/coreBoundary';
 
 for (const operation of ['cut', 'paste'] as const) {
     test(`native ${operation} replaces the actual repeated-text selection through Core`, async ({ page }) => {
-        await page.evaluate(async () => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, 'a{++a++}a\n');
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(0, 2);
-        });
+        await bootCore(page, 'a{++a++}a\n', { cursor: [0, 2] });
         try {
             await page.evaluate(async (kind) => {
                 const data = new DataTransfer();
@@ -55,12 +51,7 @@ for (const sample of [
             return { source: muya.getMarkdown(), state: muya.getState(), caret: muya.getSelection()?.focus.offset };
         }, sample.markdown);
         expect(control.source).toBe(sample.expected);
-        await page.evaluate(async () => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, 'before after\n');
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(7, 7);
-        });
+        await bootCore(page, 'before after\n', { cursor: [7, 7] });
         try {
             await page.evaluate(async (markdown) => {
                 const data = new DataTransfer();
@@ -199,11 +190,7 @@ for (const operation of ['cut', 'Backspace', 'Delete', 'Enter', 'close', 'toolba
     test(`${operation} of an actually selected image uses its current DOM target and the Core action`, async ({ page }) => {
         const bitmap = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5xkAAAAASUVORK5CYII=';
         const imageSource = operation === 'close' ? '' : bitmap;
-        await page.evaluate(async (source) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-        }, `a{++![](${imageSource})++}a\n`);
+        await bootCore(page, `a{++![](${imageSource})++}a\n`);
         try {
             if (operation === 'close')
                 await page.locator('.mu-inline-image').hover();
@@ -333,12 +320,7 @@ for (const sample of [
         }, sample);
         expect(native).toEqual({ source: sample.expected, caret: sample.caret });
         const core = sample.core ?? sample.expected;
-        await page.evaluate(async (sample) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, sample.source);
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(sample.offset, sample.offset);
-        }, sample);
+        await bootCore(page, sample.source, { cursor: [sample.offset, sample.offset] });
         try {
             await page.evaluate(async (text) => {
                 const data = new DataTransfer();
@@ -360,12 +342,7 @@ for (const sample of [
 }
 
 test('quoted paste preserves leading annotations when continuing paragraphs', async ({ page }) => {
-    await page.evaluate(async () => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, '> {++before++} after\n');
-        window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(7, 7);
-    });
+    await bootCore(page, '> {++before++} after\n', { cursor: [7, 7] });
     try {
         await page.evaluate(async () => {
             const data = new DataTransfer();
@@ -428,12 +405,7 @@ for (const sample of [
             return { source: muya.getMarkdown(), caret: muya.getSelection()?.focus.offset };
         }, sample);
         expect(native.source).toBe(sample.expected);
-        await page.evaluate(async () => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, 'f{++o++}o\n');
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(3, 3);
-        });
+        await bootCore(page, 'f{++o++}o\n', { cursor: [3, 3] });
         try {
             await page.evaluate(async ({ text, plain }) => {
                 const muya = window.muya!;

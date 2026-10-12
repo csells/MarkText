@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
 import { getMarkdown } from '../helpers/api';
+import { bootCore, coreSource } from '../helpers/coreBoundary';
 import { loadMarkdown } from '../helpers/keyboard';
 import { editor } from '../helpers/selectors';
 import { detachedBlocks, nextFrames } from '../helpers/tree';
@@ -48,25 +49,6 @@ async function selectThreeParagraphs(page: Page): Promise<void> {
     expect(await page.evaluate(() => window.muya!.editor.selection.getSelection()?.isSelectionInSameBlock)).toBe(false);
 }
 
-async function bootCore(page: Page, source: string): Promise<void> {
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-    }, source);
-}
-
-async function coreSource(page: Page): Promise<string> {
-    return page.evaluate(async () => {
-        window.muya!.flush();
-        await window.coreBoundary.settle();
-        const state = window.coreBoundary.read().source;
-        if (state.type !== 'source')
-            throw new Error('Missing acknowledged source');
-        return state.source;
-    });
-}
-
 for (const key of NON_EDITING_KEYS) {
     test(`${key} keeps a selection spanning paragraphs`, async ({ page }) => {
         await loadMarkdown(page, DOC);
@@ -89,7 +71,7 @@ for (const key of NON_EDITING_KEYS) {
             await selectThreeParagraphs(page);
             await page.keyboard.press(key);
             await nextFrames(page);
-            expect(await coreSource(page)).toBe(DOC);
+            expect(await coreSource(page, { settle: true })).toBe(DOC);
             expect(await page.evaluate(() => window.coreBoundary.read().legacyCalls)).toEqual([]);
         }
         finally {
@@ -128,9 +110,9 @@ test('Core typing over a selection spanning paragraphs still replaces it, and un
     try {
         await selectThreeParagraphs(page);
         await page.keyboard.press('x');
-        expect(await coreSource(page)).toBe('oxhree\n');
+        expect(await coreSource(page, { settle: true })).toBe('oxhree\n');
         await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await coreSource(page)).toBe(DOC);
+        expect(await coreSource(page, { settle: true })).toBe(DOC);
         expect(await page.evaluate(() => window.coreBoundary.read().legacyCalls)).toEqual([]);
     }
     finally {
@@ -144,7 +126,7 @@ for (const key of ['Backspace', 'Delete']) {
         try {
             await selectThreeParagraphs(page);
             await page.keyboard.press(key);
-            expect(await coreSource(page)).toBe('ohree\n');
+            expect(await coreSource(page, { settle: true })).toBe('ohree\n');
         }
         finally {
             await page.evaluate(() => window.coreBoundary.dispose());

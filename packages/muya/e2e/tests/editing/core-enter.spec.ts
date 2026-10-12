@@ -1,5 +1,6 @@
 import { devices } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
+import { bootCore } from '../helpers/coreBoundary';
 import { floats } from '../helpers/selectors';
 import { pauseUndoWindow } from '../helpers/undoWindow';
 
@@ -44,12 +45,7 @@ for (const example of [
     { name: 'a repeated selection including a suggestion', source: 'a{++a++}a\n', start: 0, end: 2, expected: '\n\na\n', next: '\n\nxa\n' },
 ]) {
     test(`Core Enter splits ${example.name} before the next browser key`, async ({ page }) => {
-        await page.evaluate(async (example) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, example.source, 'tracked' in example && example.tracked === true);
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(example.start, example.end);
-        }, example);
+        await bootCore(page, example.source, { tracked: 'tracked' in example && example.tracked === true, cursor: [example.start, example.end] });
         try {
             await page.keyboard.press('Enter');
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0 });
@@ -86,12 +82,7 @@ for (const example of [
     { name: 'soft line break', source: 'aaaa\n', at: 2, expected: 'aa\naa\n', next: 'aa\nxaa\n', caret: 3, key: 'Shift+Enter' },
 ]) {
     test(`Core native Enter preserves ${example.name}`, async ({ page }) => {
-        await page.evaluate(async (example) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, example.source, 'tracked' in example && example.tracked === true);
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(example.at, example.at);
-        }, example);
+        await bootCore(page, example.source, { tracked: 'tracked' in example && example.tracked === true, cursor: [example.at, example.at] });
         try {
             await page.keyboard.press('key' in example ? example.key : 'Enter');
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: example.caret, caret: example.caret });

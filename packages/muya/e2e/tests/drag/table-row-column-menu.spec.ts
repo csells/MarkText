@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
+import { bootCore } from '../helpers/coreBoundary';
 import { editor, floats } from '../helpers/selectors';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
@@ -239,12 +240,7 @@ for (const example of [
     { name: 'clicked header with Track enabled', source: 'away\n\n| aa | aa |\n| :--- | ---: |\n| a{++a++} | aa |\n', row: 0, survivor: 1, tracked: true, expected: 'away\n\n{--| aa | aa |\n| :--- | ---: |\n--}| a{++a++} | aa |{++\n| :--- | ---: |++}\n', next: 'away\n\n{--| aa | aa |\n| :--- | ---: |\n--}| {++x++}a{++a++} | aa |{++\n| :--- | ---: |++}\n' },
 ]) {
     test(`Core row popup removes the ${example.name}`, async ({ page }) => {
-        await page.evaluate(async ({ source, tracked }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2);
-        }, { source: example.source, tracked: example.tracked });
+        await bootCore(page, example.source, { tracked: example.tracked, cursor: [2, 2] });
         try {
             const table = page.locator(editor.table).first();
             const bar = await revealRightBar(page, table, example.row);
@@ -272,12 +268,7 @@ for (const example of [
     { name: 'a tracked header before the clicked header', item: 'Insert Row Above', row: 0, insertedRow: 0, tracked: true, expected: 'away\n\n{++|     |     |\n| :--- | ---: |\n++}| a{++a++} | aa |{--\n| :--- | ---: |--}\n| aa | aa |\n', next: 'away\n\n{++| x    |     |\n| :--- | ---: |\n++}| a{++a++} | aa |{--\n| :--- | ---: |--}\n| aa | aa |\n' },
 ]) {
     test(`Core row popup inserts ${example.name} with the editor caret elsewhere`, async ({ page }) => {
-        await page.evaluate(async ({ source, tracked }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2);
-        }, { source: REVIEW_TABLE, tracked: 'tracked' in example && example.tracked === true });
+        await bootCore(page, REVIEW_TABLE, { tracked: 'tracked' in example && example.tracked === true, cursor: [2, 2] });
         try {
             const table = page.locator(editor.table).first();
             const bar = await revealRightBar(page, table, example.row);
@@ -342,11 +333,7 @@ for (const bound of [false, true]) {
 for (const tracked of [false, true]) {
     test(`Core row popup removes a document's sole table with Track ${tracked} and accepts the next key`, async ({ page }) => {
         const source = '| aa | aa |\n| :--- | ---: |\n';
-        await page.evaluate(async ({ source, tracked }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-        }, { source, tracked });
+        await bootCore(page, source, { tracked });
         try {
             const table = page.locator(editor.table).first();
             const bar = await revealRightBar(page, table, 0);
@@ -378,12 +365,7 @@ for (const ending of ['\n', '\r\n', '\r']) {
         // The row command writes the table afresh like upstream's, padded to its widest cell;
         // the key typed into the new row writes only its own bytes (ADR 0007).
         const withRow = (row: string) => ['- {++first++}{>>note<<}', '- second', '', '  | col  |', '  | ---- |', '  | cell |', `  | ${row} |`, ''].join(ending);
-        await page.evaluate(async source => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2);
-        }, source);
+        await bootCore(page, source, { cursor: [2, 2] });
         try {
             const table = page.locator(editor.table).first();
             await quickClickBar(page, await revealRightBar(page, table, 1));

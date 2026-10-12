@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
 import { getMarkdown } from '../helpers/api';
+import { bootCore } from '../helpers/coreBoundary';
 import { editor, floats } from '../helpers/selectors';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
@@ -276,12 +277,7 @@ for (const example of [
     { name: 'removes the physical cell beside an implicit body cell', source: 'away\n\n| aa | bb |\n|---|---|\n| cc |\n', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| bb  |\n| --- |\n|     |\n', next: 'away\n\n| xbb  |\n| --- |\n|     |\n' },
 ]) {
     test(`Core column toolbar ${example.name} with the editor caret elsewhere`, async ({ page }) => {
-        await page.evaluate(async ({ source, tracked }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2);
-        }, { source: example.source ?? REVIEW_COLUMNS, tracked: example.tracked === true });
+        await bootCore(page, example.source ?? REVIEW_COLUMNS, { tracked: example.tracked === true, cursor: [2, 2] });
         try {
             const table = page.locator(editor.table).first();
             const toolbar = await revealColumnToolbar(page, table, example.target ?? 1);
@@ -346,12 +342,7 @@ for (const tracked of [false, true]) {
         const respelled = (delimiter: string) => `away\n\n| head {++one++}  | head two | head three |\n|${delimiter}| -------- | ---------- |\n| alpha{>>note<<} | bravo    | charlie    |\n`;
         const aligned = tracked ? source.replace('| --- | --- | --- |', '| {++:++}---{++:++} | --- | --- |') : respelled(':---------------:');
         const toggled = tracked ? source : respelled(' --------------- ');
-        await page.evaluate(async ({ source, tracked }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2);
-        }, { source, tracked });
+        await bootCore(page, source, { tracked, cursor: [2, 2] });
         try {
             const table = page.locator(editor.table).first();
             expect(await columnAligns(table, 0)).toEqual(['none', 'none']);

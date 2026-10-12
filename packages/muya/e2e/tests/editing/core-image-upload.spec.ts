@@ -1,14 +1,5 @@
-import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
-
-async function readSource(page: Page): Promise<string> {
-    return page.evaluate(() => {
-        const source = window.coreBoundary.read().source;
-        if (source.type !== 'source')
-            throw new Error('Source is unavailable');
-        return source.source;
-    });
-}
+import { bootCore, coreSource } from '../helpers/coreBoundary';
 
 test('image picker upload retains its owned annotation and later typing without loading source', async ({ page }) => {
     const source = '![a{++a++}a]()\n\nafter\n';
@@ -26,20 +17,20 @@ test('image picker upload retains its owned annotation and later typing without 
         await picker.locator('input.src').fill('/chosen.png');
         await picker.locator('button.role-button.link').click();
         await page.waitForFunction(() => typeof window.finishImagePickerUpload === 'function');
-        expect.soft(await readSource(page)).toBe(source);
+        expect.soft(await coreSource(page)).toBe(source);
         await expect(page.locator('.mu-image-uploading')).toBeVisible();
         await page.evaluate(() => window.muya!.editor.scrollPage!.lastContentInDescendant()!.setCursor(5, 5));
         await page.keyboard.type('X');
-        expect.soft(await readSource(page)).toBe('![a{++a++}a]()\n\nafterX\n');
+        expect.soft(await coreSource(page)).toBe('![a{++a++}a]()\n\nafterX\n');
         await page.evaluate(() => window.finishImagePickerUpload('/uploaded.png'));
-        await expect.poll(async () => (await readSource(page))).toBe('![a{++a++}a](/uploaded.png)\n\nafterX\n');
+        await expect.poll(async () => (await coreSource(page))).toBe('![a{++a++}a](/uploaded.png)\n\nafterX\n');
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ caret: 6, legacyCalls: [] });
         await expect(page.locator('.mu-image-uploading')).toHaveCount(0);
         await page.keyboard.type('Y');
         expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: '![a{++a++}a](/uploaded.png)\n\nafterXY\n' });
         await page.evaluate(() => window.coreBoundary.history('undo'));
         await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await readSource(page)).toBe('![a{++a++}a]()\n\nafterX\n');
+        expect(await coreSource(page)).toBe('![a{++a++}a]()\n\nafterX\n');
         await page.evaluate(() => window.coreBoundary.history('redo'));
         expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: '![a{++a++}a](/uploaded.png)\n\nafterX\n' });
     }
@@ -80,26 +71,26 @@ for (const chosen of ['', 'https://example.test/chosen.png']) {
             await page.evaluate(chosen => window.finishImageFileChooser(chosen), chosen);
             await page.evaluate(() => window.coreBoundary.settle());
             const expected = chosen ? `![a](${chosen})\n\n![a]()\n\nafterX\n` : '![a]()\n\n![a]()\n\nafterX\n';
-            await expect.poll(() => readSource(page)).toBe(expected);
+            await expect.poll(() => coreSource(page)).toBe(expected);
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ caret: 6, legacyCalls: [] });
             expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
             await expect(page.locator('.mu-image-uploading')).toHaveCount(0);
             await page.keyboard.type('Y');
-            expect(await readSource(page)).toBe(chosen ? `![a](${chosen})\n\n![a]()\n\nafterXY\n` : '![a]()\n\n![a]()\n\nafterXY\n');
+            expect(await coreSource(page)).toBe(chosen ? `![a](${chosen})\n\n![a]()\n\nafterXY\n` : '![a]()\n\n![a]()\n\nafterXY\n');
             await page.evaluate(() => window.coreBoundary.history('undo'));
             // Cancelling contributes no edit/history boundary: adjacent X/Y
             // typing remains one native undo group. A completed image change
             // separates the two typing groups.
-            expect(await readSource(page)).toBe(chosen ? expected : source);
+            expect(await coreSource(page)).toBe(chosen ? expected : source);
             if (chosen) {
                 await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await readSource(page)).toBe('![a]()\n\n![a]()\n\nafterX\n');
+                expect(await coreSource(page)).toBe('![a]()\n\n![a]()\n\nafterX\n');
                 await page.evaluate(() => window.coreBoundary.history('redo'));
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
             }
             else {
                 await page.evaluate(() => window.coreBoundary.history('redo'));
-                expect(await readSource(page)).toBe('![a]()\n\n![a]()\n\nafterXY\n');
+                expect(await coreSource(page)).toBe('![a]()\n\n![a]()\n\nafterXY\n');
             }
         }
         finally { await page.evaluate(() => window.coreBoundary.dispose()); }
@@ -116,23 +107,19 @@ declare global {
 
 test('editing the first of two identical empty images keeps its exact widget target', async ({ page }) => {
     const source = '![a]() ![a]()\n';
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-    }, source);
+    await bootCore(page, source);
     try {
         await page.locator('#editor .mu-empty-image').first().click();
         const picker = page.locator('.mu-image-selector');
         await picker.locator('input.src').fill('https://example.test/first.png');
         await picker.locator('button.role-button.link').click();
-        await expect.poll(() => readSource(page)).toBe('![a](https://example.test/first.png) ![a]()\n');
+        await expect.poll(() => coreSource(page)).toBe('![a](https://example.test/first.png) ![a]()\n');
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ legacyCalls: [] });
         await page.keyboard.type('X');
-        expect(await readSource(page)).toBe('![a](https://example.test/first.png)X ![a]()\n');
+        expect(await coreSource(page)).toBe('![a](https://example.test/first.png)X ![a]()\n');
         await page.evaluate(() => window.coreBoundary.history('undo'));
         await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await readSource(page)).toBe(source);
+        expect(await coreSource(page)).toBe(source);
         await page.evaluate(() => window.coreBoundary.history('redo'));
         expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: '![a](https://example.test/first.png) ![a]()\n' });
     }

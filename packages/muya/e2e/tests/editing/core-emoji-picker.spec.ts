@@ -1,16 +1,12 @@
 import { expect, test } from '../fixtures/muya';
+import { bootCore } from '../helpers/coreBoundary';
 import { pauseUndoWindow } from '../helpers/undoWindow';
 
 for (const annotated of [false, true]) {
     test(`actual emoji picker uses owned incomplete context (${annotated ? 'annotated' : 'ordinary'})`, async ({ page }) => {
         const source = annotated ? 'before {++:sm++}{>>keep<<} tail\n' : 'before :sm tail\n';
         const completed = annotated ? 'before {++:smiley:++}{>>keep<<} tail\n' : 'before :smiley: tail\n';
-        await page.evaluate(async (source) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(10, 10, true);
-        }, source);
+        await bootCore(page, source, { cursor: [10, 10, true] });
         try {
             await page.keyboard.type('i');
             // A pick within a second of typing joins its undo step, as upstream's does; pause so each has its own.
@@ -34,11 +30,7 @@ for (const annotated of [false, true]) {
 
 test('one emoji glyph surrounds the editable addition within its parser-owned alias', async ({ page }) => {
     const source = 'before :s{++mi++}le: tail\n';
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-    }, source);
+    await bootCore(page, source);
     try {
         const emoji = page.locator('.mu-emoji-marked-text[data-emoji]');
         await expect(emoji).toHaveCount(1);

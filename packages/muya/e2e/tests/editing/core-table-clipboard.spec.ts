@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { bootCore } from '../helpers/coreBoundary';
 import { editor } from '../helpers/selectors';
 import { dragSelect, selectedCount } from '../helpers/tableSelection';
 
@@ -16,11 +17,7 @@ test('rectangle Delete clears the selected cells through Core and retains the na
     expect(nativeCells.map(value => value.trim())).toEqual(['', '', 'c', '', '', 'd', 'e', 'f', 'g']);
     await expect.poll(() => selectedCount(page)).toBe(4);
 
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-    }, annotatedTable);
+    await bootCore(page, annotatedTable);
     try {
         await dragSelect(page, { row: 0, column: 0 }, { row: 1, column: 1 });
         await expect.poll(() => selectedCount(page)).toBe(4);
@@ -195,11 +192,7 @@ for (const example of [
 
 test('desktop clipboard guard copies and cuts the current model rectangle', async ({ page }) => {
     const source = '| a | other |\n| --- | --- |\n| {++b++} | tail |\n';
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-    }, source);
+    await bootCore(page, source);
     try {
         await dragSelect(page, { row: 0, column: 0 }, { row: 1, column: 0 });
         expect(await page.evaluate(() => window.coreBoundary.prepareClipboardCopy())).toEqual({
@@ -257,11 +250,7 @@ for (const bound of [false, true]) {
 test('tracked rectangle Delete preserves old text, cancels added text and keeps the next input on the current model', async ({ page }) => {
     const deleted = '| {--a--} | {--b--} | c |\n| --- | --- | --- |\n|  | {--b{>>note<<}--} | d |\n| e | f | g |\n';
     const next = '| {--a--} | {--b--} | c |\n| --- | --- | --- |\n|  | {--b{>>note<<}--} | d |\n| {++x++}e | f | g |\n';
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source, true);
-    }, annotatedTable);
+    await bootCore(page, annotatedTable, { tracked: true });
     try {
         await dragSelect(page, { row: 0, column: 0 }, { row: 1, column: 1 });
         await page.keyboard.press('Backspace');
@@ -341,11 +330,7 @@ for (const sample of [
                     text: '| a   | b   |\n| --- | --- |\n| c   | d   |',
                     html: '<table>\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>c</td>\n<td>d</td>\n</tr>\n</tbody>\n</table>\n',
                 };
-        await page.evaluate(async (source) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, true);
-        }, source);
+        await bootCore(page, source, { tracked: true });
         try {
             await dragSelect(page, { row: 0, column: 0 }, { row: 1, column: 1 });
             await expect.poll(() => selectedCount(page)).toBe(4);
@@ -428,11 +413,7 @@ for (const sample of [
         test(`tracked rectangle Delete removes ${sample.name}${pending ? ' after cancelling its pending text' : ''} and preserves the next input target`, async ({ page }) => {
             const source = pending ? sample.pending : sample.source;
             const cells = (sample.focus.row - sample.anchor.row + 1) * (sample.focus.column - sample.anchor.column + 1);
-            await page.evaluate(async (source) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(window.muya!, source, true);
-            }, source);
+            await bootCore(page, source, { tracked: true });
             try {
                 await dragSelect(page, sample.anchor, sample.focus);
                 await expect.poll(() => selectedCount(page)).toBe(cells);
@@ -575,11 +556,7 @@ for (const { bound, lookup } of [
 
 test('Core delayed desktop clipboard-file lookup retains its frozen cell and the intervening caret', async ({ page }) => {
     const source = '| a | b |\n| --- | --- |\n| c | d |\n';
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-    }, source);
+    await bootCore(page, source);
     try {
         const row = page.locator(editor.table).first().locator('tr').nth(1);
         const anchor = await row.locator('td').nth(0).boundingBox();

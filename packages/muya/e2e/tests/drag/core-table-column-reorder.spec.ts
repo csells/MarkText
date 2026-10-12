@@ -1,6 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
+import { bootCore } from '../helpers/coreBoundary';
 import { editor, floats } from '../helpers/selectors';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
@@ -147,11 +148,7 @@ for (const tracked of [false, true]) {
         // Untracked, the moved table is written afresh like upstream's; typing then writes only its own bytes (ADR 0007).
         const expected = tracked ? `{~~| a | b |\n| --- | --- |\n| x |~>${header}~~}\n` : '| x   |     |\n| --- | --- |\n| a   | b   |\n';
         const typed = tracked ? '{~~| a | b |\n| --- | --- |\n| x |~>| x | X    |\n| --- | --- |\n| a | b |~~}\n' : '| x   | X    |\n| --- | --- |\n| a   | b   |\n';
-        await page.evaluate(async ({ source, tracked }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-        }, { source, tracked });
+        await bootCore(page, source, { tracked });
         try {
             const table = page.locator(editor.table).first();
             await table.locator('tr').nth(1).locator('td').nth(1).click();
