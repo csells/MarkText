@@ -1,8 +1,9 @@
 import { decodeHTMLStrict } from 'entities'
 
-const ESCAPABLE_ASCII_PUNCTUATION = new Set(
-  [...'!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~']
-)
+/** CommonMark's ASCII punctuation, which a backslash escapes, as a character class. */
+export const ASCII_PUNCTUATION = '[!-/:-@[-`{-~]'
+
+const ASCII_PUNCTUATION_CHARACTER = new RegExp(`^${ASCII_PUNCTUATION}$`, 'u')
 
 const STRICT_CHARACTER_REFERENCE =
   /&(?:#(?:[xX][0-9A-Fa-f]{1,6}|[0-9]{1,7})|[A-Za-z][A-Za-z0-9]{0,30});/gu
@@ -54,7 +55,7 @@ export function decodeMarkdownSemanticText(source: string, onSpelling?: DecodedS
   for (let offset = 0; offset < source.length; offset += 1) {
     const current = source[offset]
     const next = source[offset + 1]
-    if (current === '\\' && next !== undefined && ESCAPABLE_ASCII_PUNCTUATION.has(next)) {
+    if (current === '\\' && next !== undefined && ASCII_PUNCTUATION_CHARACTER.test(next)) {
       flush()
       decoded += next
       onSpelling?.(offset, offset + 2, next)

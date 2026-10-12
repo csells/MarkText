@@ -6,7 +6,8 @@ import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations as annotationTree, markupReplacementRange } from './markupEditOwnership.js'
 import { historyInsertionPoint, substitutionBeforeDeletion, substitutionDraftInsertionPoint, trackedEditableSpans, trackedPartsSeparate, withinHistory } from './trackedHistoryEditing.js'
 import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
-import { FENCED_LITERAL_BLOCKS } from './literalBlock.js'
+import { FENCED_LITERAL_BLOCKS, LITERAL_DELIMITER_LINE } from './literalBlock.js'
+import { ASCII_PUNCTUATION } from './internal/profile1/markdownSemanticText.js'
 import { lineStartBefore } from './sourceLines.js'
 import { CRITIC_MARKER_ALTERNATION, spellSuggestion } from './internal/profile1/sourceTape.js'
 import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, escapesLiteralContent, isWindowCompileCore, markUnresolvedDraft, reachesWindowEdge, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
@@ -125,12 +126,11 @@ function withinBlockLiteral(core: DocumentCore, revision: DocumentRevision, edit
     return false
   }
   const text = core.sourceSlice(revision, { start, end })
-  const delimiter = /^ {0,3}(?:`{3,}|~{3,}|\$\$)/u
-  if (delimiter.test(text)) {
+  if (LITERAL_DELIMITER_LINE.test(text)) {
     const firstLineEnd = text.search(/\r\n|\r|\n/u)
     const lastLineStart = Math.max(text.trimEnd().lastIndexOf('\n'), text.trimEnd().lastIndexOf('\r')) + 1
     return firstLineEnd >= 0 && start + firstLineEnd < edit.start && edit.end < start + lastLineStart &&
-      delimiter.test(text.slice(lastLineStart))
+      LITERAL_DELIMITER_LINE.test(text.slice(lastLineStart))
   }
   const local = { start: edit.start - start, end: edit.end - start }
   const lineStart = lineStartBefore(text, local.start)
@@ -395,6 +395,8 @@ export const createTrackedSourceEdit = (
     (direct !== undefined && oracle.accepts([direct], 'rendering') && clean(direct) ? direct : undefined)
 }
 
+const LEADING_PUNCTUATION = new RegExp(`^${ASCII_PUNCTUATION}`, 'u')
+
 /**
  * A draft ending in a completed escape (`\\` before its closer) renders one
  * backslash. Text typed after it that a backslash cannot escape replaces that
@@ -402,7 +404,7 @@ export const createTrackedSourceEdit = (
  */
 function retrimDraftEscape(core: DocumentCore, revision: DocumentRevision, request: TrackedRequest): void {
   const { start, end } = request.range
-  if (start !== end || request.text.length === 0 || /^[!-/:-@[-`{-~]/u.test(request.text)) return
+  if (start !== end || request.text.length === 0 || LEADING_PUNCTUATION.test(request.text)) return
   const owner = annotationTree(revision.annotations).find(annotation => annotation.kind === 'addition' &&
     annotation.arms.some(arm => arm.range.end === start))
   const arm = owner?.arms.find(arm => arm.name === 'content')
