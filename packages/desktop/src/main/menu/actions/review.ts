@@ -10,7 +10,7 @@ import type { CommandManager } from '../../commands'
 import type Keybindings from '../../keyboard/shortcutHandler'
 
 const states = new WeakMap<BrowserWindow, ReviewCommandState>()
-export const executeReviewCommand = (
+const executeReviewCommand = (
   win: BrowserWindow | null | undefined,
   command: ReviewCommand
 ): void => {
