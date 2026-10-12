@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -26,15 +26,15 @@ for (const example of [
     { name: 'quoted only item', source: '> - a{++l++}pha{>>keep<<}\n', expected: '> a{++l++}pha{>>keep<<}\n', leaf: 0 },
 ]) {
     test(`Core boundary Backspace unwraps the ${example.name} before the next key`, async ({ page }) => {
-        await page.evaluate(async (example) => {
-            const { source, leaf } = example;
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, 'tracked' in example && example.tracked === true);
-            let block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-            for (let index = 0; index < leaf; index++) block = block.nextContentInContext()!;
-            block.setCursor(0, 0, true);
-        }, example);
+        await bootCore(page, example.source, {
+            tracked: 'tracked' in example && example.tracked === true,
+            arg: example.leaf,
+            setup: (leaf) => {
+                let block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                for (let index = 0; index < leaf; index++) block = block.nextContentInContext()!;
+                block.setCursor(0, 0, true);
+            },
+        });
         try {
             await page.keyboard.press('Backspace');
             expect(await readCore(page)).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });

@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const bound of [false, true]) {
     test(`cut restores the actual backward selection before subsequent input (Core=${bound})`, async ({ page }) => {
@@ -85,23 +85,23 @@ for (const image of [false, true]) {
         const source = image ? '![a{++a++}a]()\n\none\n' : 'ab\n\none\n';
         const completed = image ? '![a{++a++}a](/uploaded.png)\n\none\n' : 'aPb\n\none\n';
         const typed = image ? '![a{++a++}a](/uploaded.png)\n\noX\n' : 'aPb\n\noX\n';
-        await page.evaluate(async ({ source, image }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-            if (image) {
-                window.__e2e!.imageAction = () => new Promise<string>((resolve) => {
-                    window.finishDirectedResource = resolve;
-                });
-            }
-            else {
-                window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(1, 1, true);
-                window.muya!.options.clipboardText = () => new Promise<string>((resolve) => {
-                    window.finishDirectedResource = resolve;
-                });
-                window.directedResourceCompletion = window.muya!.editor.clipboard.pasteAsPlainText();
-            }
-        }, { source, image });
+        await bootCore(page, source, {
+            arg: image,
+            setup: (image) => {
+                if (image) {
+                    window.__e2e!.imageAction = () => new Promise<string>((resolve) => {
+                        window.finishDirectedResource = resolve;
+                    });
+                }
+                else {
+                    window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(1, 1, true);
+                    window.muya!.options.clipboardText = () => new Promise<string>((resolve) => {
+                        window.finishDirectedResource = resolve;
+                    });
+                    window.directedResourceCompletion = window.muya!.editor.clipboard.pasteAsPlainText();
+                }
+            },
+        });
         try {
             if (image) {
                 await page.locator('#editor .mu-empty-image').click();

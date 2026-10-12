@@ -1,6 +1,6 @@
 import process from 'node:process';
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const annotated of [false, true]) {
     const block = annotated ? '{++```js\nsame same\n```++}' : '```js\nsame same\n```';
@@ -16,15 +16,15 @@ for (const annotated of [false, true]) {
     ]) {
         test(`trusted ${example.shortcut} keeps the ${annotated ? 'annotated' : 'plain'} literal boundary`, async ({ page }) => {
             test.skip(process.platform !== 'darwin', 'Uses macOS word and line deletion shortcuts');
-            await page.evaluate(async ({ source, offset }) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-                const leaf = window.muya!.editor.scrollPage!.queryBlock([1, 'text']);
-                if (!leaf?.isContent()) throw new Error('Expected literal body');
-                leaf.setCursor(offset, offset, true);
-                document.addEventListener('keydown', event => { window.muya!.domNode.dataset.boundaryTrusted = String(event.isTrusted); }, { capture: true, once: true });
-            }, { source, offset: example.offset });
+            await bootCore(page, source, {
+                arg: example.offset,
+                setup: (offset) => {
+                    const leaf = window.muya!.editor.scrollPage!.queryBlock([1, 'text']);
+                    if (!leaf?.isContent()) throw new Error('Expected literal body');
+                    leaf.setCursor(offset, offset, true);
+                    document.addEventListener('keydown', event => { window.muya!.domNode.dataset.boundaryTrusted = String(event.isTrusted); }, { capture: true, once: true });
+                },
+            });
             try {
                 await page.keyboard.press(example.shortcut);
                 expect(await page.evaluate(() => window.muya!.domNode.dataset.boundaryTrusted)).toBe('true');
@@ -47,14 +47,13 @@ for (const annotated of [false, true]) {
         const source = prefix + wrap('  ```\n\tbody\n  ```') + suffix;
         const changed = prefix + wrap('  ```\n   \n  ```') + suffix;
         const typed = prefix + wrap('  ```\n   X\n  ```') + suffix;
-        await page.evaluate(async source => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-            const leaf = window.muya!.editor.scrollPage!.queryBlock([1, 'text']);
-            if (!leaf?.isContent()) throw new Error('Expected literal body');
-            leaf.setCursor(1, 1, true);
-        }, source);
+        await bootCore(page, source, {
+            setup: () => {
+                const leaf = window.muya!.editor.scrollPage!.queryBlock([1, 'text']);
+                if (!leaf?.isContent()) throw new Error('Expected literal body');
+                leaf.setCursor(1, 1, true);
+            },
+        });
         try {
             await page.keyboard.press('Control+k');
             expect(await readCore(page)).toMatchObject({ source: { source: changed }, anchor: 1, caret: 1, legacyCalls: [] });

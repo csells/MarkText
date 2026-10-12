@@ -9,13 +9,12 @@ import { pauseUndoWindow } from '../helpers/undoWindow';
 
 for (const key of ['Meta+Enter', 'Control+Enter', 'Alt+Enter']) {
     test(`Core ${key} defers to the visible Quick Insert menu`, async ({ page }) => {
-        await page.evaluate(async () => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, '/math\n');
-            const content = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-            content.setCursor(content.text.length, content.text.length, true);
-            window.muya!.eventCenter.emit('content-change', { block: content });
+        await bootCore(page, '/math\n', {
+            setup: () => {
+                const content = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                content.setCursor(content.text.length, content.text.length, true);
+                window.muya!.eventCenter.emit('content-change', { block: content });
+            },
         });
         try {
             await expect(page.locator(floats.quickInsert)).toBeVisible();
@@ -110,13 +109,12 @@ for (const example of [
 for (const source of ['| a | b |\n', '| {++a++} | b |\n']) {
     for (const key of ['Enter', 'Meta+Enter', 'Control+Enter', 'Alt+Enter']) {
         test(`Core ${key} converts a table header while preserving ${source.includes('{++') ? 'its suggestion' : 'ordinary cells'}`, async ({ page }) => {
-            await page.evaluate(async (source) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-                const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-                block.setCursor(block.text.length, block.text.length);
-            }, source);
+            await bootCore(page, source, {
+                setup: () => {
+                    const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                    block.setCursor(block.text.length, block.text.length);
+                },
+            });
             try {
                 await page.keyboard.press(key);
                 // Upstream writes the new table through its serializer, padded to its widest cell.
@@ -150,19 +148,19 @@ for (const example of [
     { name: 'two-space code preference', source: '```js\n{}\n```\n', at: 1, expected: '```js\n{\n  \n}\n```\n', next: '```js\n{\n  x\n}\n```\n', caret: 4, tabSize: 2 },
 ]) {
     test(`Core literal Enter preserves ${example.name} without a legacy edit`, async ({ page }) => {
-        await page.evaluate(async (example) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, example.source);
-            if ('tabSize' in example && typeof example.tabSize === 'number')
-                window.muya!.options.tabSize = example.tabSize;
-            let content = window.muya!.editor.scrollPage!.firstContentInDescendant() ?? undefined;
-            while (content && content.blockName !== 'codeblock.content')
-                content = content.nextContentInContext() ?? undefined;
-            if (!content)
-                throw new Error('Missing native code body');
-            content.setCursor(example.at, example.at);
-        }, example);
+        await bootCore(page, example.source, {
+            arg: example,
+            setup: (example) => {
+                if ('tabSize' in example && typeof example.tabSize === 'number')
+                    window.muya!.options.tabSize = example.tabSize;
+                let content = window.muya!.editor.scrollPage!.firstContentInDescendant() ?? undefined;
+                while (content && content.blockName !== 'codeblock.content')
+                    content = content.nextContentInContext() ?? undefined;
+                if (!content)
+                    throw new Error('Missing native code body');
+                content.setCursor(example.at, example.at);
+            },
+        });
         try {
             await page.keyboard.press('Enter');
             expect(await readCore(page)).toMatchObject({ source: { source: example.expected }, anchor: example.caret, caret: example.caret, legacyCalls: [] });
@@ -187,17 +185,16 @@ for (const example of [
     { name: 'existing next paragraph', source: '```js\naaa\n```\n\nafter\n', expected: '```js\naaa\n```\n\nafter\n', next: '```js\naaa\n```\n\nxafter\n' },
 ]) {
     test(`Core literal Shift Enter selects the ${example.name}`, async ({ page }) => {
-        await page.evaluate(async (example) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, example.source);
-            let content = window.muya!.editor.scrollPage!.firstContentInDescendant() ?? undefined;
-            while (content && content.blockName !== 'codeblock.content')
-                content = content.nextContentInContext() ?? undefined;
-            if (!content)
-                throw new Error('Missing native code body');
-            content.setCursor(1, 1);
-        }, example);
+        await bootCore(page, example.source, {
+            setup: () => {
+                let content = window.muya!.editor.scrollPage!.firstContentInDescendant() ?? undefined;
+                while (content && content.blockName !== 'codeblock.content')
+                    content = content.nextContentInContext() ?? undefined;
+                if (!content)
+                    throw new Error('Missing native code body');
+                content.setCursor(1, 1);
+            },
+        });
         try {
             await page.keyboard.press('Shift+Enter');
             expect(await readCore(page)).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });
@@ -219,16 +216,16 @@ for (const example of [
     { name: 'last row exit', key: 'Enter', body: true, expected: '| aa | bb |\n| --- | --- |\n| cc | dd |\n\n\n', next: '| aa | bb |\n| --- | --- |\n| cc | dd |\n\nx\n', caret: 0 },
 ]) {
     test(`Core table Enter owns the ${example.name}`, async ({ page }) => {
-        await page.evaluate(async (example) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, 'source' in example && typeof example.source === 'string' ? example.source : '| aa | bb |\n| --- | --- |\n| cc | dd |\n');
-            let content = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-            if ('body' in example)
-                content = content.nextContentInContext()!.nextContentInContext()!;
-            const at = 'at' in example && typeof example.at === 'number' ? example.at : 1;
-            content.setCursor(at, at);
-        }, example);
+        await bootCore(page, 'source' in example && typeof example.source === 'string' ? example.source : '| aa | bb |\n| --- | --- |\n| cc | dd |\n', {
+            arg: example,
+            setup: (example) => {
+                let content = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                if ('body' in example)
+                    content = content.nextContentInContext()!.nextContentInContext()!;
+                const at = 'at' in example && typeof example.at === 'number' ? example.at : 1;
+                content.setCursor(at, at);
+            },
+        });
         try {
             await page.keyboard.press(example.key);
             expect(await readCore(page)).toMatchObject({ source: { source: example.expected }, anchor: example.caret, caret: example.caret, legacyCalls: [] });
@@ -257,15 +254,16 @@ test.describe('macOS table command', () => {
     ]) {
         test(`Core table row command preserves ${example.name} before native mutation`, async ({ page }) => {
             const { source, expected, next } = example;
-            await page.evaluate(async (example) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(window.muya!, example.source, example.tracked);
-                let content = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-                if ('body' in example)
-                    content = content.nextContentInContext()!.nextContentInContext()!;
-                content.setCursor(1, 1);
-            }, example);
+            await bootCore(page, example.source, {
+                tracked: example.tracked,
+                arg: example,
+                setup: (example) => {
+                    let content = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                    if ('body' in example)
+                        content = content.nextContentInContext()!.nextContentInContext()!;
+                    content.setCursor(1, 1);
+                },
+            });
             try {
                 await page.keyboard.press(example.key ?? 'Meta+Enter');
                 expect(await readCore(page)).toMatchObject({ source: { source: expected }, anchor: 0, caret: 0, legacyCalls: [] });

@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const ending of ['\n', '\r\n', '\r']) {
     for (const empty of [false, true]) {
@@ -9,13 +9,12 @@ for (const ending of ['\n', '\r\n', '\r']) {
             const joined = '* ' + initial + 'C' + ending + '  ' + ending + '  - D' + ending;
             const typed = '* ' + initial + 'xC' + ending + '  ' + ending + '  - D' + ending;
             const offset = empty ? 0 : 1;
-            await page.evaluate(async (source) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(window.muya!, source, false);
-                const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-                block.setCursor(block.text.length, block.text.length, true);
-            }, source);
+            await bootCore(page, source, {
+                setup: () => {
+                    const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                    block.setCursor(block.text.length, block.text.length, true);
+                },
+            });
             try {
                 await page.keyboard.press('Delete');
                 expect(await readCore(page)).toMatchObject({ source: { source: joined }, anchor: offset, caret: offset, legacyCalls: [] });
@@ -40,13 +39,13 @@ for (const tracked of [true]) {
             const source = '- a{>>keep<<}' + ending + ending + '  b' + ending;
             const joined = tracked ? '- a{>>keep<<}{--' + ending + ending + '  --}b' + ending : '- a{>>keep<<}b' + ending;
             const typed = tracked ? '- a{>>keep<<}{--' + ending + ending + '  --}{++x++}b' + ending : '- a{>>keep<<}xb' + ending;
-            await page.evaluate(async ({ source, tracked }) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-                const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-                block.setCursor(block.text.length, block.text.length, true);
-            }, { source, tracked });
+            await bootCore(page, source, {
+                tracked,
+                setup: () => {
+                    const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                    block.setCursor(block.text.length, block.text.length, true);
+                },
+            });
             try {
                 await page.keyboard.press('Delete');
                 expect(await readCore(page)).toMatchObject({ source: { source: joined }, anchor: tracked ? 0 : 1, caret: tracked ? 0 : 1, legacyCalls: [] });

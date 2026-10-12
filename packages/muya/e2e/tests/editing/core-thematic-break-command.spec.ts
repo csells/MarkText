@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { floats, quickInsertItem } from '../helpers/selectors';
 import { pauseUndoWindow } from '../helpers/undoWindow';
 
@@ -103,14 +103,15 @@ for (const tracked of [false, true]) {
             const source = 'a{>>keep<<}\n\n---\n\nb{>>tail<<}\n';
             const inserted = 'a{>>keep<<}' + example.inserted + 'b{>>tail<<}\n';
             const typed = 'a{>>keep<<}' + example.typed + 'b{>>tail<<}\n';
-            await page.evaluate(async ({ source, tracked, anchor, focus }) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-                const rule = window.muya!.editor.scrollPage!.firstContentInDescendant()!.nextContentInContext();
-                if (!rule || rule.blockName !== 'thematicbreak.content') throw new Error('Expected selected rule');
-                rule.setCursor(anchor, focus, true);
-            }, { source, tracked, anchor: example.anchor, focus: example.focus });
+            await bootCore(page, source, {
+                tracked,
+                arg: { anchor: example.anchor, focus: example.focus },
+                setup: ({ anchor, focus }) => {
+                    const rule = window.muya!.editor.scrollPage!.firstContentInDescendant()!.nextContentInContext();
+                    if (!rule || rule.blockName !== 'thematicbreak.content') throw new Error('Expected selected rule');
+                    rule.setCursor(anchor, focus, true);
+                },
+            });
             try {
                 await page.keyboard.press(example.key);
                 expect(await readCore(page)).toMatchObject({ source: { source: inserted }, anchor: example.caret, caret: example.caret, legacyCalls: [] });
