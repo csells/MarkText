@@ -5,7 +5,7 @@ import type {
 } from './documentCore.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import { positionAfter } from './sourcePosition.js'
-import { FENCED_LITERAL_BLOCKS, SPLITTABLE_LITERAL_BLOCKS } from './literalBlock.js'
+import { FENCED_LITERAL_BLOCKS, LITERAL_DELIMITER_LINE, SPLITTABLE_LITERAL_BLOCKS } from './literalBlock.js'
 import { isPositionalMarkdownAttribute } from './markdownPositions.js'
 import { commonAffixes } from './textAffixes.js'
 import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
@@ -1330,7 +1330,7 @@ function literalBlockText(text: string): boolean {
   const lines = text.split(/\r\n|\r|\n/u)
   while (lines.length > 1 && lines.at(-1)?.trim() === '') lines.pop()
   const first = lines[0] ?? ''
-  if (/^ {0,3}(?:`{3,}|~{3,}|\$\$)/u.test(first) || /^ {0,3}</u.test(first)) return true
+  if (LITERAL_DELIMITER_LINE.test(first) || /^ {0,3}</u.test(first)) return true
   return lines.every(line => line.trim() === '' || /^(?: {4}|\t)/u.test(line)) && first.trim() !== ''
 }
 
@@ -1577,7 +1577,7 @@ export function draftTrackedSourceEdit(
     while (to < text.length && text[to] !== '\n' && text[to] !== '\r') to += 1
     return text.slice(from, to).split(/\r\n|\r|\n/u)
   }
-  const delimiterLine = (line: string): boolean => /^ {0,3}(?:`{3,}|~{3,}|\$\$)/u.test(line)
+  const delimiterLine = (line: string): boolean => LITERAL_DELIMITER_LINE.test(line)
   const typedArm = armText.slice(0, local.start) + edit.insert + armText.slice(local.end)
   const onDelimiterLine = editedLines(armText, local.start, local.end).some(delimiterLine) ||
     editedLines(typedArm, local.start, local.start + edit.insert.length).some(delimiterLine)
