@@ -1,8 +1,8 @@
 # CriticMarkup integration with existing MarkText services
 
-**Status:** Standing requirement, reaffirmed on 8 September 2026. Intrinsic parser and native UI integration were explicit in the July conversations; plan 0009 already required model-owned editing and prohibited post-hoc reconstruction on 19 July. Plan 0012 records the implementation, confirmed gaps and verification results.
+**Status:** Standing requirement, reaffirmed on 8 September 2026. Intrinsic parser and native UI integration were explicit in the July conversations; model-owned editing was required and post-hoc reconstruction prohibited on 19 July.
 
-The [vision](../vision/criticmarkup-vision.md), [Profile 1](../language/marktext-markdown-profile-1.md), its [Markdown image-layout extension](../language/marktext-markdown-profile-2.md), and [document-authority ADR](../adr/0001-core-document-authority.md) remain authoritative. This note refines integration and reuse; it does not replace the language core or reset the architecture.
+The [vision](../vision/criticmarkup-vision.md), [Profile 1](../language/marktext-markdown-profile-1.md), its [Markdown image-layout extension](../language/marktext-markdown-profile-2.md), and [document-authority ADR](../../docs/adr/0005-the-document-revision-is-the-sole-authority.md) remain authoritative. This note refines integration and reuse; it does not replace the language core or reset the architecture.
 
 ## One parser-to-UI stack
 
@@ -115,8 +115,7 @@ that model position rather than round it to a source boundary. Intrinsic text
 positions identify a current parser-owned value and an offset within it; they
 carry no cached interpretation. History, composition, clipboard and Source
 handoff retain or project that same position. Materialization belongs to an
-accepted mutation, never to selection capture, copy or a no-op. Intrinsic-selection
-consumer migrations and their verification are recorded under U1 in plan 0012.
+accepted mutation, never to selection capture, copy or a no-op.
 
 Native table spelling and its output-size preflight also share one Muya owner. Desktop retains table admission, source replacement boundaries and EOL provenance; it does not calculate padding or Unicode column widths.
 

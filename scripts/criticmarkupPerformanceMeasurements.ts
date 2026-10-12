@@ -9,6 +9,7 @@ import {
   PERFORMANCE_OBSERVATION_SCHEDULE,
   PERFORMANCE_PINNED_ENVIRONMENT_KEYS,
   PERFORMANCE_SAMPLE_LIFECYCLE,
+  nearestRank,
   performanceCalibrationReference,
   validateCriticMarkupPerformanceTargets,
   validatePerformanceRunCalibration,
@@ -1265,8 +1266,8 @@ const nearestRankMilliseconds = (
   sorted: readonly number[],
   percentile: 50 | 95 | 99
 ): number => {
-  const value = sorted[Math.ceil(sorted.length * percentile / 100) - 1]
-  if (value === undefined) {
+  const value = nearestRank(sorted, percentile / 100)
+  if (value === null) {
     throw new Error('Performance calibration percentile requires samples')
   }
   return roundedMilliseconds(value)

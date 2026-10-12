@@ -4,7 +4,7 @@
   ([ADR-0016](../../docs/adr/0016-arm-boundaries-end-arm-opened-literals.md)).
   Conformance examples live in
   `packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts`.
-  Rule **L1f** was added on 27 September 2026 by the plan 0012 gap analysis;
+  Rule **L1f** was added on 27 September 2026;
   its examples live in
   `packages/document-core/test/criticmarkup-footnote-bodies.spec.ts`.
 - **Identifiers:** `markdownProfile: 'markdown-profile-2'` ·
@@ -70,7 +70,7 @@ same item. A fence opened before any arm is unaffected:
 
 ## T1 — tracked edits the syntax can spell only whole
 
-Track Changes never refuses an edit (plan 0012). A block literal that runs to
+Track Changes never refuses an edit. A block literal that runs to
 the end of the document can hold a line that a tracked spelling's own arm would
 read as its boundary, as an unclosed fence whose text has a `~~}` line does.
 No spelling of an edit in it both reads as the operation while pending and lets
@@ -155,7 +155,7 @@ Comment payloads remain isolated subdocuments (R5); inside a Comment Display the
 same rule applies to its nested annotations. The Markup view keeps definitions
 arm-local.
 
-## V6 — editing around commented spans (plan 0012 G39)
+## V6 — editing around commented spans
 
 This section governs MarkText's editing and review operations, not
 recognition: it changes how no existing source parses, so it needs no profile

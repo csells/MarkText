@@ -41,7 +41,7 @@ it.skipIf(process.platform !== 'darwin')('verifies signed native addons against 
 it('leaves release signing to the builder config and seals verification builds ad hoc', () => {
   const desktop = join(import.meta.dirname, '../../..')
   expect(readFileSync(join(desktop, 'electron-builder.yml'), 'utf8')).not.toMatch(/^\s*identity:/m)
-  for (const script of ['run-installed-core-review.sh', 'run-installed-core-performance.sh', 'run-installed-core-phase4-consumers.sh']) {
+  for (const script of ['run-installed-core-review.sh', 'run-installed-core-performance.sh']) {
     const source = readFileSync(join(desktop, 'test/e2e', script), 'utf8')
     expect(source, script).toMatch(/MARKTEXT_BUILD_COMMIT="\$\(git -C "\$\{REPO_ROOT\}" rev-parse --verify HEAD\)" \\\n\s*"\$\{PNPM\[@\]\}" --filter marktext "build:mac:\$\{ARCH\}" -c\.mac\.identity=-/)
   }

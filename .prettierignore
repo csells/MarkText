@@ -9,13 +9,8 @@ packages/document-core/test/fixtures/*.json
 specs/baselines/representative-documents/
 # Recorded run evidence keeps the bytes it was captured with.
 specs/baselines/runs/
-# Written by scripts/criticmarkup*.ts; regenerate them rather than reformat.
-specs/baselines/criticmarkup-interaction-evidence.json
+# The hand-authored interaction matrix keeps its own layout.
 specs/baselines/criticmarkup-interaction-matrix.json
-specs/baselines/criticmarkup-parity-oracle-proposal.json
-specs/baselines/criticmarkup-parity-proposal.json
-specs/baselines/criticmarkup-salvage-proposal.json
-specs/baselines/criticmarkup-upstream-parity.json
 # pnpm owns this file's formatting; Prettier reformats it wholesale and pnpm
 # rewrites it back on the next install, so the churn is pure noise.
 pnpm-lock.yaml

@@ -525,57 +525,6 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('preserves historical deterministic schedule scope and its unresolved drift limit', () => {
-    for (const path of [
-      'specs/baselines/criticmarkup-phase0-review.md',
-      'specs/baselines/criticmarkup-upstream-oracles.md'
-    ]) {
-      const source = readFileSync(resolve(repoRoot, path), 'utf8')
-      expect(source).toContain(PERFORMANCE_OBSERVATION_SCHEDULE)
-      expect(source).toMatch(/warmup rounds.*before.*measured rounds/is)
-      expect(source).toMatch(/each.*document.*once per round/is)
-      expect(source).toMatch(/rotat.*across.*phase boundar/is)
-      expect(source).toMatch(
-        /pre-timing readiness.*two consecutive.*exact Electron.*CGWindow.*bounded.*5 seconds/is
-      )
-      expect(source).toMatch(/only.*transient origin mismatch.*settle/is)
-      expect(source).toMatch(
-        /pre-timing.*only.*missing optional.*onScreen.*settle/is
-      )
-      expect(source).toMatch(/explicit.*onScreen.*false.*strict/is)
-      expect(source).toMatch(/post-measurement.*one-shot strict/is)
-      expect(source).toMatch(/post-measurement.*null.*onScreen.*strict/is)
-      expect(source).toMatch(
-        /setVisibleOnAllWorkspaces\(true.*visibleOnFullScreen.*true.*skipTransformProcessType.*true/is
-      )
-      expect(source).toMatch(
-        /isVisibleOnAllWorkspaces\(\).*true.*isHiddenInMissionControl\(\).*true/is
-      )
-      expect(source).toMatch(/external.*on-screen.*proof/is)
-      expect(source).toMatch(
-        /cleanup.*setVisibleOnAllWorkspaces\(false.*visibleOnFullScreen.*false.*skipTransformProcessType.*true/is
-      )
-      expect(source).toMatch(/launch.*readiness.*excluded.*timed\s+metric/is)
-      expect(source).toMatch(/unfocused.*not\s+always-on-top/is)
-      expect(source).toMatch(/no retries/is)
-      expect(source).toMatch(/mandatory.*time-ordered drift\s+diagnostics/is)
-      expect(source).toMatch(/no.*pass\/fail threshold/is)
-    }
-  })
-
-  it('documents the deterministic measured-unratified calibration flow', () => {
-    const source = readFileSync(resolve(
-      repoRoot,
-      'specs/baselines/criticmarkup-phase0-review.md'
-    ), 'utf8')
-
-    expect(source).toContain('--materialize-measurements')
-    expect(source).toContain('--write-calibration')
-    expect(source).toContain('measured-unratified')
-    expect(source).toMatch(/checked-in calibration report.*path.*SHA-256/is)
-    expect(source).toContain('performance-calibration')
-  })
-
   it('authenticates lifecycle, Chromium, and compositor policies in both producer composites', () => {
     const policy =
       'packages/desktop/test/e2e/helpers/performanceChromiumLaunchPolicy.ts'

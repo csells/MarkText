@@ -249,7 +249,3 @@ describe.skipIf(pandocMissing)('pandoc export built from Core (installed pandoc)
     expect(output).not.toMatch(/\{\+\+|\+\+\}|\{--|\{~~|~>|\{==|\{>>|<<\}/)
   })
 })
-
-describe.runIf(pandocMissing)('pandoc export built from Core', () => {
-  it.skip('needs pandoc on PATH or MARKTEXT_PANDOC; none was found', () => {})
-})

@@ -224,21 +224,14 @@ const installedBulkResolutionCases = [{
 
 const bulkResolutionSource = 'A {++new++} B {--old--} C {~~left~>right~~}\n'
 
-/** Launches with the save requests main receives recorded and the Review sidebar shown. */
+/** Launches with the Review sidebar shown. */
 const launchReview = async(
   userDataDir: string,
   filePath: string
 ): Promise<{ app: ElectronApplication, page: Page }> => {
   const launched = await launchInstalled([filePath], {
     userDataDir,
-    timeout: 60_000,
-    beforeWindow: app => app.evaluate(({ ipcMain }) => {
-      const host = globalThis as typeof globalThis & { installedSaveRequests?: unknown[] }
-      host.installedSaveRequests = []
-      ipcMain.on('mt::response-file-save', (_event, id, filename, pathname, source, options, _defaultPath, identity) => {
-        host.installedSaveRequests?.push({ at: Date.now(), id, filename, pathname, source, options, identity })
-      })
-    })
+    timeout: 60_000
   })
   try {
     await showReviewSidebar(launched.app)
@@ -606,9 +599,6 @@ test.describe('installed Core Review authority', () => {
       } catch (error) {
         if (launched !== undefined) {
           const observations = await Promise.allSettled([
-            launched.app.evaluate(() => (globalThis as typeof globalThis & {
-              installedSaveRequests?: unknown[]
-            }).installedSaveRequests),
             launched.page.evaluate(async() => ({
               source: await window.__marktextDocumentCore?.authoritySource?.(),
               latest: window.__marktextDocumentCore?.latest(),

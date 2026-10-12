@@ -129,8 +129,8 @@ annotated document, find its comments, select text and add a comment or suggesti
 mark a highlight, navigate and resolve items, undo and redo, compare Original/Revised,
 then save and reopen. Use the actual menus, selection tools, sidebar, and keyboard
 interactions, and inspect the rendered result. Engine tests and command-routing tests
-alone cannot establish this experience. Make macOS work first; retain the other
-platform requirements in plan 0012.
+alone cannot establish this experience. Make macOS work first; the other platforms
+remain requirements.
 
 ## Who suggests
 
@@ -188,8 +188,7 @@ The CriticMarkup work spans several documents; they differ by **role**, not by s
 | **Evidence** — upstream research answering a specific question                         | `specs/architecture/criticmarkup-host-markdown-interaction-evidence.md`                                                                                                                                |
 
 The architecture lives in the active ADRs, `specs/architecture/criticmarkup-native-integration.md`,
-and this vision. Plans 0009, 0010 and 0011 are archived incomplete; their remaining product
-requirements continue in plan 0012.
+and this vision.
 The proposed CriticMarkup Metadata Extension is a separate future milestone; this
 vision defines the CM1 integration and does not erase its research or domain decisions.
 ADRs 0006,
