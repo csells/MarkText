@@ -636,8 +636,12 @@ async function applyPreparedDocumentImport(clipboard: Clipboard, data: IPasteDat
     const selection = clipboard.selection.table.getDOMSelection() ?? (clipboard.selection.image
         ? clipboard.selection.getImageDOMSelection()
         : clipboard.selection.getDOMSelection());
-    if (!model || !selection)
-        throw new Error('Clipboard import has no document selection');
+    if (!model)
+        throw new Error('Clipboard import has no document model');
+    // With the selection outside the document's text, such as on a heading's
+    // link icon, a paste has nowhere to go and does nothing, as upstream.
+    if (!selection)
+        return;
     const text = data.text.replace(/\r\n?/g, '\n');
     await model.prepareClipboard(selection, { text, html: data.html, imageFile: data.imageFile }, capturePayload => importClipboardData(clipboard, data, capturePayload), undefined, muya.editor.history.preparedModelCommandGroup());
 }
