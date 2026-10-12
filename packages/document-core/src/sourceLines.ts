@@ -25,6 +25,19 @@ export function lineEndAt(core: SourceReader, revision: DocumentRevision, positi
 }
 
 /**
+ * The first line ending in source `[start, end)`, read on in growing chunks.
+ * Each chunk reads one unit past its own end, so a `\r\n` across chunks is
+ * read whole; a match starting on that unit is left to the next chunk.
+ */
+export function firstLineEnding(core: SourceReader, revision: DocumentRevision, start: number, end: number): string | undefined {
+  for (let from = start, span = 256; from < end; from += span, span *= 4) {
+    const found = /\r\n|\r|\n/u.exec(core.sourceSlice(revision, { start: from, end: Math.min(end, from + span + 1) }))
+    if (found !== null && found.index < span) return found[0]
+  }
+  return undefined
+}
+
+/**
  * Where the line of `text` holding offset `at` starts. At offset 0 a line
  * ending at index 0 still counts, as `lastIndexOf` reads a negative start as 0.
  */
