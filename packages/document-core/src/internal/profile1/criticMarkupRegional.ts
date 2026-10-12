@@ -2,7 +2,7 @@ import type {
   CriticMarkupNode,
   ExecutionBudgetId,
   MarkdownNode,
-  MarkdownOptionsV1,
+  MarkdownOptions,
   ResourceDiagnostic,
   SourceRange
 } from '../../revision.js'
@@ -413,7 +413,7 @@ export function admitCriticMarkupRegionalChange(
   index: CriticMarkupRegionalIndex,
   edits: readonly RetainedPassSourceEdit[],
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
+  markdownOptions: MarkdownOptions,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1
 ): CriticMarkupRegionalAdmissionResult | undefined {
   const edit = edits.length === 1 ? edits[0] : undefined

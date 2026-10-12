@@ -1,7 +1,7 @@
 import type {
   CriticMarkupNode,
   ExecutionBudgetId,
-  MarkdownOptionsV1,
+  MarkdownOptions,
   ResourceDiagnostic,
   SourceRange
 } from '../../revision.js'
@@ -257,7 +257,7 @@ export function admitCommentRegionalChange(
   }>,
   edits: readonly RetainedPassSourceEdit[],
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
+  markdownOptions: MarkdownOptions,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1
 ): CommentRegionalAdmissionResult | undefined {
   if (!sameRange(requestedAnnotation, index.annotation)) return undefined

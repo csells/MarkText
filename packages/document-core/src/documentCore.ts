@@ -100,11 +100,13 @@ import type {
   CriticMarkupNode,
   ExecutionBudgetId,
   MarkdownNode as ParserMarkdownNode,
-  MarkdownOptionsV1,
+  MarkdownOptions,
   NodeId,
   ResourceDiagnostic,
   SyntaxDiagnostic
 } from './revision.js'
+
+export type { MarkdownOptions }
 
 export type CriticMarkupKind =
   | 'addition'
@@ -609,25 +611,6 @@ export interface DocumentApplyOptions {
 
 export type DocumentResolutionDecision = 'accept' | 'reject'
 
-export interface MarkdownOptions {
-  readonly gfm: boolean
-  /** GFM's extended-autolink extension, independently selectable. */
-  readonly gfmAutolinks: boolean
-  /** GFM's disallowed-raw-HTML extension, independently selectable. */
-  readonly gfmTagFilter: boolean
-  readonly frontMatter: boolean
-  /** pandoc's tex_math_dollars: `$…$` and `$$…$$`. */
-  readonly texMathDollars: boolean
-  /** pandoc's tex_math_gfm: `` $`…`$ `` and the ```math fence. */
-  readonly texMathGfm: boolean
-  /** pandoc's tex_math_single_backslash: `\(…\)` and `\[…\]`. */
-  readonly texMathSingleBackslash: boolean
-  /** pandoc's tex_math_double_backslash: `\\(…\\)` and `\\[…\\]`. */
-  readonly texMathDoubleBackslash: boolean
-  readonly footnotes: boolean
-  readonly subscriptAndSuperscript: boolean
-}
-
 export type DocumentCoreErrorCode =
   | 'CM_RESOURCE_SOURCE_UNITS_EXCEEDED'
   | 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED'
@@ -822,7 +805,7 @@ const EXECUTION_BUDGET: ExecutionBudgetId = Object.freeze({
 function markdownOptions(
   options: Readonly<Partial<MarkdownOptions>> = {},
   inherited: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS
-): MarkdownOptionsV1 {
+): MarkdownOptions {
   // Profile 1 Y1: an unrecognized configuration name is refused rather than
   // carried into a revision's parse configuration.
   for (const name of Object.keys(options)) {
@@ -2055,7 +2038,7 @@ interface FullRevisionState {
     retain?: boolean
   ) => readonly CriticMarkupAnnotation[]
   readonly retainedSummary: RetainedAdmissionSummary | undefined
-  readonly markdownOptions: MarkdownOptionsV1
+  readonly markdownOptions: MarkdownOptions
   readonly retainedIndex: PlainParagraphRetainedIndex | undefined
   readonly criticMarkupIndex: CriticMarkupRegionalIndex | undefined
   readonly commentIndex: CommentRegionalIndex | undefined
@@ -2067,7 +2050,7 @@ interface FullRevisionState {
 interface RegionalRevisionState {
   readonly kind: 'regional'
   readonly source: PersistentCanonicalSource
-  readonly markdownOptions: MarkdownOptionsV1
+  readonly markdownOptions: MarkdownOptions
   readonly retainedIndex: PlainParagraphRetainedIndex | undefined
   readonly criticMarkupIndex: CriticMarkupRegionalIndex | undefined
   readonly commentIndex: CommentRegionalIndex | undefined
@@ -2575,7 +2558,7 @@ function createDocumentCoreWithExecutionBudget(
     previous: CanonicalSourceView,
     next: CanonicalSourceView,
     edits: readonly DocumentSourceEdit[],
-    options: MarkdownOptionsV1
+    options: MarkdownOptions
   ): boolean => {
     let dollarFree = dollarFreeSources.get(previous)
     if (dollarFree === undefined) {
@@ -2886,14 +2869,14 @@ function createDocumentCoreWithExecutionBudget(
    * which the document would pair it with: the draft is then the document's
    * to settle (see `displayMathReachesPast`).
    */
-  const noteWindowDollarReach = (products: Profile1DocumentProducts, source: string, options: MarkdownOptionsV1): void => {
+  const noteWindowDollarReach = (products: Profile1DocumentProducts, source: string, options: MarkdownOptions): void => {
     if (windowEndsDocument(core) === false && options.texMathDollars && displayMathReachesPast(products, source)) {
       markUnresolvedDraft(core, { start: false, end: true })
     }
   }
   const parse = (
     source: string,
-    resolvedOptions: MarkdownOptionsV1,
+    resolvedOptions: MarkdownOptions,
     previousPass?: PreviousIntrinsicPass
   ): Profile1DocumentProducts => {
     let products
@@ -2927,7 +2910,7 @@ function createDocumentCoreWithExecutionBudget(
 
   const isolatedProducts = (
     source: string,
-    resolvedOptions: MarkdownOptionsV1,
+    resolvedOptions: MarkdownOptions,
     previousPass?: PreviousIntrinsicPass
   ): Profile1DocumentProducts => {
     inspection.documentParses += 1
@@ -2962,7 +2945,7 @@ function createDocumentCoreWithExecutionBudget(
   const publish = (
     source: PersistentCanonicalSource,
     products: Profile1DocumentProducts,
-    resolvedOptions: MarkdownOptionsV1
+    resolvedOptions: MarkdownOptions
   ): DocumentRevision => {
     let productStore: RevisionProductStore<Profile1DocumentProducts> | undefined
     try {
@@ -3096,7 +3079,7 @@ function createDocumentCoreWithExecutionBudget(
 
   const publishRegional = (
     source: PersistentCanonicalSource,
-    resolvedOptions: MarkdownOptionsV1,
+    resolvedOptions: MarkdownOptions,
     retainedIndex: PlainParagraphRetainedIndex | undefined,
     criticMarkupIndex: CriticMarkupRegionalIndex | undefined,
     annotations: readonly CriticMarkupAnnotation[] = Object.freeze([]),
@@ -3153,7 +3136,7 @@ function createDocumentCoreWithExecutionBudget(
    */
   const inventoryRevision = (
     source: PersistentCanonicalSource,
-    resolvedOptions: MarkdownOptionsV1,
+    resolvedOptions: MarkdownOptions,
     inventory: RegionalInventory,
     regionalComments: RegionalRevisionState['regionalComments'] = Object.freeze([])
   ): DocumentRevision => {
@@ -3207,7 +3190,7 @@ function createDocumentCoreWithExecutionBudget(
 
   const publishInventoryRegional = (
     source: PersistentCanonicalSource,
-    resolvedOptions: MarkdownOptionsV1,
+    resolvedOptions: MarkdownOptions,
     inventory: RegionalInventory,
     regionalComments: RegionalRevisionState['regionalComments'] = Object.freeze([])
   ): DocumentRevision => {
@@ -3521,7 +3504,7 @@ function createDocumentCoreWithExecutionBudget(
     previousState: RevisionState,
     source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
-    resolvedOptions: MarkdownOptionsV1,
+    resolvedOptions: MarkdownOptions,
     requests: NormalizedProjectionRequests,
     inventory: RegionalInventory | undefined = previousState.regionalInventory,
     preview = false
@@ -3941,7 +3924,7 @@ function createDocumentCoreWithExecutionBudget(
     previousState: RevisionState,
     source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
-    resolvedOptions: MarkdownOptionsV1
+    resolvedOptions: MarkdownOptions
   ): Readonly<{
     readonly revision: DocumentRevision
     readonly projection: MarkupRegionProjectionChange
@@ -4069,7 +4052,7 @@ function createDocumentCoreWithExecutionBudget(
     previousState: RevisionState,
     source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
-    resolvedOptions: MarkdownOptionsV1,
+    resolvedOptions: MarkdownOptions,
     requests: NormalizedProjectionRequests
   ): Readonly<{
     readonly revision: DocumentRevision
@@ -4255,7 +4238,7 @@ function createDocumentCoreWithExecutionBudget(
     previousState: RevisionState,
     source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
-    resolvedOptions: MarkdownOptionsV1
+    resolvedOptions: MarkdownOptions
   ): Readonly<{
     readonly kind: 'applied'
     readonly revision: DocumentRevision
@@ -4485,7 +4468,7 @@ function createDocumentCoreWithExecutionBudget(
     previousState: RevisionState,
     source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
-    resolvedOptions: MarkdownOptionsV1
+    resolvedOptions: MarkdownOptions
   ): Readonly<{
     readonly kind: 'applied'
     readonly revision: DocumentRevision
@@ -7990,7 +7973,7 @@ function createDocumentCoreWithExecutionBudget(
 
   // A source with every annotation accepted or rejected, read on a core of
   // its own so this core's current revision stays.
-  const resolvedSource = (source: string, decision: 'accept' | 'reject', options: MarkdownOptionsV1): string => {
+  const resolvedSource = (source: string, decision: 'accept' | 'reject', options: MarkdownOptions): string => {
     const resolver = createDocumentCoreWithExecutionBudget(executionBudget)
     windowCores.add(resolver)
     let revision = resolver.open(source, options)

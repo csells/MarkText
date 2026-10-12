@@ -7,7 +7,7 @@ import type {
   MarkupMark,
   MarkupProjection,
   MarkupProjectionEvent,
-  MarkdownOptionsV1,
+  MarkdownOptions,
   MarkdownNode,
   NodeId,
   ProjectedCodeUnitOrigin,
@@ -361,7 +361,7 @@ const FORM_LABEL: Readonly<Record<ImplementedKind, string>> = Object.freeze({
 
 const DESKTOP_MARKDOWN_DEPTH_LIMIT = 128
 const DESKTOP_CM_DEPTH_LIMIT = 16_384
-const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptionsV1 = Object.freeze({
+const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
   gfm: true,
   gfmAutolinks: true,
   gfmTagFilter: true,
@@ -1099,7 +1099,7 @@ function parseIntrinsicProfile1(
   source: string,
   syntaxIdentity: Profile1SyntaxIdentityRegistry,
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
-  markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
+  markdownOptions: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS,
   execution?: ParseExecutionTracker,
   suppressedMarkerRanges?: readonly Readonly<{
     start: number
@@ -3776,7 +3776,7 @@ function prepareProjection(
   lane: IntrinsicProfile1ForkLane = graph.forkGraph.root,
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
   role: ProjectionRole = view,
-  markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
+  markdownOptions: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS,
   forkParser?: Profile1MarkdownForkParser,
   physicalRecorder?: Profile1PhysicalTraversalRecorderV1,
   documentHasAnnotations: boolean = false
@@ -4295,7 +4295,7 @@ interface PreparedCommentDisplayProjection {
 function prepareCommentDisplayProjections(
   graph: Profile1SyntaxGraphCore,
   markdownDepthLimit: number,
-  markdownOptions: MarkdownOptionsV1,
+  markdownOptions: MarkdownOptions,
   forkParser: Profile1MarkdownForkParser,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1
 ): readonly PreparedCommentDisplayProjection[] {
@@ -4423,7 +4423,7 @@ function tryIncrementalIntrinsicParse(
   source: string,
   previousPass: PreviousIntrinsicPass,
   markdownDepthLimit: number,
-  markdownOptions: MarkdownOptionsV1,
+  markdownOptions: MarkdownOptions,
   execution: ParseExecutionTracker,
   accounting: Profile1SyntaxAccountingRecorderV1,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
@@ -4600,7 +4600,7 @@ export function admitProfile1PlainParagraphRegion(
   previousIndex: PlainParagraphRetainedIndex,
   edits: readonly RetainedPassSourceEdit[],
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
+  markdownOptions: MarkdownOptions,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
   createPhysicalTraversalRecorderV1()
 ): Profile1RegionalAdmissionResult | undefined {
@@ -4678,7 +4678,7 @@ export function admitProfile1PlainParagraphRegion(
 interface WindowParse {
   readonly source: string
   readonly executionBudget: ExecutionBudgetId
-  readonly markdownOptions: MarkdownOptionsV1
+  readonly markdownOptions: MarkdownOptions
   readonly captureAccountingTrace: boolean
   readonly physicalRecorder: Profile1PhysicalTraversalRecorderV1
   readonly endsAtDocumentEnd: boolean
@@ -4721,8 +4721,8 @@ const windowParses: WindowParse[] = []
 let largeWindowParse: WindowParse | undefined
 
 export function sameMarkdownOptions(
-  left: MarkdownOptionsV1,
-  right: MarkdownOptionsV1
+  left: MarkdownOptions,
+  right: MarkdownOptions
 ): boolean {
   return left.gfm === right.gfm &&
     left.gfmAutolinks === right.gfmAutolinks &&
@@ -4745,7 +4745,7 @@ export function sameMarkdownOptions(
 export function parseProfile1Window(
   source: string,
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
+  markdownOptions: MarkdownOptions,
   captureAccountingTrace: boolean,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
   endsAtDocumentEnd: boolean,
@@ -4819,7 +4819,7 @@ export function parseProfile1Window(
 export function parseProfile1Document(
   source: string,
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
+  markdownOptions: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS,
   captureAccountingTrace: boolean = false,
   reuseCache?: Profile1DocumentReuseCache,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
@@ -4879,7 +4879,7 @@ export interface Profile1ReaderViews {
 export function parseProfile1ReaderViews(
   source: string,
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
+  markdownOptions: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 = createPhysicalTraversalRecorderV1(),
   previousPass?: PreviousIntrinsicPass
 ): Profile1ReaderViews | Profile1SourceOnlyProducts {
@@ -4912,7 +4912,7 @@ export function parseProfile1ReaderViews(
 function parseIntrinsicStage(
   source: string,
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
+  markdownOptions: MarkdownOptions,
   captureAccountingTrace: boolean,
   execution: ParseExecutionTracker,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
@@ -5058,7 +5058,7 @@ function parseIntrinsicStage(
 export function profile1CriticMarkupRootCount(
   source: string,
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
+  markdownOptions: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 = createPhysicalTraversalRecorderV1(),
   previousPass?: PreviousIntrinsicPass
 ): number | undefined {
@@ -5078,7 +5078,7 @@ export function profile1CriticMarkupRootCount(
 function parseProfile1DocumentWithExecution(
   source: string,
   executionBudget: ExecutionBudgetId,
-  markdownOptions: MarkdownOptionsV1,
+  markdownOptions: MarkdownOptions,
   captureAccountingTrace: boolean,
   execution: ParseExecutionTracker,
   reuseCache: Profile1DocumentReuseCache | undefined,
