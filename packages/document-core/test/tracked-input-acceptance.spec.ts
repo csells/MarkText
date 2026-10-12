@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentInputAction, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
 import { inHistory, keepsTyping, resolveAll } from './support/resolvedSuggestions.js'
 import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
+import { dense, lcg } from './support/inputDriver.js'
 
 // Owner rule: with Track Changes on, every edit untracked mode accepts is
 // accepted tracked. Rejecting every suggestion after a tracked key gives the
@@ -13,11 +14,6 @@ import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
 // typed, broken and deleted in documents of literal blocks, literal
 // Substitutions and Deletions, where suggestions hold fences and math.
 
-const lcg = (seed: number) => (): number => {
-  seed = (seed * 1664525 + 1013904223) >>> 0
-  return seed / 2 ** 32
-}
-const dense = 'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
 const lines = (count: number, line: (index: number) => string): string => Array.from({ length: count }, (_, index) => line(index)).join('\n')
 const blocks = [
   dense, 'Plain words here.', 'Text {==marked *text*==}{>>see **this** {++and that++}<<} end.', '- item {++one++}\n- item {--two--}',

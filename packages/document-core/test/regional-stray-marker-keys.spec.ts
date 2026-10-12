@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
+import { createDocumentCore } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
+import { lcg, press, regional, type Key } from './support/inputDriver.js'
 
 // Plan 0012 G35: stray and unfinished CriticMarkup markers are text with a
 // diagnostic, and a document holding them is edited from the paragraphs
@@ -8,13 +9,6 @@ import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from 
 // document parse gives: a seeded differential compares each key with a core
 // that plans from its document parse, and a long document with 10,000 stray
 // markers takes typing, Enter, Backspace and Delete without a document parse.
-
-const options = { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
-
-const lcg = (seed: number) => (): number => {
-  seed = (seed * 1664525 + 1013904223) >>> 0
-  return seed / 2 ** 32
-}
 
 const blocks = [
   'Stray ++} closer and --} here.',
@@ -30,39 +24,6 @@ const blocks = [
   '- item ==} x\n- more {== y',
   '> quoted {== open --}'
 ]
-
-type Key = 'insertText' | 'insertParagraph' | 'insertLineBreak' | 'deleteContentBackward' | 'deleteContentForward'
-
-const action = (caret: number, inputType: Key): DocumentInputAction => ({
-  range: inputType === 'deleteContentBackward'
-    ? { start: Math.max(0, caret - 1), end: caret }
-    : inputType === 'deleteContentForward' ? { start: caret, end: caret + 1 } : { start: caret, end: caret },
-  selection: { ranges: [{ anchor: caret, focus: caret }], primary: 0 },
-  inputType,
-  data: inputType === 'insertText' ? 'x' : null,
-  options
-}) as DocumentInputAction
-
-/** A revision reached by a regional edit, so it holds no document parse. */
-function regional(core: DocumentCore, source: string): DocumentRevision {
-  return core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
-}
-
-type Outcome = Readonly<{ plan?: unknown, edits?: unknown, selection?: unknown, source?: string, diagnostics?: unknown, error?: string }>
-
-function press(core: DocumentCore, revision: DocumentRevision, caret: number, key: Key, tracked: boolean): Outcome {
-  try {
-    const input = action(caret, key)
-    const plan = core.planInput(revision, input, { tracked })
-    const edits = core.inputEdits(revision, input, plan, tracked)
-    if (edits === undefined) return { plan }
-    const commit = core.apply(revision, edits, { projections: ['markup'] })
-    const result = core.reconcileInput(revision, plan, commit, input)
-    return { plan, edits, selection: result.selection, source: commit.revision.source, diagnostics: commit.revision.diagnostics }
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) }
-  }
-}
 
 const seeds = Number(process.env.MARKTEXT_STRAY_KEY_SEEDS ?? 12)
 const first = Number(process.env.MARKTEXT_STRAY_KEY_FIRST ?? 1)
@@ -90,11 +51,11 @@ describe('keys in a document with stray markers read as the document parse', () 
             searchWithoutBudget(core)
             const revision = regional(core, source)
             const before = inspectDocumentCore(core).documentParses
-            const actual = press(core, revision, caret, key, tracked)
+            const actual = press(core, revision, caret, key, tracked, { diagnostics: true })
             if (inspectDocumentCore(core).documentParses === before) regionalKeys += 1
             const control = createDocumentCore()
             planFromDocumentParse(control)
-            const expected = press(control, regional(control, source), caret, key, tracked)
+            const expected = press(control, regional(control, source), caret, key, tracked, { diagnostics: true })
             expect(actual, `${JSON.stringify(edited)} @${caret} ${key} tracked=${tracked}`).toEqual(expected)
             if (actual.source !== undefined) {
               const fresh = createDocumentCore().open(actual.source)
@@ -140,7 +101,7 @@ describe('keys in a document with 10,000 stray markers cost no document parse', 
     const core = createDocumentCore()
     const revision = regional(core, source)
     const before = inspectDocumentCore(core).documentParses
-    const actual = press(core, revision, target + 1, key, tracked)
+    const actual = press(core, revision, target + 1, key, tracked, { diagnostics: true })
     expect(actual.error).toBeUndefined()
     expect(inspectDocumentCore(core).documentParses - before).toBe(0)
     const oracle = createDocumentCore()

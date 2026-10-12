@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision, type MarkdownAstNode, type SourceRange } from '../src/index.js'
+import { lcg } from './support/inputDriver.js'
 
 // Owner rule: with Track Changes on, every edit available untracked is
 // available tracked, and it follows Google Docs over existing suggestions.
@@ -23,11 +24,6 @@ const corpus: Readonly<Record<string, string>> = {
   comment: 'the fox{>>note<<} ran {==far==}{>>why<<} away\n',
   heading: '# Title {--old--}\n\nbody {++new++} text\n',
   list: '- {++one++}\n- t{--w--}o\n- three\n'
-}
-
-const lcg = (seed: number) => () => {
-  seed = (seed * 1664525 + 1013904223) >>> 0
-  return seed / 2 ** 32
 }
 
 /** Projected ranges of the editable inline blocks: markers and fences are not text a reader types into. */

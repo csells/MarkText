@@ -11,16 +11,12 @@ import {
   type SourceRange
 } from '../src/index.js'
 import { inspectRegionalLeaves } from '../src/internal/documentCoreInspection.js'
+import { lcg } from './support/inputDriver.js'
 
 // Plan 0012 G35: a regional apply that splits, joins or annotates blocks is an
 // optimization of one parse. Its annotations and its projection replacement,
 // composed with the previous projection, must read exactly as a fresh open of
 // the resulting source, and later regional edits must build on it exactly.
-
-const lcg = (seed: number) => (): number => {
-  seed = (seed * 1664525 + 1013904223) >>> 0
-  return seed / 2 ** 32
-}
 
 const blocks = [
   'Plain words here.',

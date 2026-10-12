@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction } from '../src/index.js'
 import { planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
+import { regional } from './support/inputDriver.js'
 
 // A tracked candidate whose views differ in their bytes from the untracked
 // result's is still taken where its projections read alike. The Revised
@@ -14,7 +15,7 @@ describe('a tracked key beside a literal block whose Revised text is escaped', (
       '{~~<div>\nh\n</div>~><div>\nhz\n</div>~~}\n\n$$\nx_{0} + y\nx_{1} + y\nx_{2} + y\nx_{3} + y\nx_{4} + y\n$$\n'
     // Typing `q` into the first opener leaves its closer a stray `~~}`.
     const plan = (core: DocumentCore) => {
-      const revision = core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
+      const revision = regional(core, source)
       const caret = revision.source.indexOf('~~}') + 1
       const input = {
         range: { start: caret, end: caret },
