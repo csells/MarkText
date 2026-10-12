@@ -176,7 +176,7 @@ export function selectionPairForKey(
   return null
 }
 
-export { normalizeTableDimensions, toggleTableAlignment, tableDelimiter, tableDelimiterMarkers, tableToMarkdown, tableToMarkdownWithPositions, type TableMarkdownResult, type TableMarkdownCellPosition, emptyTableRow, emptyTableColumn, type ITableMarkdownState } from './tableMarkdown.js'
+export { escapeTableCellPipes, normalizeTableDimensions, toggleTableAlignment, tableDelimiter, tableDelimiterMarkers, tableToMarkdown, tableToMarkdownWithPositions, type TableMarkdownResult, type TableMarkdownCellPosition, emptyTableRow, emptyTableColumn, type ITableMarkdownState } from './tableMarkdown.js'
 export { default as stringWidth } from './stringWidth.js'
 
 export { codeEnter } from './codeEnter.js'

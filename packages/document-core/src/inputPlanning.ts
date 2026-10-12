@@ -13,6 +13,7 @@ import { copyDocumentSelection, type DocumentTextSelection, type DocumentModelTe
 import { previousTableCell, resolveTableCell, tableCellSelectionAfter, tableCellSelectionAtSource } from './tableSelection.js'
 import { positionAfter } from './sourcePosition.js'
 import type { HeadingChange, ListChange, ListMarkerOptions } from '@marktext/input-policy'
+import { escapeTableCellPipes } from '@marktext/input-policy'
 import type { ParagraphEnterConversion } from './internal/profile1/markdownParser.js'
 import type { DocumentCore, DocumentCommit, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import { applyInputPairing, type IInputPairingOptions, type IInputPairingSyntaxContext } from './inputPolicy.js'
@@ -280,12 +281,11 @@ function planUnspelledInput(core: DocumentCore, revision: DocumentRevision, acti
   const edit = plan.edits[0]
   if (plan.edits.length !== 1 || edit === undefined || edit.start !== selectedCell.start || edit.end !== selectedCell.end) throw new RangeError('Implicit cell input requires an insertion into its empty content')
   // A pipe typed into the cell stays its text, as upstream escapes it.
-  const escape = (text: string) => text.replace(/(?<!\\)\|/gu, '\\|')
-  const materialized = materializeTableCellEdit(selectedCell, { ...edit, insert: escape(edit.insert) })
+  const materialized = materializeTableCellEdit(selectedCell, { ...edit, insert: escapeTableCellPipes(edit.insert) })
   const insert = materialized.edit.insert
   const position = (offset: number) => {
     const typed = edit.insert.slice(0, Math.max(0, offset - edit.start))
-    return offset + materialized.prefixLength + escape(typed).length - typed.length
+    return offset + materialized.prefixLength + escapeTableCellPipes(typed).length - typed.length
   }
   return finish({
     edits: Object.freeze([materialized.edit]),
