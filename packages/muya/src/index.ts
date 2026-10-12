@@ -1,5 +1,5 @@
 export { default as htmlEscapeCharacters } from './config/escapeCharacter';
-export type { DocumentClipboardInput, DocumentCompositionResult, DocumentDOMPoint, DocumentEditing, DocumentFormatInput, DocumentInput, DocumentInputSyntaxContext, DocumentTextInput, DocumentTextPoint, DocumentTextReplacement } from './editor/documentEditingTypes';
+export type { DocumentClipboardInput, DocumentCompositionResult, DocumentDOMPoint, DocumentEditing, DocumentFormatInput, DocumentInput, DocumentTextInput, DocumentTextPoint } from './editor/documentEditingTypes';
 export type { IReconcileRegion } from './editor/index';
 export type { ISerializedHistory } from './history';
 export type { ILocale } from './i18n/types';
