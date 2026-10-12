@@ -417,8 +417,30 @@ class Format extends Content {
     override blurHandler() {
         super.blurHandler();
         const needRender = this.checkNeedRender();
-        if (needRender)
-            this.update();
+        if (!needRender)
+            return;
+        // A selection reaching into another block blurs this one while an
+        // endpoint still lies in its text. Redrawing replaces those text
+        // nodes, and Chromium then moves the endpoint to the block's start or
+        // drops the selection, so put it back where the user left it.
+        const { selection } = this.muya.editor;
+        const native = selection.getDOMSelection();
+        const domNode = this.domNode;
+        const touched = native && domNode
+            && (domNode.contains(native.anchor.node) || domNode.contains(native.focus.node));
+        const anchor = touched ? selection.getTextPoint(native.anchor) : null;
+        const focus = touched ? selection.getTextPoint(native.focus) : null;
+        this.update();
+        const redrawnAnchor = anchor && selection.getDOMPoint(anchor);
+        const redrawnFocus = focus && selection.getDOMPoint(focus);
+        if (redrawnAnchor && redrawnFocus) {
+            this.muya.domNode.ownerDocument.getSelection()?.setBaseAndExtent(
+                redrawnAnchor.node,
+                redrawnAnchor.offset,
+                redrawnFocus.node,
+                redrawnFocus.offset,
+            );
+        }
     }
 
     /**
