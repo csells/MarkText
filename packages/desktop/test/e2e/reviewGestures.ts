@@ -28,7 +28,11 @@ export const textPoint = async(
       range.setStart(node, ch)
       range.setEnd(node, ch + 1)
       const rect = range.getBoundingClientRect()
-      const x = offset > ch ? rect.right - 0.5 : rect.left + 0.5
+      // A block's drag handle, shown once the pointer hovers the block, overlaps
+      // its first letter's leftmost pixel, so a start is aimed a little inside
+      // the letter's left half, where the caret still lands before it.
+      const inset = where === 'start' ? Math.max(0.5, Math.min(3, rect.width / 2 - 0.5)) : 0.5
+      const x = offset > ch ? rect.right - 0.5 : rect.left + inset
       return { x, y: rect.top + rect.height / 2 }
     }
     return null
