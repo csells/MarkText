@@ -124,7 +124,8 @@ const CASES: Array<{
       '# Résumé\n\nCafé crème brûlée à la façon de Noël, déjà vu. Ça coûte cher, naïve façade.\n',
       'latin1'
     ),
-    encoding: 'latin1',
+    // ced reads Latin-1 text as ASCII, which MarkText decodes as its superset cp1252.
+    encoding: 'cp1252',
     isBom: false
   },
   {
