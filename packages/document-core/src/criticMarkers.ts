@@ -5,12 +5,15 @@ export const CRITIC_MARKERS: readonly string[] = Object.freeze(FORM_DEFINITIONS.
   separator === undefined ? [open, close] : [open, separator, close]))
 
 /**
- * A regular-expression alternation, ungrouped, matching any one marker. No
- * two markers can start at the same offset, so its order never decides a match.
+ * A regular-expression alternation, ungrouped, matching any one of `markers`.
+ * No two CriticMarkup markers start at the same offset, so its order never
+ * decides a match.
  */
-export const CRITIC_MARKER_ALTERNATION = CRITIC_MARKERS
+export const markerAlternation = (markers: readonly string[]): string => markers
   .map(marker => marker.replace(/[\\^$.*+?()[\]{}|/]/gu, '\\$&'))
   .join('|')
+
+export const CRITIC_MARKER_ALTERNATION = markerAlternation(CRITIC_MARKERS)
 
 /** Every marker, matched globally: replacing with it rewrites each marker in a text. */
 export const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'gu')
