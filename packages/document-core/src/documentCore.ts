@@ -21,7 +21,7 @@ import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, tracked
 import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, withoutDocumentSearchBudget, documentSearchExhausted, spelledAsSource, recordedExactly, trackedStructure, type TrackedStructure, type TrackedPart, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
-import { CRITIC_MARKER_ALTERNATION, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
+import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
 import {
   admitProfile1PlainParagraphRegion,
   createProfile1DocumentReuseCache,
@@ -2429,17 +2429,6 @@ const windowCores = new WeakSet<DocumentCore>()
 const WINDOW_WHOLE_PREVIEW_UNITS = 2048
 
 /**
- * Typed text as a suggestion's arm holds it: a final odd backslash would
- * escape the arm's closer, so it is completed to an escaped backslash,
- * which renders the one backslash typed.
- */
-function escapeCompleted(text: string): string {
-  let run = 0
-  while (run < text.length && text[text.length - 1 - run] === '\\') run += 1
-  return run % 2 === 1 ? `${text}\\` : text
-}
-
-/**
  * The outermost suggestion whose deleted or replaced text (a Deletion's, or a
  * Substitution's old arm) holds a range, with that arm.
  */
@@ -2480,7 +2469,7 @@ function historySplit(
   const outer = held[0]
   if (outer === undefined || held.some(entry => entry?.annotation !== outer.annotation)) return undefined
   const { annotation, arm } = outer
-  const typed = edits.map(edit => escapeCompleted(edit.insert)).join('')
+  const typed = edits.map(edit => completeTrailingEscape(edit.insert)).join('')
   const replacement = annotation.arms.find(candidate => candidate.name === 'new')
   const proposed = replacement === undefined ? '' : source.slice(replacement.range.start, replacement.range.end)
   // The typing may also lead the proposed text of the one suggestion: its
@@ -2506,7 +2495,7 @@ function historySplit(
   edits.forEach((edit, index) => {
     const point = points[index] ?? edit.start
     if (point > cursor) insert += spellSuggestion('deletion', source.slice(cursor, point))
-    if (edit.insert.length > 0) insert += spellSuggestion('addition', escapeCompleted(edit.insert))
+    if (edit.insert.length > 0) insert += spellSuggestion('addition', completeTrailingEscape(edit.insert))
     cursor = point
   })
   const rest = source.slice(cursor, arm.range.end)
@@ -8282,7 +8271,7 @@ function createDocumentCoreWithExecutionBudget(
     if (planned !== undefined && planned.length > 0 && typing.length > 0 &&
         input.some(edit => historyHolder(annotationsOverlapping(core, previous, edit), edit.start, edit.end) !== undefined) &&
         !plannedKeepsTyping(previous, input, planned, typing) &&
-        !(escapeCompleted(typing) !== typing && plannedKeepsTyping(previous, input, planned, escapeCompleted(typing)))) {
+        !(completeTrailingEscape(typing) !== typing && plannedKeepsTyping(previous, input, planned, completeTrailingEscape(typing)))) {
       const untracked = planNativeEditsCompiled(previous, input, false, typed)
       return untracked === undefined || untracked.length === 0 ? undefined : trackedFallback(previous, untracked)
     }

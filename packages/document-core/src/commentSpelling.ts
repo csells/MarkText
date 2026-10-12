@@ -1,6 +1,6 @@
 import { createDocumentCore, type DocumentRevision, type DocumentSourceEdit, type MarkdownOptions, type SourceRange } from './documentCore.js'
 import { markupAnnotations } from './markupEditOwnership.js'
-import { CRITIC_MARKER_ALTERNATION } from './internal/profile1/sourceTape.js'
+import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape } from './internal/profile1/sourceTape.js'
 
 /** A Comment payload's source spelling. */
 export interface DocumentCommentPayloadSpelling {
@@ -29,16 +29,6 @@ export interface DocumentCommentPlan {
 export const CRITIC_TOKENS = new RegExp(CRITIC_MARKER_ALTERNATION.replace(String.raw`<<\}`, '<<'), 'g')
 
 /**
- * An odd run of trailing backslashes would escape the Comment closer (E1);
- * one more backslash makes the last one literal instead.
- */
-const protectTrailingBackslash = (payload: string): string => {
-  let run = 0
-  while (run < payload.length && payload[payload.length - 1 - run] === '\\') run += 1
-  return run % 2 === 1 ? `${payload}\\` : payload
-}
-
-/**
  * Payload spellings in the order a Comment prefers them: the author's exact
  * text, then E1 escapes on only the tokens the payload's own parse reports as
  * unpaired, then escapes on every CriticMarkup token. A Comment payload is an
@@ -48,12 +38,12 @@ export function commentPayloadCandidates(
   text: string,
   diagnosticsOf: (payload: string) => readonly { readonly range: SourceRange }[]
 ): readonly DocumentCommentPayloadSpelling[] {
-  const spellings: string[] = [text, protectTrailingBackslash(text)]
+  const spellings: string[] = [text, completeTrailingEscape(text)]
   const diagnostics = diagnosticsOf(text)
   const selective = text.replace(CRITIC_TOKENS, (token: string, offset: number) =>
     diagnostics.some(({ range }) => range.start < offset + token.length && range.end > offset) ? `\\${token}` : token)
-  spellings.push(protectTrailingBackslash(selective))
-  spellings.push(protectTrailingBackslash(text.replace(CRITIC_TOKENS, token => `\\${token}`)))
+  spellings.push(completeTrailingEscape(selective))
+  spellings.push(completeTrailingEscape(text.replace(CRITIC_TOKENS, token => `\\${token}`)))
   const unique = [...new Set(spellings)]
   return Object.freeze(unique.map(payload => Object.freeze({ payload, escaped: payload !== text })))
 }
