@@ -220,7 +220,11 @@ describe('Core consumer projection authority', () => {
     ['a trailing space still being typed', 'a pain, not just \n\nNext.\n', 2, 6, 'pain'],
     ['the end of a paragraph that ends in a space', 'a pain, not just \n\nNext.\n', 12, 17, 'just'],
     ['a backslash escape', 'a \\* b and more\n', 7, 10, 'and'],
-    ['an escape cut in the selection', 'a \\* b and more\n', 2, 6, '* b'],
+    ['a backslash escape held whole', 'a \\* b and more\n', 2, 6, '* b'],
+    ['a backslash escape the selection cuts', 'a \\* b and more\n', 2, 3, '\\'],
+    ['a CRLF document', 'a\r\n\r\nb \\* c and more\r\n', 12, 15, 'and'],
+    ['a deletion before an escape', 'x {--gone--} a \\* b and more\n', 13, 19, 'a * b'],
+    ['an insertion holding an escape', 'lead {++a \\* b++} tail\n', 8, 14, 'a * b'],
     ['an entity', 'Tom &amp; Jerry run\n', 10, 15, 'Jerry'],
     ['a selection inside an entity', 'Tom &amp; Jerry run\n', 4, 8, '&amp']
   ])('projects part of a text node whose meaning differs from its source: %s', (
@@ -247,6 +251,91 @@ describe('Core consumer projection authority', () => {
         ast: {
           root: {
             children: [{ kind: 'paragraph', children: [{ kind: 'text', attributes: { semanticText: text } }] }]
+          }
+        }
+      }
+    })
+    actor.dispose()
+  })
+
+  it.each([
+    ['a CRLF soft break', 'one \\* two\r\nthree\r\n', 4, 14, ['* two', 'soft-break', 'th']],
+    ['a soft break', 'first line\nsecond \\* line\n', 6, 21, ['line', 'soft-break', 'second * ']],
+    ['a hard break', 'first \\* line  \nsecond line\n', 6, 22, ['* line', 'hard-break', 'second']]
+  ])('projects a partial selection across %s', (_name, source, start, end, children) => {
+    const actor = createCoreActor()
+    actor.handle({ type: 'open', session: 45, sequence: 1, source })
+
+    const reply = actor.handle({
+      type: 'selection-projection-at-barrier',
+      session: 45,
+      sequence: 2,
+      baseRevision: 1,
+      range: { start, end }
+    })
+
+    expect(reply).toMatchObject({
+      type: 'selection-projection',
+      projection: {
+        markdown: source.slice(start, end),
+        ast: {
+          root: {
+            children: [
+              {
+                kind: 'paragraph',
+                children: children.map((child) =>
+                  child.endsWith('-break')
+                    ? { kind: child }
+                    : { kind: 'text', attributes: { semanticText: child } }
+                )
+              }
+            ]
+          }
+        }
+      }
+    })
+    actor.dispose()
+  })
+
+  it('projects part of a table cell as that cell\'s meaning', () => {
+    const actor = createCoreActor()
+    actor.handle({
+      type: 'open',
+      session: 46,
+      sequence: 1,
+      source: '| a | b |\n| - | - |\n| one \\* two | x |\n'
+    })
+
+    const reply = actor.handle({
+      type: 'selection-projection-at-barrier',
+      session: 46,
+      sequence: 2,
+      baseRevision: 1,
+      range: { start: 22, end: 30 }
+    })
+
+    expect(reply).toMatchObject({
+      type: 'selection-projection',
+      projection: {
+        markdown: 'one \\* t',
+        ast: {
+          root: {
+            children: [
+              {
+                kind: 'table',
+                children: [
+                  {
+                    kind: 'table-row',
+                    children: [
+                      {
+                        kind: 'table-cell',
+                        children: [{ kind: 'text', attributes: { semanticText: 'one * t' } }]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
           }
         }
       }
