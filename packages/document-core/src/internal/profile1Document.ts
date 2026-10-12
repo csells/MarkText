@@ -119,6 +119,7 @@ import {
   PARSE_SOURCE_CHECKPOINT_INTERVAL,
   type ParseExecutionTracker
 } from '../parseExecutionControl.js'
+import { sourceOffset, sourceRange } from './profile1/sourceRanges.js'
 
 type ImplementedUnaryNode =
   | UnaryCriticNode<'addition', 'content'>
@@ -373,14 +374,6 @@ const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptionsV1 = Object.freeze({
   footnotes: false,
   subscriptAndSuperscript: true
 })
-
-function sourceOffset(value: number): SourceOffset {
-  return value as SourceOffset
-}
-
-function sourceRange(start: number, end: number): SourceRange {
-  return Object.freeze({ start: sourceOffset(start), end: sourceOffset(end) })
-}
 
 function emitCriticMarkerEdges(
   registry: Profile1SyntaxIdentityRegistry,
@@ -4728,10 +4721,20 @@ const windowParses: WindowParse[] = []
  */
 let largeWindowParse: WindowParse | undefined
 
-function sameMarkdownOptions(left: MarkdownOptionsV1, right: MarkdownOptionsV1): boolean {
-  if (left === right) return true
-  const keys = Object.keys(left) as (keyof MarkdownOptionsV1)[]
-  return keys.length === Object.keys(right).length && keys.every(key => left[key] === right[key])
+export function sameMarkdownOptions(
+  left: MarkdownOptionsV1,
+  right: MarkdownOptionsV1
+): boolean {
+  return left.gfm === right.gfm &&
+    left.gfmAutolinks === right.gfmAutolinks &&
+    left.gfmTagFilter === right.gfmTagFilter &&
+    left.frontMatter === right.frontMatter &&
+    left.texMathDollars === right.texMathDollars &&
+    left.texMathGfm === right.texMathGfm &&
+    left.texMathSingleBackslash === right.texMathSingleBackslash &&
+    left.texMathDoubleBackslash === right.texMathDoubleBackslash &&
+    left.footnotes === right.footnotes &&
+    left.subscriptAndSuperscript === right.subscriptAndSuperscript
 }
 
 /**

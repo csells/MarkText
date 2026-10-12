@@ -1,3 +1,5 @@
+import { isSpaceOrTab } from './markdownLexical.js'
+
 /**
  * Profile rule R3b: inside a GFM table an unescaped `|` keeps delimiting
  * cells between CriticMarkup markers, so an annotation may not cut through a
@@ -55,10 +57,6 @@ const TRAILING_EDGE = new RegExp(String.raw`^[ \t]*(?:${DELIMITER}[\s\S]*)?$`, '
 export interface RowSpan {
   readonly start: number
   readonly end: number
-}
-
-function isSpaceOrTab(codeUnit: number): boolean {
-  return codeUnit === 32 || codeUnit === 9
 }
 
 /** The row text of a line: container prefix, edge delimiters and blanks removed. */

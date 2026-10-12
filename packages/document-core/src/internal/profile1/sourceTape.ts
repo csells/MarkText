@@ -1,8 +1,9 @@
-import type { SourceOffset, SourceRange } from '../../revision.js'
+import type { SourceRange } from '../../revision.js'
 import {
   PARSE_SOURCE_CHECKPOINT_INTERVAL,
   type ParseExecutionTracker
 } from '../../parseExecutionControl.js'
+import { sourceRange } from './sourceRanges.js'
 
 export type Profile1CriticKind =
   | 'addition'
@@ -78,14 +79,6 @@ export const FORM_DEFINITIONS: readonly FormDefinition[] = Object.freeze([
   Object.freeze({ kind: 'highlight', open: '{==', close: '==}' }),
   Object.freeze({ kind: 'comment', open: '{>>', close: '<<}' })
 ])
-
-function sourceOffset(value: number): SourceOffset {
-  return value as SourceOffset
-}
-
-function sourceRange(start: number, end: number): SourceRange {
-  return Object.freeze({ start: sourceOffset(start), end: sourceOffset(end) })
-}
 
 function startsWithAt(source: string, marker: string, offset: number): boolean {
   if (offset + marker.length > source.length) {

@@ -13,6 +13,7 @@ import type {
   MarkdownLiteralRange
 } from './markdownTypes.js'
 import type { TapeRun } from './sourceTape.js'
+import { sourceRange } from './sourceRanges.js'
 
 export type IntrinsicProfile1ForkLaneOwner =
   | Readonly<{ readonly kind: 'document' }>
@@ -156,14 +157,6 @@ export interface IntrinsicProfile1ForkRecorder {
     tape: readonly TapeRun[],
     rootExitCheckpoint: MarkdownCheckpoint
   ) => IntrinsicProfile1ForkGraph
-}
-
-function sourceOffset(value: number): SourceOffset {
-  return value as SourceOffset
-}
-
-function sourceRange(start: number, end: number): SourceRange {
-  return Object.freeze({ start: sourceOffset(start), end: sourceOffset(end) })
 }
 
 function activeProvider(

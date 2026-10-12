@@ -11,6 +11,10 @@ export function hasEvenBackslashRunBefore(source: string, offset: number): boole
   return backslashes % 2 === 0
 }
 
+export function isSpaceOrTab(codeUnit: number): boolean {
+  return codeUnit === 32 || codeUnit === 9
+}
+
 function isAsciiLetter(codeUnit: number): boolean {
   return (codeUnit >= 65 && codeUnit <= 90) || (codeUnit >= 97 && codeUnit <= 122)
 }
