@@ -788,29 +788,32 @@ export function createMuyaPlainTextCoreAdapter(
       )
       acknowledged = submission.acknowledged
       transactionId = submission.identity.transactionId
-      recordPerformance(
-        {
-          phase: 'dispatch',
-          transaction: submission.identity.transactionId,
-          pendingDepth: queued.length + 1,
-          ...(command.kind === 'track'
-            ? {
-              insertedUnits: 'data' in command.input ? (command.input.data?.length ?? 0) : 0,
-              ...selectionMeasurement(command.input.selection)
-            }
-            : command.kind === 'clipboard'
+      // Only a trace pays for measuring the dispatched selection.
+      if (performanceTrace !== undefined) {
+        recordPerformance(
+          {
+            phase: 'dispatch',
+            transaction: submission.identity.transactionId,
+            pendingDepth: queued.length + 1,
+            ...(command.kind === 'track'
               ? {
-                insertedUnits: 'markdown' in command.action ? command.action.markdown.length : 0,
-                ...(command.action.kind === 'table'
-                  ? {}
-                  : selectionMeasurement(command.action.selection))
+                insertedUnits: 'data' in command.input ? (command.input.data?.length ?? 0) : 0,
+                ...selectionMeasurement(command.input.selection)
               }
-              : command.kind === 'apply-prepared' && command.operation.kind === 'clipboard'
-                ? { insertedUnits: command.operation.action.markdown.length }
-                : {})
-        },
-        dispatchedAt
-      )
+              : command.kind === 'clipboard'
+                ? {
+                  insertedUnits: 'markdown' in command.action ? command.action.markdown.length : 0,
+                  ...(command.action.kind === 'table'
+                    ? {}
+                    : selectionMeasurement(command.action.selection))
+                }
+                : command.kind === 'apply-prepared' && command.operation.kind === 'clipboard'
+                  ? { insertedUnits: command.operation.action.markdown.length }
+                  : {})
+          },
+          dispatchedAt
+        )
+      }
     } catch (error) {
       active = undefined
       const failure = error instanceof Error ? error : new Error('Core submission failed')
