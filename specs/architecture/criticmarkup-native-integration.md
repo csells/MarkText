@@ -2,7 +2,7 @@
 
 **Status:** Standing requirement, reaffirmed on 8 September 2026. Intrinsic parser and native UI integration were explicit in the July conversations; model-owned editing was required and post-hoc reconstruction prohibited on 19 July.
 
-The [vision](../vision/criticmarkup-vision.md), [Profile 1](../language/marktext-markdown-profile-1.md), its [Markdown image-layout extension](../language/marktext-markdown-profile-2.md), and [document-authority ADR](../adr/0001-core-document-authority.md) remain authoritative. This note refines integration and reuse; it does not replace the language core or reset the architecture.
+The [vision](../vision/criticmarkup-vision.md), [Profile 1](../language/marktext-markdown-profile-1.md), its [Markdown image-layout extension](../language/marktext-markdown-profile-2.md), and [document-authority ADR](../../docs/adr/0005-the-document-revision-is-the-sole-authority.md) remain authoritative. This note refines integration and reuse; it does not replace the language core or reset the architecture.
 
 ## One parser-to-UI stack
 
