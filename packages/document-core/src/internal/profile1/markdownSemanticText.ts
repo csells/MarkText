@@ -1,8 +1,9 @@
-import { characterEntities } from './htmlCharacterEntities.js'
+import { decodeHTMLStrict } from 'entities'
 
-const ESCAPABLE_ASCII_PUNCTUATION = new Set(
-  [...'!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~']
-)
+/** CommonMark's ASCII punctuation, which a backslash escapes, as a character class. */
+export const ASCII_PUNCTUATION = '[!-/:-@[-`{-~]'
+
+const ASCII_PUNCTUATION_CHARACTER = new RegExp(`^${ASCII_PUNCTUATION}$`, 'u')
 
 const STRICT_CHARACTER_REFERENCE =
   /&(?:#(?:[xX][0-9A-Fa-f]{1,6}|[0-9]{1,7})|[A-Za-z][A-Za-z0-9]{0,30});/gu
@@ -25,7 +26,7 @@ const decodeStrictCharacterReferences = (source: string, onSpelling?: DecodedSpe
     const body = reference.slice(1, -1)
     const value = body.startsWith('#')
       ? decodeNumericReference(body)
-      : Object.hasOwn(characterEntities, body) ? characterEntities[body] ?? reference : reference
+      : decodeHTMLStrict(reference)
     if (value !== reference) onSpelling?.(offset, offset + reference.length, value)
     return value
   }
@@ -54,7 +55,7 @@ export function decodeMarkdownSemanticText(source: string, onSpelling?: DecodedS
   for (let offset = 0; offset < source.length; offset += 1) {
     const current = source[offset]
     const next = source[offset + 1]
-    if (current === '\\' && next !== undefined && ESCAPABLE_ASCII_PUNCTUATION.has(next)) {
+    if (current === '\\' && next !== undefined && ASCII_PUNCTUATION_CHARACTER.test(next)) {
       flush()
       decoded += next
       onSpelling?.(offset, offset + 2, next)
@@ -89,27 +90,5 @@ export function normalizeMarkdownAutolinkDestination(source: string): string {
 }
 
 const encodeUriPreservingEscapes = (source: string): string => {
-  const scalarSource = replaceIsolatedSurrogates(source)
-  return encodeURI(scalarSource).replace(/%25([0-9A-Fa-f]{2})/gu, '%$1')
-}
-
-const replaceIsolatedSurrogates = (source: string): string => {
-  let normalized = ''
-  for (let offset = 0; offset < source.length; offset += 1) {
-    const codeUnit = source.charCodeAt(offset)
-    if (codeUnit >= 0xD800 && codeUnit <= 0xDBFF) {
-      const next = source.charCodeAt(offset + 1)
-      if (next >= 0xDC00 && next <= 0xDFFF) {
-        normalized += source.slice(offset, offset + 2)
-        offset += 1
-      } else {
-        normalized += '\uFFFD'
-      }
-    } else if (codeUnit >= 0xDC00 && codeUnit <= 0xDFFF) {
-      normalized += '\uFFFD'
-    } else {
-      normalized += source.charAt(offset)
-    }
-  }
-  return normalized
+  return encodeURI(source.toWellFormed()).replace(/%25([0-9A-Fa-f]{2})/gu, '%$1')
 }

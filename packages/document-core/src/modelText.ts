@@ -11,6 +11,7 @@ import type { DocumentInputAction, DocumentInputPlan, DocumentSourceInputPlan } 
 import { isLiteralBlock } from './literalBlock.js'
 import { containerContinuationPrefix } from './clipboardMarkdown.js'
 import { syntaxPathAt } from './syntaxPath.js'
+import { physicalLineAt } from './sourceLines.js'
 
 /** Resolve values only from the current parser; an address contains no cached semantics. */
 export function resolveModelTextPoint(core: DocumentCore, revision: DocumentRevision, point: DocumentModelTextPoint) {
@@ -85,17 +86,6 @@ function resolveModelTextSelectionInSyntax(core: DocumentCore, revision: Documen
   const first = backward ? focus : anchor
   const last = backward ? anchor : focus
   return { selection: copied, anchor, focus, first, last, backward, collapsed: first.range.start === last.range.start && first.range.end === last.range.end && first.offset === last.offset, bounds: { start: first.range.start, end: last.range.end } }
-}
-
-function physicalLineAt(lines: MarkdownLineIndex, offset: number) {
-  let low = 0
-  let high = lines.count
-  while (low < high) {
-    const mid = low + Math.floor((high - low) / 2)
-    if (lines.at(mid).start <= offset) low = mid + 1
-    else high = mid
-  }
-  return lines.at(Math.max(0, low - 1))
 }
 
 function projectedSourceSlice(core: DocumentCore, revision: DocumentRevision, point: ReturnType<typeof resolveModelTextPoint>, from: number, to: number) {

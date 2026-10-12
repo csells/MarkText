@@ -10,14 +10,17 @@ import { planFormat, type DocumentFormatAction, type DocumentFormatPlan } from '
 import { planInput, positionBefore, reconcileInput, inputSourceRange, type DocumentInputAction, type DocumentInputPlan, type DocumentInputResult, type RegionalBlockContext } from './inputPlanning.js'
 import { normalizeEdits, normalizeInputPlan, selectionAfterNormalization, type EditNormalizationOptions, type EditNormalizationReaders } from './editNormalization.js'
 import { paragraphBackwardStructuralTarget } from './paragraphJoinPlanning.js'
-import { isLiteralBlock } from './literalBlock.js'
+import { FENCED_LITERAL_BLOCKS, isLiteralBlock } from './literalBlock.js'
+import { lineStartBefore } from './sourceLines.js'
+import { isPositionalMarkdownAttribute, shiftMarkdownAstNode } from './markdownPositions.js'
 import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit, withinHistory } from './trackedHistoryEditing.js'
-import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, withoutDocumentSearchBudget, documentSearchExhausted, spelledAsSource, recordedExactly, trackedStructure, type TrackedStructure, type TrackedPart, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
+import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, memoizedPreview, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, withoutDocumentSearchBudget, documentSearchExhausted, spelledAsSource, recordedExactly, trackedStructure, type TrackedStructure, type TrackedPart, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
+import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
 import {
   admitProfile1PlainParagraphRegion,
   createProfile1DocumentReuseCache,
@@ -1199,40 +1202,6 @@ function countCriticMarkupAnnotationNodes(
   return count
 }
 
-function shiftMarkdownAstNode(
-  node: MarkdownAstNode,
-  delta: number
-): MarkdownAstNode {
-  const attributes: Record<string, MarkdownAttribute> = { ...node.attributes }
-  for (const [name, value] of Object.entries(attributes)) {
-    if (
-      typeof value === 'number' &&
-      (name.endsWith('Start') || name.endsWith('End'))
-    ) {
-      attributes[name] = value + delta
-    }
-  }
-  return Object.freeze({
-    kind: node.kind,
-    range: Object.freeze({
-      start: node.range.start + delta,
-      end: node.range.end + delta
-    }),
-    attributes: Object.freeze(attributes),
-    ...(node.semanticTextSegments === undefined
-      ? {}
-      : {
-        semanticTextSegments: Object.freeze(node.semanticTextSegments.map(segment => Object.freeze({
-          range: Object.freeze({ start: segment.range.start + delta, end: segment.range.end + delta }),
-          value: segment.value
-        })))
-      }),
-    children: Object.freeze(node.children.map(
-      child => shiftMarkdownAstNode(child, delta)
-    ))
-  })
-}
-
 /** Window annotations inside `[start, end)` of the window, in document source offsets. */
 function regionalAnnotations(
   annotations: readonly CriticMarkupAnnotation[],
@@ -2140,7 +2109,7 @@ function blockStructure(root: MarkdownAstNode): string {
   const parts: string[] = []
   const visit = (node: MarkdownAstNode): void => {
     const attributes = Object.entries(node.attributes)
-      .filter(([name, value]) => !(typeof value === 'number' && /(?:Start|End)$/u.test(name)) &&
+      .filter(([name, value]) => !(typeof value === 'number' && isPositionalMarkdownAttribute(name)) &&
         !(typeof value === 'string' && (node.kind === 'text' || /(?:[Tt]ext|[Cc]ontent)$/u.test(name))))
       .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
     parts.push(`(${node.kind}${JSON.stringify(attributes)}`)
@@ -2278,8 +2247,6 @@ function contextBlocksOf(core: DocumentCore, previous: DocumentRevision, limit: 
   return Object.freeze(read)
 }
 
-const LITERAL_BLOCK_KINDS = new Set(['code-block', 'math-block', 'diagram'])
-
 /**
  * The top-level fence or math block of a parse holding `start` to `end`
  * between its opening and closing lines, with no suggestion overlapping it.
@@ -2314,7 +2281,7 @@ function plainLiteralBlockIn(
 ): SourceRange | undefined {
   const block = ast.root.children.find(node =>
     coordinates.toSource(node.range.start, 'next') < start && end < coordinates.toSource(node.range.end, 'previous'))
-  if (block === undefined || !LITERAL_BLOCK_KINDS.has(block.kind)) return undefined
+  if (block === undefined || !FENCED_LITERAL_BLOCKS.has(block.kind)) return undefined
   const range = { start: coordinates.toSource(block.range.start, 'next'), end: coordinates.toSource(block.range.end, 'previous') }
   const text = source.slice(range.start, range.end)
   const openerEnd = range.start + text.search(/[\r\n]/u)
@@ -2341,17 +2308,6 @@ const windowCores = new WeakSet<DocumentCore>()
  * the regional windows, often several, that would read the candidate.
  */
 const WINDOW_WHOLE_PREVIEW_UNITS = 2048
-
-/**
- * Typed text as a suggestion's arm holds it: a final odd backslash would
- * escape the arm's closer, so it is completed to an escaped backslash,
- * which renders the one backslash typed.
- */
-function escapeCompleted(text: string): string {
-  let run = 0
-  while (run < text.length && text[text.length - 1 - run] === '\\') run += 1
-  return run % 2 === 1 ? `${text}\\` : text
-}
 
 /**
  * The outermost suggestion whose deleted or replaced text (a Deletion's, or a
@@ -2394,7 +2350,7 @@ function historySplit(
   const outer = held[0]
   if (outer === undefined || held.some(entry => entry?.annotation !== outer.annotation)) return undefined
   const { annotation, arm } = outer
-  const typed = edits.map(edit => escapeCompleted(edit.insert)).join('')
+  const typed = edits.map(edit => completeTrailingEscape(edit.insert)).join('')
   const replacement = annotation.arms.find(candidate => candidate.name === 'new')
   const proposed = replacement === undefined ? '' : source.slice(replacement.range.start, replacement.range.end)
   // The typing may also lead the proposed text of the one suggestion: its
@@ -2402,14 +2358,14 @@ function historySplit(
   // literal block's line.
   if (at === 'arm') {
     const leading = proposed.length === 0 ? typed : edits.map(edit => edit.insert).join('')
-    return { range: annotation.range, insert: `{~~${source.slice(arm.range.start, arm.range.end)}~>${leading}${proposed}~~}`, typed: leading }
+    return { range: annotation.range, insert: spellSuggestion('substitution', source.slice(arm.range.start, arm.range.end), leading + proposed), typed: leading }
   }
   if (at === 'after') {
-    return { range: { start: annotation.range.end, end: annotation.range.end }, insert: `{++${typed}++}`, typed }
+    return { range: { start: annotation.range.end, end: annotation.range.end }, insert: spellSuggestion('addition', typed), typed }
   }
   // A split point never cuts a suggestion nested in the arm: the typing goes
   // before the one holding the caret.
-  const lineStart = (offset: number): number => Math.max(source.lastIndexOf('\n', offset - 1), source.lastIndexOf('\r', offset - 1)) + 1
+  const lineStart = (offset: number): number => lineStartBefore(source, offset)
   const points = edits.map(edit => {
     const point = at === 'caret' ? edit.start : at === 'line' ? Math.max(arm.range.start, lineStart(edit.start)) : arm.range.start
     return arm.annotations.find(nested => nested.range.start < point && point < nested.range.end)?.range.start ?? point
@@ -2419,21 +2375,23 @@ function historySplit(
   let cursor = arm.range.start
   edits.forEach((edit, index) => {
     const point = points[index] ?? edit.start
-    if (point > cursor) insert += `{--${source.slice(cursor, point)}--}`
-    if (edit.insert.length > 0) insert += `{++${escapeCompleted(edit.insert)}++}`
+    if (point > cursor) insert += spellSuggestion('deletion', source.slice(cursor, point))
+    if (edit.insert.length > 0) insert += spellSuggestion('addition', completeTrailingEscape(edit.insert))
     cursor = point
   })
   const rest = source.slice(cursor, arm.range.end)
   if (annotation.kind === 'deletion') {
-    if (rest.length > 0) insert += `{--${rest}--}`
+    if (rest.length > 0) insert += spellSuggestion('deletion', rest)
   } else {
-    insert += rest.length === 0 ? (proposed.length === 0 ? '' : `{++${proposed}++}`) : `{~~${rest}~>${proposed}~~}`
+    insert += rest.length === 0 ? (proposed.length === 0 ? '' : spellSuggestion('addition', proposed)) : spellSuggestion('substitution', rest, proposed)
   }
   return { range: annotation.range, insert, typed }
 }
 
 /** A line opening a block other than a paragraph, or indented as code. */
 const OPENS_BLOCK_LINE = /^(?: {4}|\t| {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-+*](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|`{3,}|~{3,}|<|\$\$|(?:[-*_][ \t]*){3,}(?:[\r\n]|$)|=+[ \t]*(?:[\r\n]|$)|\|))/u
+
+const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'gu')
 
 /** The general tracked compiler for one edit, on any core. */
 function generalTrackedEdit(
@@ -3301,7 +3259,7 @@ function createDocumentCoreWithExecutionBudget(
             kind: ast.kind,
             range: Object.freeze({ start: next.syntax.start, end: next.syntax.end }),
             attributes: Object.freeze(Object.fromEntries(Object.entries(ast.attributes).filter(([name, value]) =>
-              name !== 'content' && !(typeof value === 'number' && /(?:Start|End)$/u.test(name))))),
+              name !== 'content' && !(typeof value === 'number' && isPositionalMarkdownAttribute(name))))),
             children: Object.freeze([])
           }),
           linesBefore: lines.linesBefore,
@@ -3735,7 +3693,7 @@ function createDocumentCoreWithExecutionBudget(
                   kind: literalBlock.kind,
                   range: Object.freeze({ start: blocks.syntax.start + window.syntax, end: blocks.syntax.end + window.syntax }),
                   attributes: Object.freeze(Object.fromEntries(Object.entries(literalBlock.attributes).filter(([name, value]) =>
-                    name !== 'content' && !(typeof value === 'number' && /(?:Start|End)$/u.test(name))))),
+                    name !== 'content' && !(typeof value === 'number' && isPositionalMarkdownAttribute(name))))),
                   children: Object.freeze([])
                 }),
                 linesBefore: literalLines.linesBefore,
@@ -7084,7 +7042,7 @@ function createDocumentCoreWithExecutionBudget(
     // code, not a paragraph; a line opening with a number and `.` or `)` is
     // an ordered list item.
     if (/^(?: {4}|\t| {0,3}\t)/u.test(text) || /(?:^|[\r\n]) {0,3}\d{1,9}[.)](?:[ \t]|[\r\n]|$)/u.test(text)) return false
-    return /^[\p{L}\p{N} \t\r\n.,;:'"?!()]*$/u.test(text.replace(/\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/gu, '')) &&
+    return /^[\p{L}\p{N} \t\r\n.,;:'"?!()]*$/u.test(text.replace(CRITIC_MARKER, '')) &&
       (!breaking || /^[ \t]*(?:\+\+\}|~~\})?(?:\{(?:\+\+|--|==)\p{L}[^{}\r\n]*(?:\+\+|--|==)\}|\{~~\p{L}[^{}\r\n]*~~\}|\{>>[^{}\r\n]*<<\})*[ \t]*(?:\p{L}|[.,;:'"?!()]|\r|\n|$)/u.test(after))
   }
 
@@ -7582,7 +7540,7 @@ function createDocumentCoreWithExecutionBudget(
     const from = Math.max(0, edit.start - 512)
     const to = Math.min(state.source.length, edit.end + 512)
     const text = state.source.slice(from, to)
-    const lineStart = from + Math.max(text.lastIndexOf('\n', edit.start - from - 1), text.lastIndexOf('\r', edit.start - from - 1)) + 1
+    const lineStart = from + lineStartBefore(text, edit.start - from)
     const lineEndAt = text.slice(edit.end - from).search(/[\r\n]/u)
     const line = state.source.slice(lineStart, lineEndAt === -1 ? to : edit.end + lineEndAt)
     const marker = /^[ \t]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]+|$)/u.exec(line)
@@ -7645,7 +7603,7 @@ function createDocumentCoreWithExecutionBudget(
     const next = source.slice(0, edit.start) + edit.insert + source.slice(edit.end)
     if (editsMayRepairMath(state.source, { length: next.length, slice: (from: number, to: number) => next.slice(from, to) },
       [edit], state.markdownOptions)) return undefined
-    const lineStartOf = (at: number): number => Math.max(source.lastIndexOf('\n', at - 1), source.lastIndexOf('\r', at - 1)) + 1
+    const lineStartOf = (at: number): number => lineStartBefore(source, at)
     const keyLine = lineStartOf(edit.start)
     let candidate = before.blocks.findIndex(block => block.end >= keyLine)
     if (candidate === -1) candidate = before.blocks.length
@@ -7868,14 +7826,14 @@ function createDocumentCoreWithExecutionBudget(
       const outer = markupAnnotations(around)
         .find(annotation => annotation.range.start < edit.start && edit.start < annotation.range.end)
       for (const at of outer === undefined ? [] : [outer.range.end, outer.range.start]) {
-        const planned = Object.freeze({ start: at, end: at, insert: `{++${protectNativeCriticText(edit.insert)}++}` })
+        const planned = Object.freeze({ start: at, end: at, insert: spellSuggestion('addition', protectNativeCriticText(edit.insert)) })
         const next = preview([planned])
         if (next.annotations.length === previous.annotations.length + 1 &&
             next.diagnostics.length <= previous.diagnostics.length) return planned
       }
       return undefined
     }
-    const oracle = createTrackedOracle(core, previous, untracked, preview)
+    const oracle = createTrackedOracle(core, previous, untracked, memoizedPreview(preview))
     if (oracle !== undefined && markup === undefined) spelledAsSource.add(oracle)
     if (oracle !== undefined && splitting) {
       recordedExactly.add(oracle)
@@ -7883,8 +7841,10 @@ function createDocumentCoreWithExecutionBudget(
       // record; the search's spans grow to whole suggestions.
       const old = core.sourceSlice(previous, edit)
       const spellings = old.length === 0
-        ? [`{++${edit.insert}++}`]
-        : edit.insert.length === 0 ? [`{--${old}--}`] : [`{--${old}--}{++${edit.insert}++}`, `{~~${old}~>${edit.insert}~~}`]
+        ? [spellSuggestion('addition', edit.insert)]
+        : edit.insert.length === 0
+          ? [spellSuggestion('deletion', old)]
+          : [spellSuggestionPair(old, edit.insert), spellSuggestion('substitution', old, edit.insert)]
       for (const insert of spellings) {
         const spelled = Object.freeze({ start: edit.start, end: edit.end, insert })
         if (oracle.resolvesExactly([spelled])) return spelled
@@ -8004,7 +7964,8 @@ function createDocumentCoreWithExecutionBudget(
    */
   const trackedFallback = (
     previous: DocumentRevision,
-    untracked: readonly DocumentSourceEdit[]
+    untracked: readonly DocumentSourceEdit[],
+    untrackedRead?: DocumentRevision
   ): readonly DocumentSourceEdit[] | undefined => {
     const first = untracked[0]
     const last = untracked.at(-1)
@@ -8014,10 +7975,9 @@ function createDocumentCoreWithExecutionBudget(
     for (const edit of [...untracked].reverse()) next = next.slice(0, edit.start) + edit.insert + next.slice(edit.end)
     const delta = next.length - source.length
     const preview = (candidate: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, candidate)
-    const untrackedNext = preview(untracked)
+    const untrackedNext = untrackedRead ?? preview(untracked)
     const allowed = Math.max(previous.diagnostics.length, untrackedNext.diagnostics.length)
     const options = currentStateOf(previous).markdownOptions
-    const accepted = resolvedSource(next, 'accept', options)
     const rejected = resolvedSource(source, 'reject', options)
     const authors = (annotations: readonly CriticMarkupAnnotation[], at: number): boolean =>
       annotations.some(({ range, arms }) => range.start === at || arms.some(arm => authors(arm.annotations, at)))
@@ -8087,6 +8047,7 @@ function createDocumentCoreWithExecutionBudget(
       }
       return undefined
     }
+    const accepted = resolvedSource(next, 'accept', options)
     // The edit itself is tried first, then each suggestion holding it from
     // the innermost out, then the blocks around it, parted at blank lines.
     const edited = widen(first.start, last.end)
@@ -8100,10 +8061,10 @@ function createDocumentCoreWithExecutionBudget(
       const old = source.slice(span.start, span.end)
       const proposed = next.slice(span.start, span.end + delta)
       const spellings = old === ''
-        ? [`{++${proposed}++}`]
+        ? [spellSuggestion('addition', proposed)]
         : proposed === ''
-          ? [`{--${old}--}`, `{~~${old}~>~~}`]
-          : [`{~~${old}~>${proposed}~~}`, `{--${old}--}{++${proposed}++}`]
+          ? [spellSuggestion('deletion', old), spellSuggestion('substitution', old)]
+          : [spellSuggestion('substitution', old, proposed), spellSuggestionPair(old, proposed)]
       for (const insert of spellings) {
         const candidate = Object.freeze({ start: span.start, end: span.end, insert })
         const read = preview([candidate])
@@ -8172,7 +8133,7 @@ function createDocumentCoreWithExecutionBudget(
     if (planned !== undefined && planned.length > 0 && typing.length > 0 &&
         input.some(edit => historyHolder(annotationsOverlapping(core, previous, edit), edit.start, edit.end) !== undefined) &&
         !plannedKeepsTyping(previous, input, planned, typing) &&
-        !(escapeCompleted(typing) !== typing && plannedKeepsTyping(previous, input, planned, escapeCompleted(typing)))) {
+        !(completeTrailingEscape(typing) !== typing && plannedKeepsTyping(previous, input, planned, completeTrailingEscape(typing)))) {
       const untracked = planNativeEditsCompiled(previous, input, false, typed)
       return untracked === undefined || untracked.length === 0 ? undefined : trackedFallback(previous, untracked)
     }
@@ -8184,17 +8145,16 @@ function createDocumentCoreWithExecutionBudget(
       input.some(edit => /[`$~]/u.test(edit.insert + source.slice(edit.start, edit.end)))
     if (planned !== undefined && planned.length > 0 && !wide) return planned
     if (planned !== undefined && planned.length === 0) return planned
-    const preview = (candidate: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, candidate)
-    if (planned !== undefined && preview(planned).diagnostics.length <= previous.diagnostics.length) return planned
+    const plannedDiagnostics = planned === undefined ? undefined : previewSourceEdits(previous, planned).diagnostics.length
+    if (plannedDiagnostics !== undefined && plannedDiagnostics <= previous.diagnostics.length) return planned
     const untracked = planNativeEditsCompiled(previous, input, false, typed)
-    if (untracked === undefined || untracked.length === 0) {
-      // An edit the untracked compiler refuses is refused tracked too where
-      // its spelling would leave a marker unpaired.
-      return planned !== undefined && preview(planned).diagnostics.length <= previous.diagnostics.length ? planned : undefined
-    }
-    if (planned !== undefined &&
-        preview(planned).diagnostics.length <= Math.max(previous.diagnostics.length, preview(untracked).diagnostics.length)) return planned
-    return trackedFallback(previous, untracked) ?? planned
+    // An edit the untracked compiler refuses is refused tracked too: its
+    // spelling, if any, leaves a marker unpaired.
+    if (untracked === undefined || untracked.length === 0) return undefined
+    const untrackedRead = previewSourceEdits(previous, untracked)
+    if (plannedDiagnostics !== undefined &&
+        plannedDiagnostics <= Math.max(previous.diagnostics.length, untrackedRead.diagnostics.length)) return planned
+    return trackedFallback(previous, untracked, untrackedRead) ?? planned
   }
 
   const planNativeEditsCompiled = (
@@ -8351,7 +8311,7 @@ function createDocumentCoreWithExecutionBudget(
         const node = pending.pop()!
         const start = node.attributes.contentStart
         const end = node.attributes.contentEnd
-        if (['code-block', 'math-block', 'diagram', 'html-block', 'front-matter'].includes(node.kind) &&
+        if (isLiteralBlock(node.kind) &&
             typeof start === 'number' && typeof end === 'number' &&
             coordinates.toSource(node.range.start, 'next') <= editedEnd && coordinates.toSource(node.range.end, 'previous') >= editedStart) {
           let covered = start
@@ -8600,13 +8560,15 @@ function createDocumentCoreWithExecutionBudget(
         const cutting = (edits: readonly DocumentSourceEdit[]): boolean => edits.some(edit =>
           cutsMarker(rootsOverlapping(previous, { start: Math.max(0, edit.start - 3), end: Math.min(previous.sourceLength, edit.end + 3) }), edit))
         const splitting = tracked && keystroke && cutting(plan.edits)
+        let previousRejected: string | undefined
         const rejectsExactly = (edits: readonly DocumentSourceEdit[]): boolean => {
           const holds = edits.some(edit => edit.start < edit.end &&
             rootsOverlapping(previous, edit).some(root => edit.start <= root.range.start && root.range.end <= edit.end))
           if (!holds && !cutting(edits)) return true
           const candidate = previewSourceEdits(previous, edits, false, true)
-          return resolvedSuggestions(candidate.source, candidate.annotations, 'reject') ===
-            resolvedSuggestions(previous.source, previous.annotations, 'reject')
+          const rejected = resolvedSuggestions(candidate.source, candidate.annotations, 'reject')
+          previousRejected ??= resolvedSuggestions(previous.source, previous.annotations, 'reject')
+          return rejected === previousRejected
         }
         const searched = tryPlan()
         const planned = splitting && searched !== undefined && searched.length > 0 && !rejectsExactly(searched) ? undefined : searched

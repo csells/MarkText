@@ -1,8 +1,11 @@
-import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
+import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import { annotationsAround } from './internal/annotationsAround.js'
+import { isAnnotationDelimiter } from './annotationDelimiter.js'
+import { commonAffixes } from './textAffixes.js'
 import { containerContinuationPrefix } from './clipboardMarkdown.js'
 import { INLINE_UPDATE_REG, inlineUpdateLayout } from './inputPolicy.js'
 import { syntaxPathAt } from './syntaxPath.js'
+import { lineEndAt, lineStartAt } from './sourceLines.js'
 
 interface ParagraphLine {
   /** Source start of the line, before any container prefix. */
@@ -49,8 +52,7 @@ function indentedCodeLine(
   containers: readonly MarkdownAstNode[], caret: number, data: string | null, second: ParagraphLine | undefined
 ): { readonly prefix: string, readonly at: number } | undefined {
   if (data !== ' ' || second === undefined) return undefined
-  const preceding = core.sourceSlice(revision, { start: 0, end: caret })
-  const lineStart = Math.max(preceding.lastIndexOf('\n'), preceding.lastIndexOf('\r')) + 1
+  const lineStart = lineStartAt(core, revision, caret)
   const line = core.sourceSlice(revision, { start: lineStart, end: second.start })
   let runStart = caret - lineStart
   while (line[runStart - 1] === ' ') runStart--
@@ -127,26 +129,6 @@ function splitLines(text: string): Array<{ readonly start: number, readonly end:
   return lines
 }
 
-/** The source line containing `position` reaches this far. */
-function sourceLineEnd(core: DocumentCore, revision: DocumentRevision, position: number): number {
-  for (let span = 256; ; span *= 4) {
-    const end = Math.min(revision.sourceLength, position + span)
-    const found = core.sourceSlice(revision, { start: position, end }).search(/[\r\n]/u)
-    if (found >= 0) return position + found
-    if (end === revision.sourceLength) return end
-  }
-}
-
-function sourceLineStart(core: DocumentCore, revision: DocumentRevision, position: number): number {
-  for (let span = 256; ; span *= 4) {
-    const start = Math.max(0, position - span)
-    const text = core.sourceSlice(revision, { start, end: position })
-    const found = Math.max(text.lastIndexOf('\n'), text.lastIndexOf('\r'))
-    if (found >= 0) return start + found + 1
-    if (start === 0) return 0
-  }
-}
-
 function sourceLineOf(syntax: MarkupSyntax, node: MarkdownAstNode): SourceRange {
   const start = syntax.coordinates.toSource(node.range.start, 'previous')
   return { start, end: Math.max(start, syntax.coordinates.toSource(node.range.end, 'next')) }
@@ -155,31 +137,8 @@ function sourceLineOf(syntax: MarkupSyntax, node: MarkdownAstNode): SourceRange 
 /** Narrows an edit to the text it changes. */
 function narrowed(edit: DocumentSourceEdit, current: string): DocumentSourceEdit | undefined {
   if (current === edit.insert) return undefined
-  let head = 0
-  while (head < current.length && head < edit.insert.length && current[head] === edit.insert[head]) head++
-  let tail = 0
-  while (tail < current.length - head && tail < edit.insert.length - head &&
-    current[current.length - 1 - tail] === edit.insert[edit.insert.length - 1 - tail]) tail++
+  const { prefix: head, suffix: tail } = commonAffixes(current, edit.insert)
   return { start: edit.start + head, end: edit.end - tail, insert: edit.insert.slice(head, edit.insert.length - tail) }
-}
-
-/** Whether a source unit is annotation syntax or a comment, which block syntax does not see. */
-function annotationSyntaxAt(annotations: readonly CriticMarkupAnnotation[], position: number): boolean {
-  let level = annotations
-  for (;;) {
-    let low = 0
-    let high = level.length
-    while (low < high) {
-      const middle = (low + high) >>> 1
-      if (level[middle]!.range.end <= position) low = middle + 1
-      else high = middle
-    }
-    const annotation = level[low]
-    if (annotation === undefined || annotation.range.start > position) return false
-    const arm = annotation.arms.find(item => item.range.start <= position && position < item.range.end)
-    if (arm === undefined || arm.name === 'comment') return true
-    level = arm.annotations
-  }
 }
 
 export interface InlineUpdatePlan {
@@ -214,7 +173,7 @@ export function planInlineUpdate(
   const containers = path.slice(0, depth)
   if (!containers.every(node => inlineUpdateContainers.has(node.kind))) return undefined
   const start = syntax.coordinates.toSource(paragraph.range.start, 'previous')
-  const end = sourceLineEnd(core, revision, syntax.coordinates.toSource(paragraph.range.end, 'previous'))
+  const end = lineEndAt(core, revision, syntax.coordinates.toSource(paragraph.range.end, 'previous'))
   if (edits.some(edit => edit.start < start || edit.end > end)) return undefined
   const original = core.sourceSlice(revision, { start, end })
   let text = original
@@ -223,7 +182,7 @@ export function planInlineUpdate(
   // The paragraph and its line prefixes lie in the blocks around its start.
   const roots = annotated ? annotationsAround(core, revision, start) : []
   let hidden = Array.from({ length: original.length }, (_, index) =>
-    annotated && annotationSyntaxAt(roots, start + index))
+    annotated && isAnnotationDelimiter(roots, start + index, true))
   for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
     text = text.slice(0, edit.start - start) + edit.insert + text.slice(edit.end - start)
     hidden = [...hidden.slice(0, edit.start - start), ...Array.from({ length: edit.insert.length }, () => false), ...hidden.slice(edit.end - start)]
@@ -235,7 +194,7 @@ export function planInlineUpdate(
   // Annotation syntax on the first line's prefix is not the container's.
   const spelled = containers.length > 1 ? containerContinuationPrefix(core, revision, syntax, paragraph, containers) : ''
   const continuation = /[{}~]/u.test(spelled)
-    ? spelled.split('').filter((_, index) => !annotationSyntaxAt(annotationsAround(core, revision, start), start - spelled.length + index)).join('')
+    ? spelled.split('').filter((_, index) => !isAnnotationDelimiter(annotationsAround(core, revision, start), start - spelled.length + index, true)).join('')
     : spelled
   // Each later line's prefix spells the continuation around any annotation syntax.
   const prefixes = lines.map((line, index) => {
@@ -288,7 +247,7 @@ export function planInlineUpdate(
     const tight = [...containers].reverse().find(node => node.kind === 'list')?.attributes.tight === true
     if (tight) rows = rows.map((row, index) => index === layout.line ? { ...row, blankBefore: false } : row)
   }
-  // ADR 0007 (owner decision 25 Sep, plan 0012 G24): typing converts the line
+  // ADR 0007 (owner decision 25 Sep): typing converts the line
   // it converts, and other lines keep their bytes unless their meaning needs
   // a change. Upstream's continuation leads, trimming and blank separations are
   // spelling: lazy continuation keeps those lines where they were. A lazy line
@@ -436,15 +395,15 @@ function taskListSeparation(
     return before.endsWith('\r\n') ? '\r\n' : before.endsWith('\r') ? '\r' : '\n'
   }
   const separate = (node: MarkdownAstNode, prefix: string): void => {
-    const at = sourceLineStart(core, revision, syntax.coordinates.toSource(node.range.start, 'next'))
+    const at = lineStartAt(core, revision, syntax.coordinates.toSource(node.range.start, 'next'))
     if (at === 0) return
-    const previous = core.sourceSlice(revision, { start: sourceLineStart(core, revision, at - 1), end: at })
+    const previous = core.sourceSlice(revision, { start: lineStartAt(core, revision, at - 1), end: at })
     if (/^[ \t>]*[\r\n]*$/u.test(previous)) return
     edits.push({ start: at, end: at, insert: prefix.trimEnd() + lineEnding(at) })
   }
   const marker = (node: MarkdownAstNode): string => {
     const at = syntax.coordinates.toSource(node.range.start, 'next')
-    return core.sourceSlice(revision, { start: sourceLineStart(core, revision, at), end: at })
+    return core.sourceSlice(revision, { start: lineStartAt(core, revision, at), end: at })
   }
   const siblings = list.children
   if (index > 0) separate(item, marker(item))

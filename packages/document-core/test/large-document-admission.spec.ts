@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
+import { dense } from './support/inputDriver.js'
 
 // Every document upstream MarkText opens must open. Upstream
 // has no node ceiling, so large ordinary and densely reviewed documents open,
@@ -9,7 +10,6 @@ import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
 
 const options = { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
 const plainParagraph = 'Writing a useful document takes careful editing and a clear view of the text.'
-const denseParagraph = 'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
 
 type Key = Readonly<{ inputType: 'insertText', data: string } | { inputType: 'insertParagraph' } | { inputType: 'deleteContentBackward' }>
 
@@ -55,7 +55,7 @@ const expectFreshParse = (session: Session): void => {
 describe('documents larger than the former 65,536-node ceiling', () => {
   it.each([
     { name: '10,000 plain paragraphs', paragraph: plainParagraph, count: 10_000, wordEnd: 'Writing'.length },
-    { name: '2,000 densely reviewed paragraphs', paragraph: denseParagraph, count: 2_000, wordEnd: 'Review'.length }
+    { name: '2,000 densely reviewed paragraphs', paragraph: dense, count: 2_000, wordEnd: 'Review'.length }
   ])('opens, projects and edits $name', ({ paragraph, count, wordEnd }) => {
     const source = Array.from({ length: count }, () => paragraph).join('\n\n') + '\n'
     const core = createDocumentCore()

@@ -2,8 +2,7 @@ import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNod
 import type { MarkdownLineIndex, MarkdownPhysicalLine } from './revision.js'
 import { syntaxPathAt } from './syntaxPath.js'
 import { escapeTableInput } from './tableRespelling.js'
-
-const LITERALS = new Set(['code-block', 'math-block', 'html-block', 'diagram'])
+import { SPLITTABLE_LITERAL_BLOCKS } from './literalBlock.js'
 
 /**
  * Upstream MarkText's cut of a selection that crosses block boundaries into or
@@ -32,7 +31,7 @@ export function planCrossBlockCut(core: DocumentCore, revision: DocumentRevision
   const to = syntax.coordinates.toProjected(range.end, 'previous')
   const startPath = syntaxPathAt(syntax.ast.root, from)
   const endPath = syntaxPathAt(syntax.ast.root, to)
-  const literalOf = (path: readonly MarkdownAstNode[]) => [...path].reverse().find(node => LITERALS.has(node.kind) && typeof node.attributes.contentStart === 'number')
+  const literalOf = (path: readonly MarkdownAstNode[]) => [...path].reverse().find(node => SPLITTABLE_LITERAL_BLOCKS.has(node.kind) && typeof node.attributes.contentStart === 'number')
   const leafOf = (path: readonly MarkdownAstNode[]) => [...path].reverse().find(node => node.kind === 'paragraph' || node.kind === 'heading')
   const startLiteral = literalOf(startPath)
   const endLiteral = literalOf(endPath)

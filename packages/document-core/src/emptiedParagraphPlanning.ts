@@ -1,27 +1,9 @@
 import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax } from './documentCore.js'
 import { containerContinuationPrefix } from './clipboardMarkdown.js'
 import { syntaxPathAt } from './syntaxPath.js'
+import { lineEndAt, lineStartAt } from './sourceLines.js'
 
 const blankLine = /^[ \t>]*$/u
-
-function lineStartAt(core: DocumentCore, revision: DocumentRevision, position: number): number {
-  for (let span = 256; ; span *= 4) {
-    const start = Math.max(0, position - span)
-    const text = core.sourceSlice(revision, { start, end: position })
-    const found = Math.max(text.lastIndexOf('\n'), text.lastIndexOf('\r'))
-    if (found >= 0) return start + found + 1
-    if (start === 0) return 0
-  }
-}
-
-function lineEndAt(core: DocumentCore, revision: DocumentRevision, position: number): number {
-  for (let span = 256; ; span *= 4) {
-    const end = Math.min(revision.sourceLength, position + span)
-    const found = core.sourceSlice(revision, { start: position, end }).search(/[\r\n]/u)
-    if (found >= 0) return position + found
-    if (end === revision.sourceLength) return end
-  }
-}
 
 /** The line ending that ends the line at `end`, if any. */
 function endingAt(core: DocumentCore, revision: DocumentRevision, end: number): string {

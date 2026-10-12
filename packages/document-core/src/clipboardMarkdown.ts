@@ -6,6 +6,10 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { blockCommandTarget } from './blockCommandPlanning.js'
 import { paragraphImageRange } from './paragraphBoundary.js'
 import type { MarkdownLineIndex } from './revision.js'
+import { lineStartAt } from './sourceLines.js'
+import { CRITIC_MARKER_ALTERNATION } from './internal/profile1/sourceTape.js'
+
+const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'gu')
 
 interface ClipboardInsertion { edit: DocumentSourceEdit, caret: number, after?: readonly DocumentSourceEdit[] }
 
@@ -127,7 +131,7 @@ export function prepareClipboardMarkdown(
       meta: { align: typeof cell.attributes.alignment === 'string' ? cell.attributes.alignment : 'none' }
     }))
   }))
-  // Owner decision: text after a row's last header column,
+  // ADR 0007: text after a row's last header column,
   // which upstream drops, follows the respelled row as it was written.
   const lines = tableToMarkdown({ children: rows }).split('\n')
   for (const [rowIndex, row] of first.children.entries()) {
@@ -148,17 +152,7 @@ export function prepareClipboardMarkdown(
 
 export function containerContinuationPrefix(core: DocumentCore, previous: DocumentRevision, current: MarkupSyntax, anchor: MarkdownAstNode, containers: readonly MarkdownAstNode[]): string {
   const prefixEnd = current.coordinates.toSource(anchor.range.start, 'previous')
-  // Widen the search backward only as far as the line's start requires.
-  let firstLineStart = 0
-  for (let span = 256; ; span *= 4) {
-    const start = Math.max(0, prefixEnd - span)
-    const preceding = core.sourceSlice(previous, { start, end: prefixEnd })
-    const found = Math.max(preceding.lastIndexOf('\n'), preceding.lastIndexOf('\r'))
-    if (found >= 0 || start === 0) {
-      firstLineStart = found >= 0 ? start + found + 1 : 0
-      break
-    }
-  }
+  const firstLineStart = lineStartAt(core, previous, prefixEnd)
   let continuation = core.sourceSlice(previous, { start: firstLineStart, end: prefixEnd })
   // Outside any container, a line continues only the block's indentation:
   // text before it on its line, as a suggestion's markers and the old block
@@ -190,5 +184,5 @@ export function containerContinuationPrefix(core: DocumentCore, previous: Docume
   }
   // A suggestion's markers on the line, as the `~>` before a Substitution's
   // new block, are no container: the parser reads the line without them.
-  return continuation.replace(/\{\+\+|\{--|\{~~|~>|\{==|\{>>|\+\+\}|--\}|~~\}|==\}|<<\}/gu, '')
+  return continuation.replace(CRITIC_MARKER, '')
 }

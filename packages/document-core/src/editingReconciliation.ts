@@ -5,6 +5,7 @@ import { markupEditOwnership, markupReplacementRange } from './markupEditOwnersh
 import { nativeCriticSpelling, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { positionAfter } from './sourcePosition.js'
 import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
+import { CRITIC_FORM_SPELLING } from './internal/profile1/sourceTape.js'
 
 function ordinaryCompilationMatches(
   core: DocumentCore, previous: DocumentRevision, inputs: readonly DocumentSourceEdit[],
@@ -149,9 +150,9 @@ export function compiledEditReconciliation(
   const removal = edits.length === 1 ? edits[0] : undefined
   if (removal !== undefined && input.insert === '' && removal.insert === '' && input.start < input.end &&
       removal.start === input.start - 3 && removal.end === input.end + 3 &&
-      [['{++', '++}'], ['{--', '--}'], ['{==', '==}']].some(([opener, closer]) =>
-        core.sourceSlice(previous, { start: removal.start, end: input.start }) === opener &&
-        core.sourceSlice(previous, { start: input.end, end: removal.end }) === closer) &&
+      (['addition', 'deletion', 'highlight'] as const).some(kind =>
+        core.sourceSlice(previous, { start: removal.start, end: input.start }) === CRITIC_FORM_SPELLING[kind].open &&
+        core.sourceSlice(previous, { start: input.end, end: removal.end }) === CRITIC_FORM_SPELLING[kind].close) &&
       !/[{}]/u.test(core.sourceSlice(previous, input))) {
     return ordinaryIntervalReconciliation(core, previous, input, [removal])
   }

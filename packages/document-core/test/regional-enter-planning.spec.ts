@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
+import { action, lcg, options, press, regional } from './support/inputDriver.js'
 
 // Enter and a soft break are planned from the paragraphs
 // around the caret, and tracked breaks are proved by reparsing only those
@@ -8,13 +9,6 @@ import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from 
 // document parse. Each regional plan must be the one the document parse
 // gives: a seeded differential compares every result with a core that
 // plans from its document parse.
-
-const options = { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
-
-const lcg = (seed: number) => (): number => {
-  seed = (seed * 1664525 + 1013904223) >>> 0
-  return seed / 2 ** 32
-}
 
 /** Paragraphs and suggestions: the blocks a regional window can plan in. */
 const prose = [
@@ -62,38 +56,6 @@ function documentFrom(random: () => number, blocks: readonly string[]): string {
   }
   const text = parts.join('\n\n') + (random() < 0.8 ? '\n' : '')
   return random() < 0.1 ? text.replace(/\n/gu, '\r\n') : text
-}
-
-type Key = 'insertParagraph' | 'insertLineBreak' | 'deleteContentBackward'
-
-const action = (caret: number, inputType: Key): DocumentInputAction => ({
-  range: { start: inputType === 'deleteContentBackward' ? Math.max(0, caret - 1) : caret, end: caret },
-  selection: { ranges: [{ anchor: caret, focus: caret }], primary: 0 },
-  inputType,
-  data: null,
-  options
-}) as DocumentInputAction
-
-/** A revision reached by a regional edit, so it holds no document parse. */
-function regional(core: DocumentCore, source: string, at: number): DocumentRevision {
-  const opened = core.open(source)
-  return core.apply(opened, [{ start: at, end: at, insert: 'q' }], { projections: ['markup'] }).revision
-}
-
-type Outcome = Readonly<{ plan?: unknown, edits?: unknown, selection?: unknown, source?: string, error?: string }>
-
-function press(core: DocumentCore, revision: DocumentRevision, caret: number, key: Key, tracked: boolean): Outcome {
-  try {
-    const input = action(caret, key)
-    const plan = core.planInput(revision, input, { tracked })
-    const edits = core.inputEdits(revision, input, plan, tracked)
-    if (edits === undefined) return { plan }
-    const commit = core.apply(revision, edits, { projections: ['markup'] })
-    const result = core.reconcileInput(revision, plan, commit, input)
-    return { plan, edits, selection: result.selection, source: commit.revision.source }
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) }
-  }
 }
 
 /** Word ends in paragraph text, where a warm-up key lands regionally. */
@@ -212,7 +174,7 @@ describe('new suggestions in a document that already has suggestions reparse onl
     { name: 'a tracked join', caret: target, inputType: 'deleteContentBackward', data: null, range: { start: target - 1, end: target + 1 }, insert: '{--\n\n--}' }
   ])('$name', ({ caret, inputType, data, range, insert }) => {
     const core = createDocumentCore()
-    const revision = core.apply(core.open(source), [{ start: 5, end: 5, insert: 'q' }], { projections: ['markup'] }).revision
+    const revision = regional(core, source, 5)
     const at = caret + 1
     const input = { range, selection: { ranges: [{ anchor: at, focus: at }], primary: 0 }, inputType, data, options } as DocumentInputAction
     const before = inspectDocumentCore(core).documentParses

@@ -2,8 +2,10 @@ import { resolveModelTextSelection, rebaseModelTextPoint } from './modelText.js'
 import type { DocumentInputSelection, DocumentInputTarget } from './inputPlanning.js'
 import { copyDocumentSelection, type DocumentModelTextSelection, type DocumentTextSelection } from './sourceInputPlanning.js'
 import { positionAfter } from './sourcePosition.js'
+import { isLiteralBlock } from './literalBlock.js'
+import { allAnnotations } from './authorPlanning.js'
 import { formatDelimiters } from '@marktext/input-policy'
-import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
+import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import { inlineHtmlFormatPairs } from './documentFormatContext.js'
 import { createTrackedSourceEdit } from './trackedAuthoring.js'
 import { trackedEditableSpans } from './trackedHistoryEditing.js'
@@ -26,7 +28,6 @@ const formats = { strong: 'strong', em: 'emphasis', del: 'strikethrough', inline
 const clearKinds = new Set(['strong', 'emphasis', 'strikethrough', 'inline-code', 'inline-math', 'link', 'image', 'subscript', 'superscript'])
 const htmlFormats = new Set(['u', 'mark', 'sub', 'sup'])
 const contentKinds = new Set(['paragraph', 'heading', 'table-cell'])
-const literalKinds = new Set(['code-block', 'math-block', 'diagram', 'html-block', 'front-matter'])
 
 /** Spell selected literal brackets safely without changing owned inline syntax or escapes. */
 function imageLabelBracketEdits(core: DocumentCore, revision: DocumentRevision, syntax: MarkupSyntax, block: MarkdownAstNode, selection: SourceRange): DocumentSourceEdit[] {
@@ -47,23 +48,11 @@ function imageLabelBracketEdits(core: DocumentCore, revision: DocumentRevision, 
         }
       }
     }
-    if (literalKinds.has(node.kind) || node.kind === 'inline-code' || node.kind === 'inline-math') return
+    if (isLiteralBlock(node.kind) || node.kind === 'inline-code' || node.kind === 'inline-math') return
     for (const child of node.children) visit(child)
   }
   visit(block)
   return edits
-}
-
-function allAnnotations(roots: readonly CriticMarkupAnnotation[]): CriticMarkupAnnotation[] {
-  const result: CriticMarkupAnnotation[] = []
-  const pending = [...roots]
-  while (pending.length > 0) {
-    const annotation = pending.pop()
-    if (annotation === undefined) break
-    result.push(annotation)
-    for (const arm of annotation.arms) pending.push(...arm.annotations)
-  }
-  return result
 }
 
 function canonicalSelection(target: DocumentInputTarget, backward = false): DocumentInputSelection {
@@ -176,7 +165,7 @@ function planSelectedFormat(
     ? range.start < start && start < range.end
     : range.start < end && start < range.end
   const visit = (node: MarkdownAstNode): void => {
-    if (node.range.end < start || node.range.start > end || literalKinds.has(node.kind)) return
+    if (node.range.end < start || node.range.start > end || isLiteralBlock(node.kind)) return
     if (contentKinds.has(node.kind)) blocks.push(node)
     if (action.image === undefined && (format === 'clear' ? clearKinds.has(node.kind) : node.kind !== 'inline-html' && node.kind === formats[format]) && intersects(node.range)) toggles.push(node)
     if (format === 'clear' || htmlFormats.has(format)) {
