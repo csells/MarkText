@@ -3035,6 +3035,8 @@ const handleFindAction = (action: unknown) => {
     }
     const result = coreSearchPresentation?.navigate(direction)
     if (result === undefined) return
+    // Replace One and a later refresh act on the match now active.
+    if (coreSearchSnapshot !== undefined) coreSearchSnapshot = Object.freeze({ ...coreSearchSnapshot, result })
     editorStore.UPDATE_CORE_CONSUMER_SEARCH(
       props.coreLease.documentId,
       props.coreLease.identity,
@@ -4453,6 +4455,15 @@ onMounted(() => {
       }
     }
   )
+
+  // A preference that re-renders every block (line numbers, locale) replaces
+  // the blocks Core find painted (upstream #5651).
+  editor.value.on('force-rendered', () => {
+    if (coreSearchPresentation?.repaint() === false) {
+      coreSearchSnapshot = undefined
+      coreSearchProjectionEpoch = -1
+    }
+  })
 
   editor.value.on('preview-image', ({ data }: { data: string }) => {
     mediaViewer.value?.openImage(data)

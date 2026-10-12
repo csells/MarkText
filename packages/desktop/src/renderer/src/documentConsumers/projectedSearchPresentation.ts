@@ -25,6 +25,8 @@ export interface ProjectedSearchPresentationHost {
 export interface ProjectedSearchPresentation {
   present(result: ProjectedSearchResult): boolean
   navigate(action: 'next' | 'previous'): ProjectedSearchResult
+  /** Paints the current result again on blocks the host has re-created. */
+  repaint(): boolean
   selection(): MuyaPlainTextAuthorSelection | undefined
   clear(): void
 }
@@ -222,6 +224,7 @@ export function createProjectedSearchPresentation(
 
   return Object.freeze({
     present,
+    repaint: () => current.matches.length === 0 || present(current),
     selection: () => activeSelection,
     navigate(action: 'next' | 'previous'): ProjectedSearchResult {
       const length = current.matches.length

@@ -493,6 +493,9 @@ export class Muya {
         }
 
         this._applyEditablePaths();
+        // A host that paints its own decorations, such as Core find's
+        // highlights, repaints the blocks this render replaced.
+        this.eventCenter.emit('force-rendered');
     }
 
     /** Update list indentation and re-render so it takes effect. */
