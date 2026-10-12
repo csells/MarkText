@@ -20,7 +20,7 @@ for (const surface of ['wysiwyg', 'source', 'inactive tab'] as const) {
       await page.evaluate(() => window.__marktextDocumentCore?.settled())
       const generation = await page.evaluate(() => {
         const host = window as typeof window & { idleWorkerCrash?: () => void }
-        host.idleWorkerCrash = window.__marktextDocumentCore?.crashWorker
+        host.idleWorkerCrash = window.__marktextDocumentCore?.crashCoreOwner
         return window.__marktextDocumentCore?.generation
       })
       if (surface === 'source') await enterSourceMode(page, app)

@@ -291,7 +291,7 @@ export const waitForEditor = async(page: Page, timeout = 15000): Promise<void> =
   )
   // Core first mounts its authority-backed view after the placeholder editor.
   // Synthetic caret setup must not target that outgoing placeholder subtree.
-  await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core', null, {
+  await page.waitForFunction(() => window.__marktextDocumentCore !== undefined, null, {
     timeout
   })
   await expect(page.locator('.core-view-handoff')).toHaveCount(0)
