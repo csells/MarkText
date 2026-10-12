@@ -1,6 +1,7 @@
 import type { Muya } from '../../../muya';
 import type { IRenderCursor } from '../../../selection/types';
 import type AtxHeading from '../../commonMark/atxHeading';
+import { CLASS_NAMES } from '../../../config';
 import { dispatchDocumentHeading } from '../../../editor/documentEditing';
 import { isKeyboardEvent } from '../../../utils';
 import Format from '../../base/format';
@@ -25,6 +26,12 @@ class AtxHeadingContent extends Format {
 
     override getAnchor() {
         return this.parent;
+    }
+
+    override hiddenLeadingSyntaxEnd(): number {
+        if (!this.domNode?.firstElementChild?.classList.contains(CLASS_NAMES.MU_HIDE))
+            return 0;
+        return /^ {0,3}#{1,6}[ \t]*/.exec(this.text)?.[0].length ?? 0;
     }
 
     override update(cursor?: IRenderCursor, highlights = []) {
