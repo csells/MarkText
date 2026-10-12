@@ -3,22 +3,32 @@ import type { bootCoreBoundary } from '../../host/coreBoundaryControl';
 
 type CoreBoundary = ReturnType<typeof bootCoreBoundary>;
 
-export interface IBootCoreOptions {
+export interface IBootCoreOptions<Arg = undefined> {
     tracked?: boolean;
     options?: Parameters<typeof bootCoreBoundary>[4];
     /** `setCursor` arguments for the first content block, applied in the same page task as the boot. */
     cursor?: [begin: number, end: number, needUpdate?: boolean];
+    /**
+     * Page code run with `arg` after the boot and cursor, in the same page task.
+     * Like a `page.evaluate` function it is sent as source, so it reads only
+     * its argument and page globals.
+     */
+    setup?: (arg: Arg) => unknown;
+    arg?: Arg;
 }
 
 /** Open `source` in a fresh Core binding over the host's Muya and expose it as `window.coreBoundary`. */
-export async function bootCore(page: Page, source: string, { tracked, options, cursor }: IBootCoreOptions = {}): Promise<void> {
-    await page.evaluate(async ({ source, tracked, options, cursor }) => {
+export async function bootCore<Arg = undefined>(page: Page, source: string, { tracked, options, cursor, setup, arg }: IBootCoreOptions<Arg> = {}): Promise<void> {
+    await page.evaluate(async ({ source, tracked, options, cursor, setup, arg }) => {
         const modulePath = '/coreBoundaryControl.ts';
         const control = await import(/* @vite-ignore */ modulePath);
         window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked, undefined, options);
         if (cursor)
             window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(...cursor);
-    }, { source, tracked, options, cursor });
+        // Playwright sends page functions as source; `setup` runs the same way.
+        if (setup !== undefined)
+            await (new Function(`return (${setup})`)() as (arg: unknown) => unknown)(arg);
+    }, { source, tracked, options, cursor, setup: setup?.toString(), arg });
 }
 
 export async function readCore(page: Page): Promise<ReturnType<CoreBoundary['read']>> {
