@@ -1,6 +1,7 @@
-import { commentPayloadCandidates } from './commentSpelling.js'
+import { CRITIC_TOKENS, commentPayloadCandidates } from './commentSpelling.js'
 import { highlightCommentLayout, type HighlightCommentLayout, type HighlightCommentPair } from './commentedSpans.js'
 import { protectNativeCriticText } from './trackedAuthoring.js'
+import { spellSuggestion } from './internal/profile1/sourceTape.js'
 import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, SourceRange } from './documentCore.js'
 
 export type DocumentAuthorForm = 'addition' | 'comment' | 'highlight' | 'substitution'
@@ -42,8 +43,8 @@ export const planAuthor = (
   const layout = highlightCommentLayout(activeRevision.annotations)
   if (request.form === 'comment') {
     const around = innermostHighlightAround(layout, request.range)
-    // A comment on text in a standalone highlight comments on that highlight
-    // (plan 0012 G16); in a commented passage it nests a new pair below.
+    // A comment on text in a standalone highlight comments on that highlight;
+    // in a commented passage it nests a new pair below.
     if (around !== undefined && layout.standalone.includes(around)) {
       return planHighlightComment(around, request.text, preview, diagnosticsOf)
     }
@@ -152,12 +153,12 @@ export const planAuthor = (
   ): Omit<DocumentAuthorPlan, 'escaped'> | undefined => {
     const insert =
         request.form === 'addition'
-          ? `{++${selected}++}`
+          ? spellSuggestion('addition', selected)
           : request.form === 'comment'
-            ? `{==${selected}==}{>>${authoredText}<<}`
+            ? spellSuggestion('highlight', selected) + spellSuggestion('comment', authoredText)
             : request.form === 'highlight'
-              ? `{==${selected}==}`
-              : `{~~${selected}~>${authoredText}~~}`
+              ? spellSuggestion('highlight', selected)
+              : spellSuggestion('substitution', selected, authoredText)
     const edit = Object.freeze({
       start: authoredRange.start,
       end: authoredRange.end,
@@ -252,10 +253,7 @@ export const planAuthor = (
     }
     return undefined
   }
-  const protectedText = request.text.replace(
-    /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<</g,
-    (token) => `\\${token}`
-  )
+  const protectedText = request.text.replace(CRITIC_TOKENS, (token) => `\\${token}`)
   if (protectedText === request.text) return undefined
   return planned(candidateFor(protectedSelected, protectedText), protectedSelected, protectedText)
 }
@@ -273,7 +271,7 @@ function innermostHighlightAround(layout: HighlightCommentLayout, range: SourceR
 
 /**
  * Keeps an authored range's delimiters out of a commented span's gap and off
- * its hidden edges (plan 0012 G39): a range that starts at the end of
+ * its hidden edges (Profile 2, V6): a range that starts at the end of
  * commented text starts after its Comment, one that ends at its start ends
  * before its Highlight, and one that covers all its text takes the Comment.
  */
@@ -307,7 +305,7 @@ function planHighlightComment(
   const at = highlight.range.end
   const payloads = [text, ...commentPayloadCandidates(text, diagnosticsOf).map(({ payload }) => payload).filter(payload => payload !== text)]
   for (const payload of payloads) {
-    const edit = Object.freeze({ start: at, end: at, insert: `{>>${payload}<<}` })
+    const edit = Object.freeze({ start: at, end: at, insert: spellSuggestion('comment', payload) })
     const candidate = preview([edit])
     const end = at + edit.insert.length
     if (candidate.diagnostics.some(diagnostic => diagnostic.range.start < end && diagnostic.range.end > at)) continue
@@ -320,7 +318,8 @@ function planHighlightComment(
   return undefined
 }
 
-function allAnnotations(roots: readonly CriticMarkupAnnotation[]): readonly CriticMarkupAnnotation[] {
+/** Every annotation of the trees `roots`, nested ones included. */
+export function allAnnotations(roots: readonly CriticMarkupAnnotation[]): readonly CriticMarkupAnnotation[] {
   const all: CriticMarkupAnnotation[] = []
   const pending = [...roots]
   while (pending.length > 0) {

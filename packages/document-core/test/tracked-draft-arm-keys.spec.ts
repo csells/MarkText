@@ -1,16 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentRevision } from '../src/index.js'
+import { dense, lcg } from './support/inputDriver.js'
 
 // Typing inside one's own suggestion extends it, as in Google Docs, even where
 // the text typed beside a fence would read otherwise once the suggestion is
 // accepted (Profile rule L2c, ADR-0014). These keys of the tracked sweep used
 // to compile into Substitutions running to the end of the document.
 
-const lcg = (seed: number) => (): number => {
-  seed = (seed * 1664525 + 1013904223) >>> 0
-  return seed / 2 ** 32
-}
-const dense = 'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
 const blocks = [
   dense, 'Plain words here.', 'Text {==marked *text*==}{>>see **this** {++and that++}<<} end.',
   '{==outer {==inner==}{>>nested<<} text==}{>>outer comment<<}', '{=={--gone--}==}{>>only deleted<<} tail.',

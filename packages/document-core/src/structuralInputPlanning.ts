@@ -13,6 +13,7 @@ import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSo
 import type { DocumentInputAction, DocumentSourceInputPlan } from './inputPlanning.js'
 import { resolveTableCell } from './tableSelection.js'
 import { positionAfter } from './sourcePosition.js'
+import { firstLineEnding, lineEndAt, lineStartAt, lineStartBefore, physicalLineAt } from './sourceLines.js'
 import { materializeTableCellEdit, tableRowCompletion } from './tableCellEditing.js'
 import { paragraphPrefixPosition, paragraphImageRange } from './paragraphBoundary.js'
 import { literalJoinParagraphText, tableJoinParagraphText, emptyParagraphJoinContainer, paragraphJoinBlock, paragraphJoinAdjacent, paragraphJoinTrailingEdits, paragraphLeadingLineJoin } from './paragraphJoinPlanning.js'
@@ -21,7 +22,7 @@ import { annotationsAround, annotationsOverlapping } from './internal/annotation
 import { planEmptiedSetextReset } from './setextTrailingLine.js'
 import { mergeAdjacentEdits, planEmptiedParagraph } from './emptiedParagraphPlanning.js'
 import { blockCommandTarget, planBlockCommand } from './blockCommandPlanning.js'
-import { isLiteralBlock, literalParagraphSpelling } from './literalBlock.js'
+import { CARET_TARGET_BLOCKS, isLiteralBlock, literalParagraphSpelling } from './literalBlock.js'
 
 /** Shared sparse removal for native table commands and rectangular selections. */
 export function planTableRemoval(
@@ -51,7 +52,7 @@ export function planTableRemoval(
     const outside: MarkdownAstNode[] = []
     const visit = (node: MarkdownAstNode): void => {
       if (node === table) return
-      if (['paragraph', 'heading', 'table-cell', 'code-block', 'math-block', 'diagram', 'front-matter'].includes(node.kind)) outside.push(node)
+      if (CARET_TARGET_BLOCKS.has(node.kind)) outside.push(node)
       else for (const child of node.children) visit(child)
     }
     visit(syntax.ast.root)
@@ -237,8 +238,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     }
   }
   const rawRange = 'range' in action ? action.range : { start, end: start }
-  const preceding = core.sourceSlice(revision, { start: 0, end: start })
-  const lineEnding = preceding.match(/\r\n|\r|\n/u)?.[0] ?? core.sourceSlice(revision, { start, end: revision.sourceLength }).match(/\r\n|\r|\n/u)?.[0] ?? '\n'
+  const lineEnding = firstLineEnding(core, revision, 0, start) ?? firstLineEnding(core, revision, start, revision.sourceLength) ?? '\n'
   if (start === end && ('kind' in action ? action.command === 'changeBlock' && action.change.type === 'reset' && action.change.at === undefined : inputType === 'insertParagraph')) {
     const reset = planEmptiedSetextReset(core, revision, projection, start)
     if (reset !== undefined) return reset
@@ -297,7 +297,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     let following: MarkdownAstNode | undefined
     const findFollowing = (node: MarkdownAstNode): void => {
       if (following !== undefined || node === boundary) return
-      if (node.range.start >= boundary.range.end && ['paragraph', 'heading', 'table-cell', 'code-block', 'math-block', 'diagram', 'front-matter'].includes(node.kind)) {
+      if (node.range.start >= boundary.range.end && CARET_TARGET_BLOCKS.has(node.kind)) {
         following = node
         return
       }
@@ -545,7 +545,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         return result([{ start: from, end: to, insert: '' }, ...trailing], { start: from, end: from })
       }
       case 'tab': {
-        const literal = ancestors.find(node => ['code-block', 'diagram', 'math-block', 'html-block', 'front-matter'].includes(node.kind))
+        const literal = ancestors.find(node => isLiteralBlock(node.kind))
         if (literal !== undefined && typeof literal.attributes.contentStart === 'number') {
           const { from, to } = literalContentSource(projection, sourceAt, literal)
           const body = core.sourceSlice(revision, { start: from, end: to })
@@ -584,7 +584,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         const visit = (node: MarkdownAstNode): void => {
           if (node.range.end > table.range.start) {
             for (const child of node.children) visit(child)
-          } else if (['paragraph', 'heading', 'table-cell', 'code-block', 'math-block', 'diagram', 'front-matter'].includes(node.kind)) previous = node
+          } else if (CARET_TARGET_BLOCKS.has(node.kind)) previous = node
           else for (const child of node.children) visit(child)
         }
         visit(projection.ast.root)
@@ -615,22 +615,12 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         const last = payload.at(-1)
         if (first === undefined || last === undefined || payload.some(node => node.kind !== 'text' && node.kind !== 'soft-break')) throw new RangeError('Code reset requires its owned literal payload')
         const lines = physicalLines()
-        const lineAt = (offset: number) => {
-          let low = 0
-          let high = lines.count
-          while (low < high) {
-            const middle = low + Math.floor((high - low) / 2)
-            if (lines.at(middle).start <= offset) low = middle + 1
-            else high = middle
-          }
-          return lines.at(Math.max(0, low - 1))
-        }
-        const prefixEnd = (line: ReturnType<typeof lineAt>) => Math.max(line.start,
+        const prefixEnd = (line: ReturnType<typeof physicalLineAt>) => Math.max(line.start,
           ...line.listMarkers.map(marker => marker.contentOffset),
           ...line.listIndentations.map(marker => marker.end),
           ...line.blockquoteMarkers.map(marker => marker.end))
-        const opener = lineAt(code.range.start)
-        const closer = lineAt(Math.max(code.range.start, code.range.end - 1))
+        const opener = physicalLineAt(lines, code.range.start)
+        const closer = physicalLineAt(lines, Math.max(code.range.start, code.range.end - 1))
         const from = sourceAt(prefixEnd(opener))
         const payloadStart = sourceAt(first.range.start)
         const payloadEnd = projection.coordinates.toSource(last.range.end, 'previous')
@@ -640,10 +630,10 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
           if (to > from) edits.push({ start: from, end: to, insert: '' })
         }
         remove(from, payloadStart)
-        let previousLine = lineAt(first.range.start).start
+        let previousLine = physicalLineAt(lines, first.range.start).start
         for (const child of payload) {
           if (child.kind === 'soft-break') continue
-          const line = lineAt(child.range.start)
+          const line = physicalLineAt(lines, child.range.start)
           const range = { start: sourceAt(child.range.start), end: projection.coordinates.toSource(child.range.end, 'previous') }
           if (line.start !== previousLine) {
             remove(sourceAt(prefixEnd(line)), range.start)
@@ -1121,8 +1111,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     const body = core.sourceSlice(revision, { start: from, end: to })
     if (fence.attributes.provider === 'indented-code') {
       // Each line of indented code repeats its line's indentation and containers.
-      const line = core.sourceSlice(revision, { start: 0, end: start })
-      const prefix = /^[ \t>]*/u.exec(line.slice(Math.max(line.lastIndexOf('\n'), line.lastIndexOf('\r')) + 1))?.[0] ?? ''
+      const prefix = /^[ \t>]*/u.exec(core.sourceSlice(revision, { start: lineStartAt(core, revision, start), end: start }))?.[0] ?? ''
       const insert = lineEnding + prefix
       return result([{ start, end, insert }], { start: start + insert.length, end: start + insert.length })
     }
@@ -1135,7 +1124,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     }
     // The policy reads the code's own line, after its container prefix.
     const offset = start - from
-    const lineStart = Math.max(body.lastIndexOf('\n', offset - 1), body.lastIndexOf('\r', offset - 1)) + 1
+    const lineStart = lineStartBefore(body, offset)
     const lineEnd = body.slice(lineStart).search(/\r|\n/u)
     const sourceLine = body.slice(lineStart, lineEnd === -1 ? body.length : lineStart + lineEnd)
     const strip = prefix !== '' && sourceLine.startsWith(prefix) && offset - lineStart >= prefix.length ? prefix.length : 0
@@ -1260,28 +1249,11 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     ? lineEnding + (block?.kind === 'paragraph' || block?.kind === 'heading' ? containerContinuationPrefix(core, revision, projection, block, blockContainers) : '')
     : newParagraph
   const list = [...ancestors].reverse().find(node => node.kind === 'list')
-  const lineStartOf = (position: number): number => {
-    for (let span = 256; ; span *= 4) {
-      const from = Math.max(0, position - span)
-      const text = core.sourceSlice(revision, { start: from, end: position })
-      const found = Math.max(text.lastIndexOf('\n'), text.lastIndexOf('\r'))
-      if (found >= 0) return from + found + 1
-      if (from === 0) return 0
-    }
-  }
-  const lineEndOf = (position: number): number => {
-    for (let span = 256; ; span *= 4) {
-      const to = Math.min(revision.sourceLength, position + span)
-      const found = core.sourceSlice(revision, { start: position, end: to }).search(/[\r\n]/u)
-      if (found >= 0) return position + found
-      if (to === revision.sourceLength) return to
-    }
-  }
   // The marker line of an item split after `item`, continuing its containers.
   // Upstream continues a task item, bullet or ordered, as an unchecked one.
   const siblingMarker = (item: MarkdownAstNode): string => {
     const itemStart = sourceAt(item.range.start)
-    const markerLineEnd = lineEndOf(itemStart)
+    const markerLineEnd = lineEndAt(core, revision, itemStart)
     const firstStart = item.children[0] === undefined ? markerLineEnd : sourceAt(item.children[0].range.start)
     const task = item.attributes.task === true
     let marker = core.sourceSlice(revision, { start: itemStart, end: task ? sourceAt(Number(item.attributes.taskMarkerStart)) : Math.min(firstStart, markerLineEnd) })
@@ -1301,12 +1273,12 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     if (moved === undefined) throw new RangeError('List item split has no moved block')
     const marker = siblingMarker(item)
     const movedStart = sourceAt(moved.range.start)
-    const lineStart = lineStartOf(movedStart)
+    const lineStart = lineStartAt(core, revision, movedStart)
     let leaf = moved
     while (!['paragraph', 'heading'].includes(leaf.kind) && !isLiteralBlock(leaf.kind) && leaf.children[0] !== undefined) leaf = leaf.children[0]
     const leafFrom = sourceAt(typeof leaf.attributes.contentStart === 'number' ? leaf.attributes.contentStart : leaf.range.start)
     // A task paragraph's text begins after its checkbox's separating space.
-    const leafStart = leafFrom + (leaf.kind === 'paragraph' ? core.sourceSlice(revision, { start: leafFrom, end: Math.min(lineEndOf(leafFrom), leafFrom + 8) }).search(/[^ \t]|$/u) : 0)
+    const leafStart = leafFrom + (leaf.kind === 'paragraph' ? core.sourceSlice(revision, { start: leafFrom, end: Math.min(lineEndAt(core, revision, leafFrom), leafFrom + 8) }).search(/[^ \t]|$/u) : 0)
     // A task checkbox begins a paragraph, so another block moved into a new
     // task item keeps its own line beneath the new marker line.
     if (moved.kind !== 'paragraph' && marker.endsWith('[ ] ')) {
@@ -1319,7 +1291,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
   if (block !== undefined && paragraphBreak && item !== undefined && blockContainers.at(-1) === item && item.children.length === 1) {
     const marker = siblingMarker(item)
     const contentStart = sourceAt(block.range.start)
-    const lineStart = lineStartOf(contentStart)
+    const lineStart = lineStartAt(core, revision, contentStart)
     // Content written on the line after its marker is split at its start as
     // upstream writes both items: the new marker replaces that line's indent.
     if (start === end && start === contentStart && lineStart > sourceAt(item.range.start)) {

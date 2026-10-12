@@ -1,4 +1,4 @@
-import { tableToMarkdownWithPositions } from '@marktext/input-policy'
+import { escapeTableCellPipes, tableToMarkdownWithPositions } from '@marktext/input-policy'
 import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import type { DocumentInputSelection } from './inputPlanning.js'
 import { copyDocumentSelection, type DocumentModelTextPoint, type DocumentSelection, type DocumentTableSelection } from './sourceInputPlanning.js'
@@ -112,8 +112,8 @@ function tableRespellingEdits(
     }
     if (rowEnd === undefined) return undefined
     // Text after the header's last column stays as written: upstream drops
-    // those cells, but the owner ruled that padding never removes text.
-    // The parser reads them as no cell, so they are not respelled.
+    // those cells, but the owner ruled that padding never removes text (ADR
+    // 0007). The parser reads them as no cell, so they are not respelled.
     if (missing !== '') replace(rowEnd, rowEnd, missing)
     if (rowIndex === 0) {
       for (const [column, cell] of header.children.entries()) {
@@ -236,17 +236,9 @@ function escapeCellPipes<Plan extends { readonly edits: readonly DocumentSourceE
       shift += edit.insert.length - (edit.end - edit.start)
       continue
     }
-    let insert = ''
-    let previous = character(edit.start - 1)
-    for (let index = 0; index < edit.insert.length; index++) {
-      const next = edit.insert.charAt(index)
-      if (next === '|' && previous !== '\\') {
-        insert += '\\'
-        added.push(edit.start + shift + index)
-      }
-      insert += next
-      previous = next
-    }
+    const before = character(edit.start - 1)
+    const insert = escapeTableCellPipes(edit.insert, before, index => added.push(edit.start + shift + index))
+    const previous = edit.insert.length === 0 ? before : edit.insert.charAt(edit.insert.length - 1)
     if (character(edit.end) === '|' && previous !== '\\' && contents.some(content => content.start <= edit.end && edit.end < content.end)) {
       escapes.push({ start: edit.end, end: edit.end, insert: '\\' })
     }

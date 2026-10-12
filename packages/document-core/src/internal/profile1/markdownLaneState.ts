@@ -24,6 +24,7 @@ import {
 import type {
   Profile1PhysicalTraversalRecorderV1
 } from './physicalTraversalAccounting.js'
+import { CRITIC_MARKERS } from './sourceTape.js'
 
 interface MarkdownLinePath {
   readonly parent: MarkdownLinePath | undefined
@@ -2978,19 +2979,7 @@ export function createMarkdownLaneState(
   physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): MarkdownLaneState {
   const lineBlockProbeCanPersist = hasCriticMarkupCandidate === undefined
-    ? ![
-      '{++',
-      '++}',
-      '{--',
-      '--}',
-      '{~~',
-      '~>',
-      '~~}',
-      '{==',
-      '==}',
-      '{>>',
-      '<<}'
-    ].some((marker) => source.includes(marker))
+    ? !CRITIC_MARKERS.some((marker) => source.includes(marker))
     : !hasCriticMarkupCandidate
   const linePathsWithBlockProbe = new WeakSet<MarkdownLinePath>()
   const nextBacktickRunStart = createNextBacktickRunStart(

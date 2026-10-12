@@ -22,6 +22,16 @@ import type { Profile1PhysicalTraversalRecorderV1 } from './physicalTraversalAcc
 import type { MappedProjectionSegment } from './syntaxGraph.js'
 import { markdownReferenceDefinitionLabel, normalizeMarkdownReferenceLabel } from './markdownLaneState.js'
 import {
+  CRITIC_CLOSER_BY_OPENER,
+  CRITIC_FORM_BY_CLOSER,
+  CRITIC_FORM_BY_OPENER,
+  CRITIC_FORM_SPELLING,
+  CRITIC_MARKER_ALTERNATION
+} from './sourceTape.js'
+import { FENCED_LITERAL_BLOCKS, SPLITTABLE_LITERAL_BLOCKS, isLiteralBlock } from '../../literalBlock.js'
+import { lineStartBefore } from '../../sourceLines.js'
+import { isPositionalMarkdownAttribute } from '../../markdownPositions.js'
+import {
   createPlainParagraphRetainedIndex,
   type PlainParagraphIndexRecorder,
   type PlainParagraphRetainedIndex
@@ -667,9 +677,6 @@ function annotationCapsule(
   })
 }
 
-/** Blocks whose children are the literal lines of their text. */
-const LITERAL_BLOCK_KINDS: ReadonlySet<string> = new Set(['code-block', 'math-block', 'html-block', 'diagram', 'front-matter'])
-
 function markdownTopology(
   roots: readonly MarkdownNode[],
   rangeDelta: number,
@@ -696,7 +703,7 @@ function markdownTopology(
       }).join('\u0001')
     // A literal block's children are the lines of its text, which a key
     // typing into it may add or remove.
-    const literal = positions !== undefined && LITERAL_BLOCK_KINDS.has(node.kind)
+    const literal = positions !== undefined && isLiteralBlock(node.kind)
     result.push(`${node.kind}:${literal ? 'literal' : node.childCount}:${attributes}`)
     if (literal) continue
     for (let ordinal = node.childCount - 1; ordinal >= 0; ordinal -= 1) {
@@ -779,7 +786,7 @@ function literalContents(products: Profile1DocumentProducts): Readonly<{
   const syntax: LiteralContent[] = []
   for (let ordinal = 0; ordinal < root.childCount; ordinal += 1) {
     const block = root.childAt(ordinal)
-    if (!LITERAL_BLOCK_KINDS.has(block.kind) || block.childCount === 0) continue
+    if (!isLiteralBlock(block.kind) || block.childCount === 0) continue
     const start = block.childAt(0).range.start
     const end = block.childAt(block.childCount - 1).range.end
     syntax.push({ start, end })
@@ -1066,7 +1073,7 @@ function armLiteralsOf(
   }
   for (let ordinal = 0; ordinal < root.childCount; ordinal += 1) {
     const block = root.childAt(ordinal)
-    if (!LITERAL_SPLIT_KINDS.has(block.kind) || block.childCount < ARM_LITERAL_CHILDREN ||
+    if (!SPLITTABLE_LITERAL_BLOCKS.has(block.kind) || block.childCount < ARM_LITERAL_CHILDREN ||
         block.range.start < syntaxStart || block.range.end > syntaxEnd) continue
     const reading = literalBlockReading(editing, block)
     if (reading === undefined) continue
@@ -1137,22 +1144,6 @@ const FORM_BIT: Readonly<Record<CriticMarkupNode['kind'], number>> = Object.free
   comment: 16
 })
 
-const OPENER_FORM: Readonly<Record<string, CriticMarkupNode['kind']>> = Object.freeze({
-  '{++': 'addition',
-  '{--': 'deletion',
-  '{~~': 'substitution',
-  '{==': 'highlight',
-  '{>>': 'comment'
-})
-
-const CLOSER_FORM: Readonly<Record<string, CriticMarkupNode['kind']>> = Object.freeze({
-  '++}': 'addition',
-  '--}': 'deletion',
-  '~~}': 'substitution',
-  '==}': 'highlight',
-  '<<}': 'comment'
-})
-
 function diagnosticCapsules(
   diagnostics: readonly SyntaxDiagnostic[],
   sourceStart: number
@@ -1209,7 +1200,7 @@ function unterminatedFormsOf(
   let forms = 0
   for (const diagnostic of diagnostics) {
     if (diagnostic.code !== 'CM_UNTERMINATED_OPENER') continue
-    const form = OPENER_FORM[canonicalText(products, diagnostic.range.start, diagnostic.range.end) ?? '']
+    const form = CRITIC_FORM_BY_OPENER[canonicalText(products, diagnostic.range.start, diagnostic.range.end) ?? '']
     // An unfinished opener whose spelling cannot be read back fails closed.
     forms |= form === undefined ? ALL_FORMS : FORM_BIT[form]
   }
@@ -2027,9 +2018,6 @@ function listSplitOf(
     : Object.freeze({ points: Object.freeze([...new Set(points)].sort((left, right) => left - right)), lists, literals })
 }
 
-/** Blocks whose lines split into leaves: their text reads literally, line by line. */
-const LITERAL_SPLIT_KINDS: ReadonlySet<string> = new Set(['code-block', 'math-block', 'html-block', 'diagram'])
-
 /**
  * How literal block `block` reads as a whole, whatever its lines: its key,
  * and the text before its first line and after its last (see LiteralSplit).
@@ -2038,7 +2026,7 @@ function literalBlockReading(
   editing: ReturnType<Profile1DocumentProducts['editing']>,
   block: MarkdownNode
 ): Readonly<{ key: string, opener: string, closer: string }> | undefined {
-  if (!LITERAL_SPLIT_KINDS.has(block.kind) || block.childCount === 0) return undefined
+  if (!SPLITTABLE_LITERAL_BLOCKS.has(block.kind) || block.childCount === 0) return undefined
   const firstLine = markerLineStart(editing.source, block.childAt(0).range.start)
   const blockLine = markerLineStart(editing.source, block.range.start)
   const lastChild = block.childAt(block.childCount - 1)
@@ -2050,7 +2038,7 @@ function literalBlockReading(
   if (firstLine === undefined || blockLine === undefined || lastLineStart === undefined || blockLine > firstLine) return undefined
   // The attributes naming where its parts are, and its text, are not how it reads.
   const attributes = Object.entries(block.attributes)
-    .filter(([name, value]) => name !== 'content' && !(typeof value === 'number' && /(?:Start|End)$/u.test(name)))
+    .filter(([name, value]) => name !== 'content' && !(typeof value === 'number' && isPositionalMarkdownAttribute(name)))
     .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
   // An HTML block's first line is text too, and what starts the block.
   let secondLine = firstLine
@@ -2084,7 +2072,7 @@ function literalSplitOf(
   const root = editing.markdown.root
   for (let ordinal = 0; ordinal < root.childCount; ordinal += 1) {
     const block = root.childAt(ordinal)
-    if (!LITERAL_SPLIT_KINDS.has(block.kind) || block.childCount < 3) continue
+    if (!SPLITTABLE_LITERAL_BLOCKS.has(block.kind) || block.childCount < 3) continue
     const lines: MarkdownNode[] = []
     const lineChildren: number[] = []
     let lineStart = true
@@ -2458,7 +2446,8 @@ function strayMarkersUnchanged(previousWindow: string, nextWindow: string): bool
     markerSpellingSequence(previousWindow) === markerSpellingSequence(nextWindow)
 }
 
-const MARKER_SPELLING = /(?=(\{\+\+|\{--|\{~~|\{==|\{>>|~>|\+\+\}|--\}|~~\}|==\}|<<\}))/gu
+const MARKER_SPELLING = new RegExp(`(?=(${CRITIC_MARKER_ALTERNATION}))`, 'gu')
+const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'gu')
 
 /** The marker spellings of `text` in order, overlapping spellings each read. */
 function markerSpellingSequence(text: string): string {
@@ -2484,14 +2473,14 @@ function addedCloserForms(previousWindow: string, nextWindow: string): number {
     const result = new Map<string, number>()
     for (const match of text.matchAll(MARKER_SPELLING)) {
       const spelling = match[1] ?? ''
-      if (CLOSER_FORM[spelling] !== undefined) result.set(spelling, (result.get(spelling) ?? 0) + 1)
+      if (CRITIC_FORM_BY_CLOSER[spelling] !== undefined) result.set(spelling, (result.get(spelling) ?? 0) + 1)
     }
     return result
   }
   const before = counts(previousWindow)
   let forms = 0
   for (const [spelling, count] of counts(nextWindow)) {
-    const form = CLOSER_FORM[spelling]
+    const form = CRITIC_FORM_BY_CLOSER[spelling]
     if (form !== undefined && count > (before.get(spelling) ?? 0)) forms |= FORM_BIT[form]
   }
   return forms
@@ -2502,7 +2491,7 @@ function spelledCloserForms(text: string): number {
   let forms = 0
   for (const match of text.matchAll(MARKER_SPELLING)) {
     const spelling = match[1] ?? ''
-    const form = spelling === '~>' ? 'substitution' : CLOSER_FORM[spelling]
+    const form = spelling === '~>' ? 'substitution' : CRITIC_FORM_BY_CLOSER[spelling]
     if (form !== undefined) forms |= FORM_BIT[form]
   }
   return forms
@@ -3099,7 +3088,7 @@ function emptyLinesInLiterals(
   const root = editing.markdown.root
   for (let ordinal = 0; ordinal < root.childCount; ordinal += 1) {
     const block = root.childAt(ordinal)
-    if (!LITERAL_BLOCK_KINDS.has(block.kind) || block.childCount === 0) continue
+    if (!isLiteralBlock(block.kind) || block.childCount === 0) continue
     const start = canonicalSourceAt(editing.mappedTape, block.childAt(0).range.start)
     const end = canonicalSourceAt(editing.mappedTape, block.childAt(block.childCount - 1).range.end)
     if (start !== undefined && end !== undefined) literals.push({ start, end })
@@ -3544,7 +3533,7 @@ function lastBlockEndsBefore(products: Profile1DocumentProducts): boolean {
   const text = editing.source.slice(last.range.start, last.range.end)
   const ending = last.kind === 'html-block' &&
     !/^ {0,3}<(?:(?:script|pre|style|textarea)(?:[ \t>]|$)|!--|\?|![A-Za-z]|!\[CDATA\[)/iu.test(text) ||
-    ['code-block', 'math-block', 'diagram'].includes(last.kind) && closedByOwnFence(text)
+    FENCED_LITERAL_BLOCKS.has(last.kind) && closedByOwnFence(text)
     ? /(?:\r\n|\r|\n)$/u.exec(text)?.[0] ?? ''
     : ''
   const after = ending + editing.source.slice(last.range.end)
@@ -3802,7 +3791,7 @@ export function displayMathReachesPast(products: Profile1DocumentProducts, text:
  * errs toward reading a run as an opener.
  */
 function opensDisplayMath(text: string, at: number): boolean {
-  const lineStart = Math.max(text.lastIndexOf('\n', at - 1), text.lastIndexOf('\r', at - 1)) + 1
+  const lineStart = lineStartBefore(text, at)
   const lineEnd = text.slice(at).search(/[\r\n]/u)
   const line = text.slice(lineStart, lineEnd === -1 ? text.length : at + lineEnd)
   return line.replace(/^\uFEFF?(?:[ \t]*(?:>|[-+*]|\d{1,9}[.)]))*/u, '').trim() === '$$'
@@ -4035,10 +4024,6 @@ function backtickRunsFenced(products: Profile1DocumentProducts, text: string): b
   return true
 }
 
-const MARKER_CLOSER: Readonly<Record<string, string>> = Object.freeze({
-  '{++': '++}', '{--': '--}', '{~~': '~~}', '{==': '==}', '{>>': '<<}'
-})
-
 /**
  * Whether `edit` removes only whole suggestions, or markers it spells again,
  * and inserts only whole suggestions: openers and closers that pair with each
@@ -4077,7 +4062,7 @@ function balancedInsertion(previousSource: CanonicalSourceView, edit: RetainedPa
   const first = spellings[0]
   const last = spellings.at(-1)
   const split = spellings.length > 1 && first !== undefined && last !== undefined && first !== '~~}' &&
-    Object.values(MARKER_CLOSER).includes(first) && MARKER_CLOSER[last] === first
+    Object.values(CRITIC_CLOSER_BY_OPENER).includes(first) && CRITIC_CLOSER_BY_OPENER[last] === first
   return wholeSuggestions(split ? spellings.slice(1, -1) : spellings)
 }
 
@@ -4085,7 +4070,7 @@ function balancedInsertion(previousSource: CanonicalSourceView, edit: RetainedPa
 function wholeSuggestions(spellings: readonly string[]): boolean {
   const open: string[] = []
   for (const spelling of spellings) {
-    const closer = MARKER_CLOSER[spelling]
+    const closer = CRITIC_CLOSER_BY_OPENER[spelling]
     if (closer !== undefined) open.push(closer)
     else if (spelling === '~>') {
       if (open.at(-1) !== '~~}') return false
@@ -4121,7 +4106,7 @@ function unprotectedSpellings(text: string): number[] {
 
 /** Positions where a CriticMarkup marker is spelled, overlapping spellings each counted. */
 function markerSpellings(text: string): number {
-  return [...text.matchAll(/(?=\{\+\+|\{--|\{~~|\{==|\{>>|~>|\+\+\}|--\}|~~\}|==\}|<<\})/gu)].length
+  return [...text.matchAll(MARKER_SPELLING)].length
 }
 
 function leavesOf(root: RegionTree): RegionLeaf[] {
@@ -4484,7 +4469,7 @@ function firstTextLine(source: CanonicalSourceView, offset: number): number {
  */
 function oneEmptyLineBefore(source: CanonicalSourceView, offset: number): boolean {
   const start = Math.max(0, offset - 4096)
-  const text = source.slice(start, offset).replace(/\{\+\+|\{--|\{~~|\{==|\{>>|~>|\+\+\}|--\}|~~\}|==\}|<<\}/gu, '')
+  const text = source.slice(start, offset).replace(CRITIC_MARKER, '')
   return start === 0 && text.length === 0 ? true : afterEmptyLine(text, text.length)
 }
 
@@ -5534,14 +5519,6 @@ function editedShapeOf(blocks: readonly LeafBlock[], start: number, end: number)
     : undefined
 }
 
-const MARKER_FORM_SPELLING: Readonly<Record<CriticMarkupNode['kind'], Readonly<{ open: string, close: string }>>> = Object.freeze({
-  addition: Object.freeze({ open: '{++', close: '++}' }),
-  deletion: Object.freeze({ open: '{--', close: '--}' }),
-  substitution: Object.freeze({ open: '{~~', close: '~~}' }),
-  highlight: Object.freeze({ open: '{==', close: '==}' }),
-  comment: Object.freeze({ open: '{>>', close: '<<}' })
-})
-
 /**
  * Whether the window's markers are those it held before but for whole
  * suggestions, which now read as literal text, as a `$$` line the edit opens
@@ -5578,7 +5555,7 @@ function wholeSuggestionsRemoved(
   const removed = previous.flatMap((marker, ordinal) => {
     if (kept.has(ordinal)) return []
     if (marker.role === 'separator') return ['~>']
-    return [MARKER_FORM_SPELLING[marker.kind][marker.role === 'open' ? 'open' : 'close']]
+    return [CRITIC_FORM_SPELLING[marker.kind][marker.role === 'open' ? 'open' : 'close']]
   })
   return wholeSuggestions(removed)
 }

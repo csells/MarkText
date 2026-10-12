@@ -5,6 +5,11 @@ import type {
 } from './documentCore.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import { positionAfter } from './sourcePosition.js'
+import { FENCED_LITERAL_BLOCKS, LITERAL_DELIMITER_LINE, SPLITTABLE_LITERAL_BLOCKS } from './literalBlock.js'
+import { isPositionalMarkdownAttribute } from './markdownPositions.js'
+import { commonAffixes } from './textAffixes.js'
+import { firstLineEnding } from './sourceLines.js'
+import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
 
 type Preview = (edits: readonly DocumentSourceEdit[]) => DocumentRevision
 
@@ -55,7 +60,7 @@ export function trackedStructure(root: MarkdownAstNode, coordinates: SourceCoord
     end: coordinates.toSource(node.range.end, 'previous')
   })
   const shape = (node: MarkdownAstNode): string => JSON.stringify(Object.entries(node.attributes)
-    .filter(([name, value]) => !(typeof value === 'number' && /(?:Start|End)$/u.test(name)) &&
+    .filter(([name, value]) => !(typeof value === 'number' && isPositionalMarkdownAttribute(name)) &&
       name !== 'content' && name !== 'semanticText' && name !== 'semanticStart' && name !== 'semanticEnd')
     .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0))
   const blocks: TrackedPart[] = []
@@ -212,7 +217,7 @@ export function projectionSignature(root: MarkdownAstNode): string {
   const parts: string[] = []
   const visit = (node: MarkdownAstNode): void => {
     const attributes = Object.entries(node.attributes)
-      .filter(([name, value]) => !(typeof value === 'number' && /(?:Start|End)$/u.test(name)))
+      .filter(([name, value]) => !(typeof value === 'number' && isPositionalMarkdownAttribute(name)))
       .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
     parts.push(`(${node.kind}${JSON.stringify(attributes)}`)
     for (const child of node.children) visit(child)
@@ -378,7 +383,11 @@ export function createTrackedOracle(
   const countRoots = trackedRootCounts.get(core)
   const rootCount = (edits: readonly DocumentSourceEdit[]): number =>
     countRoots?.(previous, edits) ?? cachedPreview(edits).annotations.length
-  const previousSource = core.sourceSlice(previous, { start: 0, end: previous.sourceLength })
+  let previousSourceText: string | undefined
+  const previousSource = (): string => {
+    previousSourceText ??= core.sourceSlice(previous, { start: 0, end: previous.sourceLength })
+    return previousSourceText
+  }
   const viewFacts = trackedPreviewFacts.get(target)
   let targetView: string | undefined
   const sameView = (facts: TrackedProjectionFacts): boolean => {
@@ -407,7 +416,7 @@ export function createTrackedOracle(
     const present = (revision: DocumentRevision): boolean => revision.annotations.length > 0
     if (present(candidate) === present(previous) && present(candidate) === present(target)) return false
     const candidateViews = annotated(candidate.source)
-    const previousViews = annotated(previousSource)
+    const previousViews = annotated(previousSource())
     const targetViews = annotated(target.source)
     if (candidateViews === undefined || previousViews === undefined || targetViews === undefined) return false
     if (candidateViews.revisedView !== targetViews.revisedView) return false
@@ -445,7 +454,7 @@ export function createTrackedOracle(
       // signatures parse the Original text alone, while a candidate read
       // regionally may need a whole parse for its Revised view.
       if (!(authored.length > 0 && resolveAuthored(candidate.source, authored, 'accept') === target.source &&
-          resolveAuthored(candidate.source, authored, 'reject') === previousSource &&
+          resolveAuthored(candidate.source, authored, 'reject') === previousSource() &&
           signature(facts.original) === signature(original()) &&
           viewFacts !== undefined && facts.revisedView() === (targetView ??= viewFacts.revisedView()))) return false
     }
@@ -462,14 +471,20 @@ export function createTrackedOracle(
     const candidate = cachedPreview(edits)
     const authored = authoredAnnotations(edits, candidate)
     return authored.length > 0 && resolveAuthored(candidate.source, authored, 'accept') === target.source &&
-      resolveAuthored(candidate.source, authored, 'reject') === previousSource
+      resolveAuthored(candidate.source, authored, 'reject') === previousSource()
   }
+  let revisesVisibleText: boolean | undefined
   return Object.freeze({
     resolvesExactly,
     untracked,
-    untrackedSource: target.source,
-    revisesVisibleText: !(regional.sameAsPrevious(targetFacts, 'revised') ??
-      targetFacts.revised === core.project(previous, 'revised').markdown),
+    get untrackedSource(): string {
+      return target.source
+    },
+    get revisesVisibleText(): boolean {
+      revisesVisibleText ??= !(regional.sameAsPrevious(targetFacts, 'revised') ??
+        targetFacts.revised === core.project(previous, 'revised').markdown)
+      return revisesVisibleText
+    },
     accepts,
     preview: cachedPreview
   })
@@ -582,19 +597,15 @@ function resolvedText(source: string, annotation: CriticMarkupAnnotation, decisi
   return range === undefined ? '' : source.slice(range.start, range.end)
 }
 
-const MARKER_TOKEN = /^(?:\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\})/u
+const MARKER_TOKEN = new RegExp(`^(?:${CRITIC_MARKER_ALTERNATION})`, 'u')
+const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'u')
 /**
  * Offsets in `typed` before which `accepted` adds a backslash escaping a
  * marker spelling, where the two texts differ only so far; the texts are
  * compared past their common prefix and suffix.
  */
 function addedMarkerEscapes(accepted: string, typed: string): number[] {
-  let prefix = 0
-  const shorter = Math.min(accepted.length, typed.length)
-  while (prefix < shorter && accepted.charCodeAt(prefix) === typed.charCodeAt(prefix)) prefix += 1
-  let suffix = 0
-  while (suffix < shorter - prefix &&
-    accepted.charCodeAt(accepted.length - 1 - suffix) === typed.charCodeAt(typed.length - 1 - suffix)) suffix += 1
+  const { prefix, suffix } = commonAffixes(accepted, typed)
   const escapes: number[] = []
   // An escape added at the start of a run of equal text may be read at either
   // end of it, so the walk backs up to the start of that run.
@@ -730,7 +741,6 @@ function partiallyResolvable(
 const EOL = /\r\n|\r|\n/u
 
 const LITERAL_KINDS = new Set(['inline-code', 'code-block', 'inline-math', 'math-block', 'inline-html', 'html-block', 'front-matter', 'diagram', 'autolink'])
-const BLOCK_LITERAL_KINDS = new Set(['code-block', 'math-block', 'diagram'])
 /**
  * Spellings a widened search weighs before it gives up. Every search that
  * finds a spelling in the small, 2,000-block, input and delimiter pools
@@ -755,7 +765,7 @@ export const DOCUMENT_SEARCH_UNITS = 8192
 export const spelledAsSource = new WeakSet<TrackedOracle>()
 /**
  * Oracles recording a key no spelling of its markup holds, as one splitting a
- * marker, the G47 way: only a spelling whose Accept All and Reject All
+ * marker: only a spelling whose Accept All and Reject All
  * resolve to the operation's bytes, however it reads while pending.
  */
 export const recordedExactly = new WeakSet<TrackedOracle>()
@@ -832,12 +842,6 @@ function insideHistory(annotations: readonly CriticMarkupAnnotation[], span: Sou
   return annotations.some(annotation => annotation.arms.some(arm =>
     (annotation.kind === 'deletion' || arm.name === 'old' || arm.name === 'comment') &&
     arm.range.start <= span.start && span.end <= arm.range.end))
-}
-
-function trailingBackslashes(value: string): number {
-  let count = 0
-  while (count < value.length && value[value.length - 1 - count] === '\\') count += 1
-  return count
 }
 
 type Variant = 'exact' | 'pair' | 'reversed' | 'padded' | 'padded-pair' | 'shifted' | 'escaped'
@@ -1021,11 +1025,11 @@ function searchWidenedSpelling(
 
   const spell = (old: string, next: string, variant: Variant, atLineEnd: boolean): string | undefined => {
     if (variant === 'escaped') {
-      const oldEscape = trailingBackslashes(old) % 2 === 1 ? '\\' : ''
-      const nextEscape = trailingBackslashes(next) % 2 === 1 ? '\\' : ''
-      if (oldEscape === '' && nextEscape === '') return undefined
-      old += oldEscape
-      next += nextEscape
+      const escapedOld = completeTrailingEscape(old)
+      const escapedNext = completeTrailingEscape(next)
+      if (escapedOld === old && escapedNext === next) return undefined
+      old = escapedOld
+      next = escapedNext
     }
     if (variant === 'padded' || variant === 'padded-pair' || variant === 'shifted') {
       // Block literals complete before the closer and divider when those
@@ -1037,7 +1041,7 @@ function searchWidenedSpelling(
         // line break before it.
         if (old.length > 0 || !atLineEnd || !next.startsWith(eol)) return undefined
         const body = pad(next.slice(eol.length))
-        return body.length === 0 ? undefined : `${eol}{++${body}++}`
+        return body.length === 0 ? undefined : eol + spellSuggestion('addition', body)
       }
       const paddedOld = pad(old)
       const paddedNext = pad(next)
@@ -1049,13 +1053,15 @@ function searchWidenedSpelling(
       // A literal opener in one arm could pair across the divider; separate
       // annotations give each side its own closer, in either order.
       if (old.length === 0 || next.length === 0) return undefined
-      return variant === 'reversed' ? `{++${next}++}{--${old}--}` : `{--${old}--}{++${next}++}`
+      return variant === 'reversed'
+        ? spellSuggestion('addition', next) + spellSuggestion('deletion', old)
+        : spellSuggestionPair(old, next)
     }
-    if (old.length === 0) return `{++${next}++}`
+    if (old.length === 0) return spellSuggestion('addition', next)
     // A retained `--}` would close a Deletion; a Substitution with an empty
     // new arm deletes it exactly.
-    if (next.length === 0) return old.includes('--}') ? `{~~${old}~>~~}` : `{--${old}--}`
-    return `{~~${old}~>${next}~~}`
+    if (next.length === 0) return old.includes('--}') ? spellSuggestion('substitution', old) : spellSuggestion('deletion', old)
+    return spellSuggestion('substitution', old, next)
   }
   let weighed = 0
   const budget = documentSearchBudgets.get(core)
@@ -1315,15 +1321,8 @@ function searchWidenedSpelling(
   // suggestion resolves.
   for (const variant of ['exact', 'pair', 'reversed'] as const) {
     for (const span of candidates) {
-      const mapped = toTarget(span)
-      const old = source.slice(span.start, span.end)
-      const next = target.slice(mapped.start, mapped.end)
-      for (const suffix of lineTrims(old, next, true)) {
-        for (const prefix of lineTrims(old.slice(0, old.length - suffix), next.slice(0, next.length - suffix), false)) {
-          const edit = attempt(span, prefix, suffix, variant, 'exact', true, true)
-          if (edit !== undefined) return edit
-        }
-      }
+      const edit = exactly(span, variant)
+      if (edit !== undefined) return edit
     }
   }
   for (const variant of ['pair', 'reversed', 'exact', 'padded-pair', 'padded'] as const) {
@@ -1342,7 +1341,7 @@ function literalBlockText(text: string): boolean {
   const lines = text.split(/\r\n|\r|\n/u)
   while (lines.length > 1 && lines.at(-1)?.trim() === '') lines.pop()
   const first = lines[0] ?? ''
-  if (/^ {0,3}(?:`{3,}|~{3,}|\$\$)/u.test(first) || /^ {0,3}</u.test(first)) return true
+  if (LITERAL_DELIMITER_LINE.test(first) || /^ {0,3}</u.test(first)) return true
   return lines.every(line => line.trim() === '' || /^(?: {4}|\t)/u.test(line)) && first.trim() !== ''
 }
 
@@ -1366,12 +1365,8 @@ export function literalHistoryInsertionPoint(
   const nextText = core.sourceSlice(previous, next.range)
   if (!literalBlockText(oldText) || !literalBlockText(nextText)) return undefined
   const at = offset - old.range.start
-  const limit = Math.min(oldText.length, nextText.length)
-  let prefix = 0
-  while (prefix < limit && oldText[prefix] === nextText[prefix]) prefix += 1
+  const { prefix, suffix } = commonAffixes(oldText, nextText)
   if (at <= prefix) return next.range.start + at
-  let suffix = 0
-  while (suffix < limit - prefix && oldText[oldText.length - 1 - suffix] === nextText[nextText.length - 1 - suffix]) suffix += 1
   return oldText.length - at <= suffix ? next.range.end - (oldText.length - at) : next.range.start + prefix
 }
 
@@ -1385,7 +1380,7 @@ export function splitTrackedHistoryEdit(
   offset: number,
   text: string,
   preview: Preview,
-  // Weigh a split by what Accept All and Reject All leave (G34) rather than
+  // Weigh a split by what Accept All and Reject All leave rather than
   // by the Original view, which a split block literal reads as two blocks.
   byResolution = false
 ): DocumentSourceEdit | undefined {
@@ -1413,7 +1408,7 @@ export function splitTrackedHistoryEdit(
     for (const edge of [start, end]) {
       if (history.range.start < edge && edge < history.range.end) points.add(edge)
     }
-    if (BLOCK_LITERAL_KINDS.has(node.kind)) literalBlocks.push({ start, end })
+    if (FENCED_LITERAL_BLOCKS.has(node.kind)) literalBlocks.push({ start, end })
     for (const child of node.children) visit(child)
   }
   visit(syntax.ast.root)
@@ -1441,17 +1436,15 @@ export function splitTrackedHistoryEdit(
     acceptedBefore ??= resolvedSuggestions(previousSource, previous.annotations, 'accept')
     return acceptedBefore
   }
-  // A final backslash would escape the Addition's closer; its completed
-  // escape renders the same single backslash.
-  const payload = trailingBackslashes(text) % 2 === 1 ? `${text}\\` : text
+  const payload = completeTrailingEscape(text)
   for (const point of ordered) {
     const left = source({ start: history.range.start, end: point })
     const edit = owner.kind === 'deletion'
-      ? { start: point, end: point, insert: `--}{++${payload}++}{--` }
-      : { start: owner.range.start, end: point, insert: `{--${left}--}{++${payload}++}{~~` }
+      ? { start: point, end: point, insert: `--}${spellSuggestion('addition', payload)}{--` }
+      : { start: owner.range.start, end: point, insert: `${spellSuggestionPair(left, payload)}{~~` }
     const plain = owner.kind === 'deletion'
       ? { start: point, end: point, insert: `--}${text}{--` }
-      : { start: owner.range.start, end: point, insert: `{--${left}--}${text}{~~` }
+      : { start: owner.range.start, end: point, insert: `${spellSuggestion('deletion', left)}${text}{~~` }
     // The caret domain must contain the declared insertion for reconciliation.
     const from = Math.min(edit.start, offset)
     const to = Math.max(edit.end, offset)
@@ -1547,11 +1540,9 @@ export function rejoinedTrackedHistoryEdit(
  */
 function armBlockLiteral(core: DocumentCore, revision: DocumentRevision, start: number, end: number): string | undefined {
   const { ast, coordinates } = core.project(revision, 'markup').syntax
-  return ast.root.children.find(node => ARM_BLOCK_LITERAL_KINDS.has(node.kind) &&
+  return ast.root.children.find(node => SPLITTABLE_LITERAL_BLOCKS.has(node.kind) &&
     coordinates.toSource(node.range.start, 'next') === start && coordinates.toSource(node.range.end, 'previous') >= end)?.kind
 }
-
-const ARM_BLOCK_LITERAL_KINDS = new Set([...BLOCK_LITERAL_KINDS, 'html-block'])
 
 /** The openers of the HTML blocks a line other than a blank one ends (CommonMark kinds 1-5). */
 const RAW_HTML_OPENER = /^ {0,3}(?:<(?:script|pre|style|textarea)(?:\s|>|$)|<!--|<\?|<![A-Za-z]|<!\[CDATA\[)/iu
@@ -1597,7 +1588,7 @@ export function draftTrackedSourceEdit(
     while (to < text.length && text[to] !== '\n' && text[to] !== '\r') to += 1
     return text.slice(from, to).split(/\r\n|\r|\n/u)
   }
-  const delimiterLine = (line: string): boolean => /^ {0,3}(?:`{3,}|~{3,}|\$\$)/u.test(line)
+  const delimiterLine = (line: string): boolean => LITERAL_DELIMITER_LINE.test(line)
   const typedArm = armText.slice(0, local.start) + edit.insert + armText.slice(local.end)
   const onDelimiterLine = editedLines(armText, local.start, local.end).some(delimiterLine) ||
     editedLines(typedArm, local.start, local.start + edit.insert.length).some(delimiterLine)
@@ -1622,7 +1613,7 @@ export function draftTrackedSourceEdit(
     ? !RAW_HTML_OPENER.test(opener) && !typedLines.some(line => line.trim() === '')
     : literal === 'code-block' && indented
       // Lines that keep their indentation stay its text; markers there read as markers.
-      ? typedLines.every(line => line.trim() === '' || /^(?: {4}|\t)/u.test(line)) && !/\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/u.test(edit.insert)
+      ? typedLines.every(line => line.trim() === '' || /^(?: {4}|\t)/u.test(line)) && !CRITIC_MARKER.test(edit.insert)
       : literal !== undefined && delimiterLine(opener) && !onDelimiterLine
   if (onDelimiterLine || joinsFenceLine || inArmLiteral) {
     const extended = preview([edit])
@@ -1639,9 +1630,9 @@ export function draftTrackedSourceEdit(
   const accepted = [Object.freeze({ ...owner.range, insert: content })]
   const oracle = createTrackedOracle(core, previous, accepted, preview)
   if (oracle === undefined) return undefined
-  const eol = (content.match(EOL) ?? core.sourceSlice(previous, { start: 0, end: previous.sourceLength }).match(EOL))?.[0] ?? '\n'
+  const eol = content.match(EOL)?.[0] ?? firstLineEnding(core, previous, 0, previous.sourceLength) ?? '\n'
   const suffixes: string[] = []
-  if (trailingBackslashes(content) % 2 === 1) suffixes.push('\\')
+  if (completeTrailingEscape(content) !== content) suffixes.push('\\')
   if (!EOL.test(content.at(-1) ?? '\n')) suffixes.push(eol)
   for (const equivalence of ['exact', 'rendering'] as const) {
     for (const suffix of ['', ...suffixes]) {
@@ -1728,11 +1719,7 @@ const COMPARED_CHANGE_LIMIT = 32 * OWN_DRAFT_SHORTCUT_UNITS
  * any other.
  */
 function changeBetween(before: string, after: string): string | undefined {
-  let start = 0
-  const limit = Math.min(before.length, after.length)
-  while (start < limit && before[start] === after[start]) start += 1
-  let end = 0
-  while (end < limit - start && before[before.length - 1 - end] === after[after.length - 1 - end]) end += 1
+  const { prefix: start, suffix: end } = commonAffixes(before, after)
   const a = before.slice(start, before.length - end)
   const b = after.slice(start, after.length - end)
   // Myers' shortest edit script, bounded.

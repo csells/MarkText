@@ -14,16 +14,6 @@ function splitsPair(source: Pick<PersistentCanonicalSource, 'codeUnitAt'>, offse
   return isHighSurrogate(source.codeUnitAt(offset - 1)) && isLowSurrogate(source.codeUnitAt(offset))
 }
 
-/** Whether `text` holds a surrogate that is not half of a complete pair. */
-function hasLoneSurrogate(text: string): boolean {
-  for (let index = 0; index < text.length; index += 1) {
-    const unit = text.charCodeAt(index)
-    if (isHighSurrogate(unit) && isLowSurrogate(text.charCodeAt(index + 1))) index += 1
-    else if (isHighSurrogate(unit) || isLowSurrogate(unit)) return true
-  }
-  return false
-}
-
 /**
  * The first edit that would leave a lone surrogate in well-formed text: its
  * start or end falls inside a surrogate pair of `source`, or its insert has
@@ -36,6 +26,6 @@ export function surrogateSplittingEdit(
 ): number | undefined {
   const index = edits.findIndex(edit =>
     splitsPair(source, edit.start) || (edit.end !== edit.start && splitsPair(source, edit.end)) ||
-    hasLoneSurrogate(edit.insert))
+    !edit.insert.isWellFormed())
   return index < 0 ? undefined : index
 }

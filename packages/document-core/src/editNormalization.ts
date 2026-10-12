@@ -7,6 +7,7 @@ import { editedSourceReader } from './emptiedParagraphPlanning.js'
 import { rebaseModelTextPoint } from './modelText.js'
 import { composeSourceEdits } from './sourceEditComposition.js'
 import { positionAfter } from './sourcePosition.js'
+import { SPLITTABLE_LITERAL_BLOCKS } from './literalBlock.js'
 
 /** Preferences that ask an edit to bring the blocks it changes to upstream's spelling. */
 export interface EditNormalizationOptions {
@@ -136,7 +137,7 @@ export function joinedEdits(core: DocumentCore, revision: DocumentRevision, edit
     const window = readers.literalBlockRange?.(position)
     if (window !== undefined) return window
     const syntax = readers.syntax?.({ start: position, end: position }) ?? core.project(revision, 'markup').syntax
-    const block = syntax.ast.root.children.find(node => ['code-block', 'diagram', 'math-block', 'html-block'].includes(node.kind) &&
+    const block = syntax.ast.root.children.find(node => SPLITTABLE_LITERAL_BLOCKS.has(node.kind) &&
       syntax.coordinates.toSource(node.range.start, 'previous') <= position && position <= syntax.coordinates.toSource(node.range.end, 'next'))
     return block === undefined
       ? undefined

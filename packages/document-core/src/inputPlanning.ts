@@ -13,6 +13,7 @@ import { copyDocumentSelection, type DocumentTextSelection, type DocumentModelTe
 import { previousTableCell, resolveTableCell, tableCellSelectionAfter, tableCellSelectionAtSource } from './tableSelection.js'
 import { positionAfter } from './sourcePosition.js'
 import type { HeadingChange, ListChange, ListMarkerOptions } from '@marktext/input-policy'
+import { escapeTableCellPipes } from '@marktext/input-policy'
 import type { ParagraphEnterConversion } from './internal/profile1/markdownParser.js'
 import type { DocumentCore, DocumentCommit, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import { applyInputPairing, type IInputPairingOptions, type IInputPairingSyntaxContext } from './inputPolicy.js'
@@ -174,7 +175,7 @@ export function planInput(core: DocumentCore, revision: DocumentRevision, action
 
 function respellInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, preview: TablePreview, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined): DocumentInputPlan {
   // Typing, Enter, deletion and drops inside a table change only their own
-  // bytes (ADR 0007; owner decision 25 Sep, plan 0012 G24). The line a
+  // bytes (ADR 0007; owner decision 25 Sep). The line a
   // paragraph's Enter turns into a table is the typed line's conversion.
   if (!('kind' in action)) return action.selection.kind === 'table-cell' ? plan : respellEnteredTable(core, revision, action, plan, preview, regionalSyntax)
   if (!tableCommands.has(action.command)) return plan
@@ -274,12 +275,11 @@ function planUnspelledInput(core: DocumentCore, revision: DocumentRevision, acti
   const edit = plan.edits[0]
   if (plan.edits.length !== 1 || edit === undefined || edit.start !== selectedCell.start || edit.end !== selectedCell.end) throw new RangeError('Implicit cell input requires an insertion into its empty content')
   // A pipe typed into the cell stays its text, as upstream escapes it.
-  const escape = (text: string) => text.replace(/(?<!\\)\|/gu, '\\|')
-  const materialized = materializeTableCellEdit(selectedCell, { ...edit, insert: escape(edit.insert) })
+  const materialized = materializeTableCellEdit(selectedCell, { ...edit, insert: escapeTableCellPipes(edit.insert) })
   const insert = materialized.edit.insert
   const position = (offset: number) => {
     const typed = edit.insert.slice(0, Math.max(0, offset - edit.start))
-    return offset + materialized.prefixLength + escape(typed).length - typed.length
+    return offset + materialized.prefixLength + escapeTableCellPipes(typed).length - typed.length
   }
   return finish({
     edits: Object.freeze([materialized.edit]),
@@ -624,6 +624,28 @@ function typedText(source: string, edits: readonly DocumentSourceEdit[]): string
 }
 
 /**
+ * `typedText` of the revision's source over `[from, to)` of the result.
+ * Disjoint edits change only the source between the first's start and the
+ * last's end, so only that envelope is read whole.
+ */
+function typedTextSlice(core: DocumentCore, revision: DocumentRevision, edits: readonly DocumentSourceEdit[], from: number, to: number): string {
+  const ordered = [...edits].sort((left, right) => left.start - right.start)
+  if (ordered.some((edit, index) => index > 0 && edit.start < ordered[index - 1]!.end)) {
+    return typedText(revision.source, edits).slice(from, to)
+  }
+  const lo = ordered[0]?.start ?? 0
+  const hi = Math.max(lo, ...ordered.map(edit => edit.end))
+  const local = typedText(core.sourceSlice(revision, { start: lo, end: hi }), edits.map(edit => ({ ...edit, start: edit.start - lo, end: edit.end - lo })))
+  const localEnd = lo + local.length
+  const length = revision.sourceLength - hi + localEnd
+  const start = Math.min(Math.max(0, from), length)
+  const end = Math.min(Math.max(start, to), length)
+  return (start < lo ? core.sourceSlice(revision, { start, end: Math.min(end, lo) }) : '') +
+    local.slice(Math.max(0, start - lo), Math.max(0, end - lo)) +
+    (end > localEnd ? core.sourceSlice(revision, { start: Math.max(start, localEnd) - localEnd + hi, end: end - localEnd + hi }) : '')
+}
+
+/**
  * The offset in a proposed arm of an offset in the text as typed, which the
  * arm spells with escapes before marker spellings the typed text reads as
  * text; undefined where the two differ otherwise.
@@ -676,7 +698,7 @@ export function reconcileInput(
     ? undefined
     : proposedTextStart(applied[0], core.sourceSlice(previous, applied[0]!))
   if (widened !== undefined && plannedCaret !== undefined) {
-    const offset = escapedOffset(widened.proposed, typedText(previous.source, policy.edits).slice(widened.edit.start), plannedCaret.anchor - widened.edit.start)
+    const offset = escapedOffset(widened.proposed, typedTextSlice(core, previous, policy.edits, widened.edit.start, Math.max(widened.edit.start, plannedCaret.anchor)), plannedCaret.anchor - widened.edit.start)
     if (offset !== undefined && offset >= 0 && offset <= widened.proposed.length) {
       const caret = widened.edit.start + widened.at + offset
       return Object.freeze({ policy, ...(compilerReconciliation === undefined ? {} : { compilerReconciliation }), selection: copyDocumentSelection({ ranges: [{ anchor: caret, focus: caret }], primary: 0 }, next.sourceLength) })

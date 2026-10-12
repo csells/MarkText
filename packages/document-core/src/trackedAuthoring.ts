@@ -6,13 +6,19 @@ import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations as annotationTree, markupReplacementRange } from './markupEditOwnership.js'
 import { historyInsertionPoint, substitutionBeforeDeletion, substitutionDraftInsertionPoint, trackedEditableSpans, trackedPartsSeparate, withinHistory } from './trackedHistoryEditing.js'
 import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
+import { FENCED_LITERAL_BLOCKS, LITERAL_DELIMITER_LINE } from './literalBlock.js'
+import { ASCII_PUNCTUATION } from './internal/profile1/markdownSemanticText.js'
+import { lineStartBefore } from './sourceLines.js'
+import { CRITIC_MARKER_ALTERNATION, spellSuggestion } from './internal/profile1/sourceTape.js'
 import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, escapesLiteralContent, isWindowCompileCore, markUnresolvedDraft, reachesWindowEdge, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
+
+const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'g')
 
 /** Protective spelling retains exactly where the language compiler inserts escapes. */
 export const nativeCriticSpelling = (value: string): Readonly<{ text: string, escapes: readonly number[] }> => {
   const escapes: number[] = []
   const text = value.replace(
-    /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/g,
+    CRITIC_MARKER,
     (token, offset: number) => {
       escapes.push(offset)
       return `\\${token}`
@@ -111,7 +117,7 @@ export function createTrackedPendingArmEdits(
  */
 function withinBlockLiteral(core: DocumentCore, revision: DocumentRevision, edit: DocumentSourceEdit): boolean {
   const { ast, coordinates } = core.project(revision, 'markup').syntax
-  const block = ast.root.children.find(node => ['code-block', 'math-block', 'diagram'].includes(node.kind) &&
+  const block = ast.root.children.find(node => FENCED_LITERAL_BLOCKS.has(node.kind) &&
     coordinates.toSource(node.range.start, 'next') < edit.start && edit.end < coordinates.toSource(node.range.end, 'previous'))
   if (block === undefined) return false
   const start = coordinates.toSource(block.range.start, 'next')
@@ -120,20 +126,19 @@ function withinBlockLiteral(core: DocumentCore, revision: DocumentRevision, edit
     return false
   }
   const text = core.sourceSlice(revision, { start, end })
-  const delimiter = /^ {0,3}(?:`{3,}|~{3,}|\$\$)/u
-  if (delimiter.test(text)) {
+  if (LITERAL_DELIMITER_LINE.test(text)) {
     const firstLineEnd = text.search(/\r\n|\r|\n/u)
     const lastLineStart = Math.max(text.trimEnd().lastIndexOf('\n'), text.trimEnd().lastIndexOf('\r')) + 1
     return firstLineEnd >= 0 && start + firstLineEnd < edit.start && edit.end < start + lastLineStart &&
-      delimiter.test(text.slice(lastLineStart))
+      LITERAL_DELIMITER_LINE.test(text.slice(lastLineStart))
   }
   const local = { start: edit.start - start, end: edit.end - start }
-  const lineStart = Math.max(text.lastIndexOf('\n', local.start - 1), text.lastIndexOf('\r', local.start - 1)) + 1
+  const lineStart = lineStartBefore(text, local.start)
   return block.kind === 'code-block' && !/[\r\n]/u.test(edit.insert + text.slice(local.start, local.end)) &&
     text.startsWith('    ', lineStart) && local.start - lineStart >= 4
 }
 
-const ESCAPED_MARKER = /\\(?:\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\})/u
+const ESCAPED_MARKER = new RegExp(String.raw`\\(?:${CRITIC_MARKER_ALTERNATION})`, 'u')
 
 /** Literal payloads cannot contain active CM; suggest a replacement of their owned syntax. */
 export function createTrackedLiteralSourceEdit(
@@ -318,7 +323,7 @@ export const createTrackedSourceEdit = (
         }
         // The proposed block takes the typing only where it stays within the
         // Substitution; typing that breaks the paragraph the Substitution
-        // lives in splits its old arm instead (G34).
+        // lives in splits its old arm instead.
         if (deepest !== undefined && deepest.range.start <= planned.start && planned.end <= deepest.range.end) {
           // The caret domain holds the typing's own place as well.
           const from = Math.min(planned.start, start)
@@ -390,6 +395,8 @@ export const createTrackedSourceEdit = (
     (direct !== undefined && oracle.accepts([direct], 'rendering') && clean(direct) ? direct : undefined)
 }
 
+const LEADING_PUNCTUATION = new RegExp(`^${ASCII_PUNCTUATION}`, 'u')
+
 /**
  * A draft ending in a completed escape (`\\` before its closer) renders one
  * backslash. Text typed after it that a backslash cannot escape replaces that
@@ -397,7 +404,7 @@ export const createTrackedSourceEdit = (
  */
 function retrimDraftEscape(core: DocumentCore, revision: DocumentRevision, request: TrackedRequest): void {
   const { start, end } = request.range
-  if (start !== end || request.text.length === 0 || /^[!-/:-@[-`{-~]/u.test(request.text)) return
+  if (start !== end || request.text.length === 0 || LEADING_PUNCTUATION.test(request.text)) return
   const owner = annotationTree(revision.annotations).find(annotation => annotation.kind === 'addition' &&
     annotation.arms.some(arm => arm.range.end === start))
   const arm = owner?.arms.find(arm => arm.name === 'content')
@@ -675,7 +682,7 @@ function inlineTrackedSourceEdit(
             originalOld === undefined || originalOldSource === undefined ||
             originalOld.annotations.length > 0
           ) return undefined
-          const insert = `{--${originalOldSource}--}`
+          const insert = spellSuggestion('deletion', originalOldSource)
           const candidate = preview([{ ...annotation.range, insert }])
           const replacement = annotationTree(candidate.annotations).find(item =>
             item.kind === 'deletion' &&
@@ -779,10 +786,10 @@ function inlineTrackedSourceEdit(
   ): DocumentSourceEdit | undefined => {
     const payload = insertion ? insertedPayload : selectedPayload
     const insert = insertion
-      ? `{++${payload}++}`
+      ? spellSuggestion('addition', payload)
       : deletion
-        ? `{--${payload}--}`
-        : `{~~${selectedPayload}~>${insertedPayload}~~}`
+        ? spellSuggestion('deletion', payload)
+        : spellSuggestion('substitution', selectedPayload, insertedPayload)
     const candidate = preview([{ ...request.range, insert }])
     const annotation = annotationTree(candidate.annotations).find(item =>
       item.kind === expectedKind && item.range.start === request.range.start &&

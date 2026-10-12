@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
+import { regional } from './support/inputDriver.js'
 
 // Ordinary Markdown edits as fast as it does without
 // suggestions. In a long document mixing every block kind, links, code
@@ -32,11 +33,6 @@ function press(core: DocumentCore, revision: DocumentRevision, caret: number, ke
   const commit = core.apply(revision, edits, { projections: ['markup'] })
   const selection = core.reconcileInput(revision, plan, commit, input).selection
   return { plan, edits, selection, source: commit.revision.source, annotations: commit.revision.annotations }
-}
-
-/** A revision reached by a regional edit, so it holds no document parse. */
-function regional(core: DocumentCore, source: string): DocumentRevision {
-  return core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
 }
 
 const shapes: ReadonlyArray<Readonly<{ name: string, block: string, text: string, offset: number, trackedParse?: number }>> = [
