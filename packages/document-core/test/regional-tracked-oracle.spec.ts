@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
 
-// Plan 0012 G35: a tracked key validates each candidate it considers as
+// A tracked key validates each candidate it considers as
 // apply() would read it. Where the regional inventory admits a candidate,
 // the candidate is read from its blocks, unpublished, and compared with the
 // others around the source they replace, so the key parses no document.

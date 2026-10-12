@@ -48,8 +48,8 @@ const meaning = (source: string): string => {
 // Upstream MarkText (8d6c198c) converts the typed line of a multi-line
 // paragraph into its own block, splitting the lines before it into a
 // paragraph and serializing each block afresh. Bytes were recorded from
-// upstream Muya for the same keys with default preferences. ADR 0007 (plan
-// 0012 G24): the input converts only the typed line, so `expected` keeps the
+// upstream Muya for the same keys with default preferences. ADR 0007:
+// the input converts only the typed line, so `expected` keeps the
 // other lines' bytes where upstream re-spells them and means what `upstream` means.
 const conversions = [
   // Upstream's quote caret, measured from the paragraph's start, slips into a

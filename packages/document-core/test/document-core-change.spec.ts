@@ -1771,7 +1771,7 @@ describe('document-core semantic changes', () => {
     expect(delta(afterEmpty, beforeEmpty, 'regionalAstMaterializedNodes')).toBe(0)
     expect(delta(afterEmpty, beforeEmpty, 'regionalCoordinateSegments')).toBe(0)
 
-    // A new suggestion inside an ordinary paragraph stays regional (G35);
+    // A new suggestion inside an ordinary paragraph stays regional;
     // a new block kind or changed options still reparse the document.
     const suggestionCore = createDocumentCore()
     const suggestionOpened = suggestionCore.open(emptySource)
@@ -3352,7 +3352,7 @@ describe('document-core semantic changes', () => {
     })
 
     // The single-suggestion index refuses these; the document inventory may
-    // still reparse just their paragraphs (G35), reading as a fresh open.
+    // still reparse just their paragraphs, reading as a fresh open.
     if (commit.change.projections[0]?.scope === 'regions') {
       const oracle = createDocumentCore()
       const fresh = oracle.open(commit.revision.source)
@@ -3746,7 +3746,7 @@ describe('document-core semantic changes', () => {
     { name: 'Enter ends a paragraph', source: 'head\n\ntarget\n\ntail\n\n', at: 12, remove: 0, insert: '\n\n' },
     { name: 'Enter on a whitespace-only line', source: 'head\n\n   \n\ntail\n\n', at: 9, remove: 0, insert: '\n\n' },
     { name: 'a whitespace-only last line joins a paragraph', source: 'head\n\ntarget\n\n \t \n', at: 12, remove: 2, insert: '' }
-  ])('reads whitespace-only lines regionally as the document parse does when $name (G35)', ({
+  ])('reads whitespace-only lines regionally as the document parse does when $name', ({
     source,
     at,
     remove,
@@ -4810,7 +4810,7 @@ describe('document-core semantic changes', () => {
     }], { projections: ['markup'] })
     const after = inspectionOf(core)
 
-    // A suggestion's inventory keeps the CM document regional (G35); the
+    // A suggestion's inventory keeps the CM document regional; the
     // plain overlay is never touched either way.
     expect(commit.change.projections[0]?.scope).toBe(buildsDependencyIndex ? 'document' : 'regions')
     if (buildsDependencyIndex) {

@@ -268,7 +268,7 @@ export type MarkdownArmMode =
 
 /**
  * Re-base every coordinate a checkpoint carries by a fixed delta — the
- * marker-bearing G32 splice re-uses retained lane state on both sides of an
+ * marker-bearing splice re-uses retained lane state on both sides of an
  * edit bracket. Coordinate knowledge stays in this module: each member's
  * offsets are enumerated here beside their declarations, and a member added
  * without a shift arm fails the exhaustive spread review below, not a

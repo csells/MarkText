@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentInputAction } from '../src/index.js'
 
-// Plan 0012, 5 October (key 117/9 of the input sweep): a fenced block whose
+// A fenced block whose
 // projected content is empty beside elided markers mapped its content's
 // start forward and its end back across them, past each other, and Enter
 // or Tab there threw slicing the inverted range. A planner never throws on

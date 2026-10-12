@@ -8,7 +8,7 @@ import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
 // source rejecting them gave before it, except after a keystroke no record
 // holds, which is applied as typed and which Reject All cannot remove (owner
 // decision, 9 October 2026: always apply). Typing into deleted or replaced text
-// survives accepting them all (G34); otherwise, where the key touches no
+// survives accepting them all; otherwise, where the key touches no
 // suggestion, accepting them all gives the untracked result's. Keys are
 // typed, broken and deleted in documents of literal blocks, literal
 // Substitutions and Deletions, where suggestions hold fences and math.
@@ -74,13 +74,13 @@ describe('tracked input accepts every key untracked input accepts', () => {
       const touchesSuggestion = revision.annotations.some(annotation =>
         plain.some(edit => edit.start <= annotation.range.end && annotation.range.start <= edit.end))
       if (typing.length > 0 && plain.every(edit => inHistory(revision.annotations, edit.start, edit.end))) {
-        // Owner ruling G34: typing into deleted or replaced text survives
+        // Owner ruling: typing into deleted or replaced text survives
         // Accept All, which is otherwise as before.
         expect(keepsTyping(resolveAll(next.source, 'accept'), resolveAll(revision.source, 'accept'), typing), `Accept drops typing: ${label}`).toBe(true)
       } else if (!touchesSuggestion) {
         const plainCore = createDocumentCore()
         const plainNext = plainCore.apply(plainCore.open(revision.source), plain).revision
-        // G46: an untracked edit that turns other suggestions' markers into
+        // An untracked edit that turns other suggestions' markers into
         // text, as a fence it breaks swallowing them, has no Accept All to
         // match; a tracked spelling keeps those suggestions. Reject All is
         // still exact for it, as checked above.

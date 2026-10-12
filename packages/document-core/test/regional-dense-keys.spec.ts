@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
 
-// Plan 0012 G35: in a document dense with suggestions, typing, Enter,
+// In a document dense with suggestions, typing, Enter,
 // Backspace and Delete are planned and proved from the paragraphs around
 // the caret. Every regional result must be the one the document parse gives:
 // a seeded differential compares each key with a core that plans from its

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
 
-// Plan 0012 G35: ordinary Markdown edits as fast as it does without
+// Ordinary Markdown edits as fast as it does without
 // suggestions. In a long document mixing every block kind, links, code
 // spans, math and a reference definition, typing, Backspace, Delete and
 // Enter in each kind of block take no document parse, tracked or not, and
@@ -170,7 +170,7 @@ describe('a key that changes nothing', () => {
 })
 
 describe('keys in an item of a long list', () => {
-  // Plan 0012 G35: a key in one item reparses that item with an item of
+  // A key in one item reparses that item with an item of
   // context on each side, as upstream edits one item, whatever the list's
   // length, and reads as a core planning from its document parse reads it.
   const item = (index: number) => `item number ${index} of the long list`
@@ -200,7 +200,7 @@ describe('keys in an item of a long list', () => {
 })
 
 describe('keys beside a long fence or list', () => {
-  // Plan 0012 G35: a key in the paragraph before or after a long block reads
+  // A key in the paragraph before or after a long block reads
   // that block only as far as the paragraph's reading needs it: a fence
   // closed before the paragraph not at all, and a block after it to its
   // first line, as upstream edits the paragraph alone.

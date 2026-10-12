@@ -27,7 +27,7 @@ export function materializeTableCellEdit(
   const finalSlotEnd = finalPhysical?.attributes.cellEnd
   const needsSeparator = typeof finalSlotEnd === 'number' && cell.syntax.coordinates.toSource(finalSlotEnd, 'previous') === rowEnd
   // Only the bytes the new cell needs: typing is not a table command, so the
-  // row is not padded to its column widths (ADR 0007, plan 0012 G24).
+  // row is not padded to its column widths (ADR 0007).
   const prefix = (needsSeparator ? '|' : '') + ' |'.repeat(cell.column - physical) + ' '
   return { edit: { ...edit, insert: prefix + edit.insert + ' |' }, prefixLength: prefix.length }
 }

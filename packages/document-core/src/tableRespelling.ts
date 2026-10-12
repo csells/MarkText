@@ -112,8 +112,8 @@ function tableRespellingEdits(
     }
     if (rowEnd === undefined) return undefined
     // Text after the header's last column stays as written: upstream drops
-    // those cells, but the owner ruled that padding never removes text (plan
-    // 0012 G24). The parser reads them as no cell, so they are not respelled.
+    // those cells, but the owner ruled that padding never removes text.
+    // The parser reads them as no cell, so they are not respelled.
     if (missing !== '') replace(rowEnd, rowEnd, missing)
     if (rowIndex === 0) {
       for (const [column, cell] of header.children.entries()) {
@@ -135,7 +135,7 @@ function tableRespellingEdits(
  * escaped within its edit, and a pipe the edit leaves bare after it gains a
  * backslash, as upstream spells a cell's text. The table itself is not
  * written again: an edit inside a cell changes only the bytes it types
- * (ADR 0007; owner decision 25 Sep, plan 0012 G24), and only explicit table
+ * (ADR 0007; owner decision 25 Sep), and only explicit table
  * commands re-pad the table. The native echo and the selection follow the
  * added backslashes.
  */

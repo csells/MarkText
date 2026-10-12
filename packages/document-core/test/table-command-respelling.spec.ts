@@ -85,7 +85,7 @@ it('leaves a following table alone when a command removes the whole table', () =
   expect(result.undone).toBe(source)
 })
 
-// Owner decision (plan 0012 G24): unlike upstream, text beyond the header's
+// Owner decision: unlike upstream, text beyond the header's
 // columns is kept after the row's last column rather than dropped.
 it('completes short rows and keeps cells beyond the header', () => {
   const source = '| a | b |\n|---|---|\n| c |\n| d | e | f |\n'

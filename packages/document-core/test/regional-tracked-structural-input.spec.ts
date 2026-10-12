@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
 
-// Plan 0012 G35: ordinary tracked typing and structural keys reuse the
+// Ordinary tracked typing and structural keys reuse the
 // unchanged document instead of reparsing it. Every case also checks the
 // regional result against an independent full parse of the same source.
 

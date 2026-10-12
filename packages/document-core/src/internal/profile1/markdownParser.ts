@@ -137,7 +137,7 @@ export function createIntrinsicProfile1SourceProgression(
   }>[],
   footnotesEnabled: boolean = true
 ): IntrinsicProfile1SourceProgression {
-  // Depth degradation (G18): a re-parse suppresses the marker candidates of
+  // Depth degradation: a re-parse suppresses the marker candidates of
   // annotations past the accepted-depth limit, so their bytes flow through
   // the one grammar as exact literal text — tape, forks, lanes, and
   // projections stay consistent by construction. Ranges arrive sorted.
@@ -3611,7 +3611,7 @@ function parseOrderedContainerSequence(
     paragraphLines = []
   }
 
-  // Sub-block reuse (G31): a contiguous list is one region however long it
+  // Sub-block reuse: a contiguous list is one region however long it
   // is, so every keystroke re-emitted every item. Each closed TOP-LEVEL
   // list item is retained as a template keyed exactly like a region —
   // exact window source, line shape, and fully-interior literals — and an
@@ -3930,7 +3930,7 @@ function parseOrderedContainerSequence(
       }
     }
 
-    // Blockquote segments (G31): the quote's interior splits at its own
+    // Blockquote segments: the quote's interior splits at its own
     // blank lines, exactly as top-level regions split at document blanks,
     // and each segment's emitted children are retained as templates.
     const segmentStart =
@@ -5146,7 +5146,7 @@ const MAX_RETAINED_FRAGMENT_ENTRIES = 131_072
 /**
  * Total retention across all cached regions. One region may retain at most
  * the per-entry cap below, so a single oversized block can neither be
- * serialized into a key nor evict the whole working set (G31).
+ * serialized into a key nor evict the whole working set.
  */
 const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1 = 64 * 1_024 * 1_024
 const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1 =
@@ -5198,7 +5198,7 @@ function retainedStringBytes(value: string): number {
  * re-verifies the exact region source, lines key, and literals key, so a
  * collision can only cause a miss or a skipped retention — never a wrong
  * reuse. Embedding the full region source in the key doubled every entry's
- * retention and pulled the eviction cliff down to ~95 KB of document (G31).
+ * retention and pulled the eviction cliff down to ~95 KB of document.
  */
 function retainedFragmentKeyDigest(serialized: string): string {
   let hashA = 0x811c9dc5
@@ -7796,7 +7796,7 @@ function forkLaneSafeSourcePoints(
   ).sort((left, right) => left.start - right.start)
   // Indexed candidate lookup: the per-transition scan over every line and
   // every literal made this O(transitions × lines) — tens of milliseconds
-  // of every reopen on a large document (G32).
+  // of every reopen on a large document.
   const blankLineIndexByEnd = new Map<number, number>()
   for (const [index, line] of lines.entries()) {
     if (line.blank && line.containers.length === 0) {
