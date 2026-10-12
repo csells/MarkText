@@ -4553,14 +4553,18 @@ onMounted(() => {
       projectSource: true
     })
   } else if (freshDocument) {
-    // A newly opened document is ready to type into at its start. This view is
-    // never hidden, so it takes that focus now, through the native boundary its
-    // model selection is read from.
+    // A newly opened document is ready to type into at the start of its visible
+    // text, after a first heading's hidden `#`s. This view is never hidden, so it
+    // takes that focus now, through the native boundary its model selection is
+    // read from.
     const first = muya.editor.scrollPage?.firstContentInDescendant()
     const start =
       first === undefined || first === null
         ? null
-        : muya.editor.selection.getDOMPoint({ path: [...first.path], offset: 0 })
+        : muya.editor.selection.getDOMPoint({
+          path: [...first.path],
+          offset: first.hiddenLeadingSyntaxEnd()
+        })
     muya.domNode.focus({ preventScroll: true })
     if (start !== null) muya.editor.selection.setDOMSelection(start, start)
   }

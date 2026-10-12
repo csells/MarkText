@@ -664,6 +664,10 @@ class Format extends Content {
         if (footnoteEl)
             this._emitFootnoteToolEvent(footnoteEl);
 
+        // Read before the frame below redraws the block with its syntax shown:
+        // the click aimed at what was visible when it happened.
+        const hiddenSyntaxEnd = this.hiddenLeadingSyntaxEnd();
+
         requestAnimationFrame(() => {
             // TODO: @JOCS, remove use this.selection directly.
             if (event.shiftKey && this.selection.anchorBlock !== this) {
@@ -675,6 +679,13 @@ class Format extends Content {
 
             if (!currentCursor)
                 return;
+
+            // Chromium resolves a click beside the first visible character to
+            // either side of the hidden syntax before it; the user meant the text.
+            if (!event.shiftKey && currentCursor.isCollapsed && currentCursor.start.offset < hiddenSyntaxEnd) {
+                this.setCursor(hiddenSyntaxEnd, hiddenSyntaxEnd, true);
+                return;
+            }
 
             const cursor = Object.assign({}, currentCursor, {
                 block: this,
