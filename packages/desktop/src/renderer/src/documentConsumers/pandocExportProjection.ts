@@ -11,6 +11,7 @@ import { isAlias, isMap, isScalar, isSeq, parseDocument, type Document } from 'y
 
 import type { PandocDocument, PandocJsonNode } from '@shared/types/files'
 
+import { stringAttribute } from './astAttributes'
 import { semanticTextPieces, type SemanticTextPiece } from './semanticTextPieces'
 
 /**
@@ -120,14 +121,9 @@ const wrapItems = (items: readonly Item[]): PandocJsonNode[] => {
   return normalizeInlines(inlines)
 }
 
-const stringAttribute = (node: MarkdownAstNode, name: string): string => {
-  const value = node.attributes[name]
-  return typeof value === 'string' ? value : ''
-}
-
 // pandoc keeps a link's path as written: escapes resolved, nothing percent-encoded.
 const destinationOf = (node: MarkdownAstNode): string =>
-  stringAttribute(node, 'decodedDestination') || stringAttribute(node, 'semanticDestination')
+  stringAttribute(node, 'decodedDestination') || stringAttribute(node, 'semanticDestination') || ''
 
 /** pandoc's `stringify`, with emoji spelled by name as its identifiers use them. */
 const identifierText = (inlines: readonly PandocJsonNode[]): string =>
@@ -251,11 +247,11 @@ const createAstConverter = (root: MarkdownAstNode, context: TrackingContext, mar
     for (const node of nodes) {
       switch (node.kind) {
         case 'text': {
-          const emoji = stringAttribute(node, 'emojiValue')
+          const emoji = stringAttribute(node, 'emojiValue') ?? ''
           if (node.attributes['emojiClosed'] === true && emoji !== '') {
             atom(node, {
               t: 'Span',
-              c: [['', ['emoji'], [['data-emoji', stringAttribute(node, 'emojiAlias')]]], [str(emoji)]]
+              c: [['', ['emoji'], [['data-emoji', stringAttribute(node, 'emojiAlias') ?? '']]], [str(emoji)]]
             })
             break
           }
@@ -290,26 +286,26 @@ const createAstConverter = (root: MarkdownAstNode, context: TrackingContext, mar
           atom(node, { t: 'LineBreak' })
           break
         case 'inline-code':
-          atom(node, { t: 'Code', c: [EMPTY_ATTR, stringAttribute(node, 'semanticContent')] })
+          atom(node, { t: 'Code', c: [EMPTY_ATTR, stringAttribute(node, 'semanticContent') ?? ''] })
           break
         case 'inline-math':
           atom(node, {
             t: 'Math',
             c: [
-              { t: DISPLAY_MATH_MARKERS.has(stringAttribute(node, 'marker')) ? 'DisplayMath' : 'InlineMath' },
-              stringAttribute(node, 'content')
+              { t: DISPLAY_MATH_MARKERS.has(stringAttribute(node, 'marker') ?? '') ? 'DisplayMath' : 'InlineMath' },
+              stringAttribute(node, 'content') ?? ''
             ]
           })
           break
         case 'inline-html':
-          atom(node, { t: 'RawInline', c: ['html', stringAttribute(node, 'content')] })
+          atom(node, { t: 'RawInline', c: ['html', stringAttribute(node, 'content') ?? ''] })
           break
         case 'autolink':
           atom(node, {
             t: 'Link',
             c: [
               EMPTY_ATTR,
-              [str(stringAttribute(node, 'rawDestination'))],
+              [str(stringAttribute(node, 'rawDestination') ?? '')],
               [destinationOf(node), '']
             ]
           })
@@ -328,7 +324,7 @@ const createAstConverter = (root: MarkdownAstNode, context: TrackingContext, mar
             c: [
               ['', [], layout],
               alt,
-              [destinationOf(node), stringAttribute(node, 'semanticTitle')]
+              [destinationOf(node), stringAttribute(node, 'semanticTitle') ?? '']
             ]
           })
           break
@@ -340,7 +336,7 @@ const createAstConverter = (root: MarkdownAstNode, context: TrackingContext, mar
               ? footnotes.get(start)
               : undefined
           if (definition === undefined) {
-            atom(node, str(`[^${stringAttribute(node, 'rawLabel')}]`))
+            atom(node, str(`[^${stringAttribute(node, 'rawLabel') ?? ''}]`))
             break
           }
           let blocks = renderedNotes.get(definition.range.start)
@@ -373,7 +369,7 @@ const createAstConverter = (root: MarkdownAstNode, context: TrackingContext, mar
             c: [
               EMPTY_ATTR,
               content,
-              [destinationOf(node), stringAttribute(node, 'semanticTitle')]
+              [destinationOf(node), stringAttribute(node, 'semanticTitle') ?? '']
             ]
           }))
           break
@@ -473,8 +469,8 @@ const createAstConverter = (root: MarkdownAstNode, context: TrackingContext, mar
       case 'thematic-break':
         return [{ t: 'HorizontalRule' }]
       case 'code-block': {
-        const info = stringAttribute(node, 'semanticInfo').trim().split(/\s/u)[0] ?? ''
-        const content = stringAttribute(node, 'content')
+        const info = (stringAttribute(node, 'semanticInfo') ?? '').trim().split(/\s/u)[0] ?? ''
+        const content = stringAttribute(node, 'content') ?? ''
         // pandoc keeps the last newline of a fence left open to the end of the document.
         const unclosed =
           node.attributes['provider'] === 'fenced-code' &&
@@ -488,16 +484,16 @@ const createAstConverter = (root: MarkdownAstNode, context: TrackingContext, mar
         ]
       }
       case 'diagram': {
-        const content = stringAttribute(node, 'content')
+        const content = stringAttribute(node, 'content') ?? ''
         return [
           literalBlock(node, content, () => ({
             t: 'CodeBlock',
-            c: [['', [stringAttribute(node, 'language')], []], withoutFinalNewline(content)]
+            c: [['', [stringAttribute(node, 'language') ?? ''], []], withoutFinalNewline(content)]
           }))
         ]
       }
       case 'math-block': {
-        const content = stringAttribute(node, 'content')
+        const content = stringAttribute(node, 'content') ?? ''
         // pandoc keeps the line breaks inside `$$`…`$$`; a ```math fence loses its last.
         const tex = node.attributes['syntax'] === 'dollar' ? `\n${content}` : withoutFinalNewline(content)
         const math = { t: 'Math', c: [{ t: 'DisplayMath' }, tex] }
@@ -506,7 +502,7 @@ const createAstConverter = (root: MarkdownAstNode, context: TrackingContext, mar
         return [{ t: 'Para', c: wrapItems([{ inline: math, key }]) }]
       }
       case 'html-block':
-        return [{ t: 'RawBlock', c: ['html', stringAttribute(node, 'content')] }]
+        return [{ t: 'RawBlock', c: ['html', stringAttribute(node, 'content') ?? ''] }]
       case 'table': {
         const rows = node.children
         const columns = Math.max(
@@ -563,9 +559,9 @@ const createAstConverter = (root: MarkdownAstNode, context: TrackingContext, mar
 
   const literalLines = (node: MarkdownAstNode): PandocJsonNode => {
     const lines = [
-      stringAttribute(node, 'opener'),
-      ...withoutFinalNewline(contentText(node) ?? stringAttribute(node, 'content')).split(/\r\n|\r|\n/u),
-      stringAttribute(node, 'closer')
+      stringAttribute(node, 'opener') ?? '',
+      ...withoutFinalNewline(contentText(node) ?? stringAttribute(node, 'content') ?? '').split(/\r\n|\r|\n/u),
+      stringAttribute(node, 'closer') ?? ''
     ].filter((line) => line !== '')
     return {
       t: 'Para',
