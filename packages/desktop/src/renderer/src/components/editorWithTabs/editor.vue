@@ -4556,7 +4556,7 @@ onMounted(() => {
     restoreMuyaDocumentSelection(muya, coreAcknowledgedMarkupView, props.initialDocumentSelection, {
       projectSource: true
     })
-  } else if (freshDocument) {
+  } else if (freshDocument && takeOpenFocus) {
     // A newly opened document is ready to type into at the start of its visible
     // text, after a first heading's hidden `#`s. This view is never hidden, so it
     // takes that focus now, through the native boundary its model selection is
