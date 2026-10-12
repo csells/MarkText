@@ -9,10 +9,8 @@ import { annotationsAround, annotationsOverlapping } from './internal/annotation
 import { FENCED_LITERAL_BLOCKS, LITERAL_DELIMITER_LINE } from './literalBlock.js'
 import { ASCII_PUNCTUATION } from './internal/profile1/markdownSemanticText.js'
 import { lineStartBefore } from './sourceLines.js'
-import { CRITIC_MARKER_ALTERNATION, spellSuggestion } from './criticMarkers.js'
+import { CRITIC_MARKER, CRITIC_MARKER_ALTERNATION, spellSuggestion } from './criticMarkers.js'
 import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, escapesLiteralContent, isWindowCompileCore, markUnresolvedDraft, reachesWindowEdge, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
-
-const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'g')
 
 /** Protective spelling retains exactly where the language compiler inserts escapes. */
 export const nativeCriticSpelling = (value: string): Readonly<{ text: string, escapes: readonly number[] }> => {
