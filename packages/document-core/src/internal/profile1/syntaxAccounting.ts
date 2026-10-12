@@ -1,5 +1,4 @@
 import type { SourceRange } from '../../revision.js'
-import type { ParseExecutionTracker } from '../../parseExecutionControl.js'
 
 export type Profile1SyntaxAccountingEventKind =
   | 'TapeRun'
@@ -74,7 +73,6 @@ export class Profile1LogicalNodeLimitError extends Error {
 export function createProfile1SyntaxAccountingRecorder(
   retainRanges: boolean,
   retainTrace: boolean,
-  execution?: ParseExecutionTracker,
   maximumEvents: number = Number.POSITIVE_INFINITY
 ): Profile1SyntaxAccountingRecorder {
   if (
@@ -109,7 +107,6 @@ export function createProfile1SyntaxAccountingRecorder(
     }
     bucket.count += 1
     totalEvents += 1
-    execution?.emitLogicalNode()
     if (totalEvents > maximumEvents) {
       throw new Profile1LogicalNodeLimitError(range, maximumEvents)
     }

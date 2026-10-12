@@ -114,11 +114,6 @@ import {
   type Profile1SyntaxAccountingRecorder,
   type Profile1SyntaxAccountingTrace
 } from './profile1/syntaxAccounting.js'
-import {
-  createParseExecutionTracker,
-  PARSE_SOURCE_CHECKPOINT_INTERVAL,
-  type ParseExecutionTracker
-} from '../parseExecutionControl.js'
 import { sourceOffset, sourceRange } from './profile1/sourceRanges.js'
 
 type ImplementedUnaryNode =
@@ -729,15 +724,13 @@ function emitProjectionAccounting(
 }
 
 function plainParagraphLineRanges(
-  source: string,
-  execution?: ParseExecutionTracker
+  source: string
 ): readonly SourceRange[] | undefined {
   if (source.length === 0) {
     return undefined
   }
   const ranges: SourceRange[] = []
   let start = 0
-  let reportedEnd = 0
   while (start < source.length) {
     let end = start
     while (
@@ -746,16 +739,7 @@ function plainParagraphLineRanges(
       source.charCodeAt(end) !== 13
     ) {
       end += 1
-      if (
-        execution !== undefined &&
-        end - reportedEnd >= PARSE_SOURCE_CHECKPOINT_INTERVAL
-      ) {
-        execution.examineParserWork(end - reportedEnd)
-        reportedEnd = end
-      }
     }
-    execution?.examineParserWork(end - reportedEnd)
-    reportedEnd = end
     const content = source.slice(start, end)
     if (content.length === 0 || !/^[\p{L}\p{N} ]+$/u.test(content)) {
       return undefined
@@ -786,8 +770,7 @@ function plainParagraphLineRanges(
  */
 function plainParagraphBudgetEventFailure(
   source: string,
-  parsed: ParseResult,
-  execution?: ParseExecutionTracker
+  parsed: ParseResult
 ): ResourceDiagnostic | undefined {
   if (parsed.roots.length !== 0) {
     return undefined
@@ -802,7 +785,7 @@ function plainParagraphBudgetEventFailure(
   ) {
     return undefined
   }
-  const lines = plainParagraphLineRanges(source, execution)
+  const lines = plainParagraphLineRanges(source)
   if (lines === undefined) {
     return undefined
   }
@@ -900,8 +883,7 @@ function finalizeAuthenticatedMarkdownLiterals(
 
 function finalizeCanonicalTape(
   source: string,
-  decisions: readonly CanonicalMarkerDecision[],
-  execution?: ParseExecutionTracker
+  decisions: readonly CanonicalMarkerDecision[]
 ): Readonly<{
     tape: readonly TapeRun[]
     markerDecisions: readonly CanonicalMarkerDecision[]
@@ -913,7 +895,7 @@ function finalizeCanonicalTape(
       range: decision.range
     })
   )
-  const tape = scanSourceTape(source, retainedCandidates, execution)
+  const tape = scanSourceTape(source, retainedCandidates)
   assertLosslessTape(source, tape)
 
   const finalRunIdByIdentity = new Map<string, number>()
@@ -1100,7 +1082,6 @@ function parseIntrinsicProfile1(
   syntaxIdentity: Profile1SyntaxIdentityRegistry,
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
   markdownOptions: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS,
-  execution?: ParseExecutionTracker,
   suppressedMarkerRanges?: readonly Readonly<{
     start: number
     end: number
@@ -1110,7 +1091,6 @@ function parseIntrinsicProfile1(
 ): ParseOutcome {
   const sourceProgression = createIntrinsicProfile1SourceProgression(
     source,
-    execution,
     suppressedMarkerRanges,
     markdownOptions.footnotes
   )
@@ -1131,7 +1111,6 @@ function parseIntrinsicProfile1(
     markdownOptions.texMathSingleBackslash,
     markdownOptions.texMathDoubleBackslash,
     markdownOptions.footnotes,
-    execution,
     sourceProgression.hasCriticMarkupCandidate,
     physicalRecorder
   )
@@ -1819,7 +1798,7 @@ function parseIntrinsicProfile1(
       )
     })
   }
-  const canonical = finalizeCanonicalTape(source, markerDecisions, execution)
+  const canonical = finalizeCanonicalTape(source, markerDecisions)
   const forkGraph = forkRecorder.finish(
     canonical.tape,
     rootMarkdownCheckpoint
@@ -4424,7 +4403,6 @@ function tryIncrementalIntrinsicParse(
   previousPass: PreviousIntrinsicPass,
   markdownDepthLimit: number,
   markdownOptions: MarkdownOptions,
-  execution: ParseExecutionTracker,
   accounting: Profile1SyntaxAccountingRecorder,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
   syntaxIdentity: Profile1SyntaxIdentityRegistry
@@ -4444,7 +4422,6 @@ function tryIncrementalIntrinsicParse(
     createProfile1SyntaxIdentityRegistry(window.length, accounting),
     markdownDepthLimit,
     bracket.start === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false }),
-    execution,
     undefined,
     physicalRecorder
   )
@@ -4527,7 +4504,6 @@ function tryIncrementalIntrinsicParse(
     markdownOptions.texMathSingleBackslash,
     markdownOptions.texMathDoubleBackslash,
     markdownOptions.footnotes,
-    execution,
     false,
     physicalRecorder
   )
@@ -4830,14 +4806,12 @@ export function parseProfile1Document(
   // that document does, whether or not the window holds an annotation.
   documentHasAnnotations = false
 ): Profile1DocumentResult {
-  const execution = createParseExecutionTracker()
   try {
-    const result = parseProfile1DocumentWithExecution(
+    const result = parseProfile1DocumentOrReaderViews(
       source,
       executionBudget,
       markdownOptions,
       captureAccountingTrace,
-      execution,
       reuseCache,
       physicalRecorder,
       previousPass,
@@ -4850,7 +4824,6 @@ export function parseProfile1Document(
     if (!(error instanceof Profile1LogicalNodeLimitError)) {
       throw error
     }
-    execution.finish()
     return Object.freeze({
       kind: 'source-only',
       fatalDiagnostic: createResourceDiagnostic(
@@ -4883,15 +4856,13 @@ export function parseProfile1ReaderViews(
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 = createPhysicalTraversalRecorder(),
   previousPass?: PreviousIntrinsicPass
 ): Profile1ReaderViews | Profile1SourceOnlyProducts {
-  const execution = createParseExecutionTracker()
   try {
-    const result = parseProfile1DocumentWithExecution(source, executionBudget, markdownOptions, false,
-      execution, createProfile1DocumentReuseCache(), physicalRecorder, previousPass, true, false, true)
+    const result = parseProfile1DocumentOrReaderViews(source, executionBudget, markdownOptions, false,
+      createProfile1DocumentReuseCache(), physicalRecorder, previousPass, true, false, true)
     if (result.kind === 'complete') throw new Error('Reader views parsed a whole document')
     return result
   } catch (error) {
     if (!(error instanceof Profile1LogicalNodeLimitError)) throw error
-    execution.finish()
     return Object.freeze({
       kind: 'source-only',
       fatalDiagnostic: createResourceDiagnostic(
@@ -4914,7 +4885,6 @@ function parseIntrinsicStage(
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptions,
   captureAccountingTrace: boolean,
-  execution: ParseExecutionTracker,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
   previousPass: PreviousIntrinsicPass | undefined
 ): Profile1SourceOnlyProducts | Readonly<{
@@ -4929,7 +4899,6 @@ function parseIntrinsicStage(
   let accounting = createProfile1SyntaxAccountingRecorder(
     usesDesktopLimits,
     captureAccountingTrace,
-    execution,
     usesDesktopLimits
       ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
       : Number.POSITIVE_INFINITY
@@ -4968,7 +4937,6 @@ function parseIntrinsicStage(
       previousPass,
       markdownDepthLimit,
       markdownOptions,
-      execution,
       accounting,
       physicalRecorder,
       syntaxIdentity
@@ -4980,7 +4948,6 @@ function parseIntrinsicStage(
       syntaxIdentity,
       markdownDepthLimit,
       markdownOptions,
-      execution,
       undefined,
       physicalRecorder
     )
@@ -4996,7 +4963,6 @@ function parseIntrinsicStage(
     accounting = createProfile1SyntaxAccountingRecorder(
       usesDesktopLimits,
       captureAccountingTrace,
-      execution,
       usesDesktopLimits
         ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
         : Number.POSITIVE_INFINITY
@@ -5010,7 +4976,6 @@ function parseIntrinsicStage(
       syntaxIdentity,
       markdownDepthLimit,
       markdownOptions,
-      execution,
       parsed.recoverySuppressedMarkerRanges,
       physicalRecorder
     )
@@ -5036,11 +5001,7 @@ function parseIntrinsicStage(
   }
   emitTapeAccounting(accounting, parsed.tape)
   if (usesDesktopLimits) {
-    const plainParagraphFailure = plainParagraphBudgetEventFailure(
-      source,
-      parsed,
-      execution
-    )
+    const plainParagraphFailure = plainParagraphBudgetEventFailure(source, parsed)
     if (plainParagraphFailure !== undefined) {
       return Object.freeze({
         kind: 'source-only',
@@ -5062,25 +5023,21 @@ export function profile1CriticMarkupRootCount(
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 = createPhysicalTraversalRecorder(),
   previousPass?: PreviousIntrinsicPass
 ): number | undefined {
-  const execution = createParseExecutionTracker()
   try {
-    const stage = parseIntrinsicStage(source, executionBudget, markdownOptions, false, execution,
+    const stage = parseIntrinsicStage(source, executionBudget, markdownOptions, false,
       physicalRecorder, previousPass)
     return stage.kind === 'complete' ? stage.parsed.roots.length : undefined
   } catch (error) {
     if (!(error instanceof Profile1LogicalNodeLimitError)) throw error
     return undefined
-  } finally {
-    execution.finish()
   }
 }
 
-function parseProfile1DocumentWithExecution(
+function parseProfile1DocumentOrReaderViews(
   source: string,
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptions,
   captureAccountingTrace: boolean,
-  execution: ParseExecutionTracker,
   reuseCache: Profile1DocumentReuseCache | undefined,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
   previousPass: PreviousIntrinsicPass | undefined,
@@ -5088,15 +5045,9 @@ function parseProfile1DocumentWithExecution(
   documentHasAnnotations: boolean,
   readerOnly = false
 ): Profile1DocumentResult | Profile1ReaderViews {
-  const finishResult = <Result extends Profile1DocumentResult | Profile1ReaderViews>(
-    result: Result
-  ): Result => {
-    execution.finish()
-    return result
-  }
   const stage = parseIntrinsicStage(source, executionBudget, markdownOptions, captureAccountingTrace,
-    execution, physicalRecorder, previousPass)
-  if (stage.kind === 'source-only') return finishResult(stage)
+    physicalRecorder, previousPass)
+  if (stage.kind === 'source-only') return stage
   const { parsed, accounting, syntaxIdentity, usesDesktopLimits, markdownDepthLimit } = stage
   const criticMarkupRoots = parsed.roots
   for (const root of criticMarkupRoots) {
@@ -5159,7 +5110,6 @@ function parseProfile1DocumentWithExecution(
   const forkParser = createProfile1MarkdownForkParser(
     graphCore.forkGraph,
     parsed.referenceDefinitions,
-    execution,
     physicalRecorder,
     reuseCache?.markdown,
     parsed.spliceProvenance
@@ -5367,10 +5317,10 @@ function parseProfile1DocumentWithExecution(
         overflow.observed
       )
     if (budgetFailure !== undefined) {
-      return finishResult(Object.freeze({
+      return Object.freeze({
         kind: 'source-only',
         fatalDiagnostic: budgetFailure
-      }))
+      })
     }
   }
   const commentDisplays = (): readonly Profile1ProjectedMarkdown[] => {
@@ -5424,21 +5374,21 @@ function parseProfile1DocumentWithExecution(
     )
     : undefined
   if (projectedDepthDiagnostic !== undefined) {
-    return finishResult(Object.freeze({
+    return Object.freeze({
       kind: 'source-only',
       fatalDiagnostic: projectedDepthDiagnostic
-    }))
+    })
   }
   if (readerOnly) {
     validateMappedProjection(graphCore, original)
     validateMappedProjection(graphCore, revised)
-    return finishResult(Object.freeze({
+    return Object.freeze({
       kind: 'reader',
       criticMarkup,
       diagnostics: createDiagnosticIndex(parsed.diagnostics),
       original,
       revised
-    }))
+    })
   }
   const finalized = finalizeProfile1SyntaxGraph(graphCore, {
     diagnostics: createDiagnosticIndex(parsed.diagnostics),
@@ -5466,7 +5416,7 @@ function parseProfile1DocumentWithExecution(
       physicalRecorder
     )
   })
-  return finishResult(captureAccountingTrace
+  return captureAccountingTrace
     ? Object.freeze({ ...products, accountingTrace: accounting.trace() })
-    : products)
+    : products
 }

@@ -10,7 +10,6 @@ import type {
   MarkdownReferenceIndex,
   NodeId
 } from '../../revision.js'
-import type { ParseExecutionTracker } from '../../parseExecutionControl.js'
 import type { Profile1SyntaxIdentityRegistry } from './syntaxIdentity.js'
 
 const AUTOLINK_EMAIL =
@@ -79,7 +78,6 @@ export function createMarkdownDocumentIndices(
     Profile1SyntaxIdentityRegistry,
     'referenceTargets' | 'resolveFootnoteReference'
   >,
-  execution: ParseExecutionTracker,
   footnoteDefinitionCanResolveReference: (
     definitionStart: number,
     referenceStart: number
@@ -90,7 +88,6 @@ export function createMarkdownDocumentIndices(
   while (pending.length > 0) {
     const node = pending.pop()
     if (node === undefined) continue
-    execution.examineParserWork(1)
     nodes.push(node)
     for (let ordinal = node.childCount - 1; ordinal >= 0; ordinal -= 1) {
       pending.push(node.childAt(ordinal))
@@ -110,7 +107,6 @@ export function createMarkdownDocumentIndices(
   const footnoteDefinitionByNode =
     new Map<NodeId, MarkdownFootnoteDefinitionFact>()
   for (const node of nodes) {
-    execution.examineParserWork(1)
     const label = node.attributes['label']
     if (node.kind === 'definition' && typeof label === 'string') {
       const fact = Object.freeze({
@@ -150,7 +146,6 @@ export function createMarkdownDocumentIndices(
   const headings: MarkdownHeadingFact[] = []
   const headingByNode = new Map<NodeId, MarkdownHeadingFact>()
   for (const node of nodes) {
-    execution.examineParserWork(1)
     if (
       node.kind === 'link' ||
       node.kind === 'image' ||
