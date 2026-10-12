@@ -6,6 +6,9 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { blockCommandTarget } from './blockCommandPlanning.js'
 import { paragraphImageRange } from './paragraphBoundary.js'
 import type { MarkdownLineIndex } from './revision.js'
+import { CRITIC_MARKER_ALTERNATION } from './internal/profile1/sourceTape.js'
+
+const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'gu')
 
 interface ClipboardInsertion { edit: DocumentSourceEdit, caret: number, after?: readonly DocumentSourceEdit[] }
 
@@ -190,5 +193,5 @@ export function containerContinuationPrefix(core: DocumentCore, previous: Docume
   }
   // A suggestion's markers on the line, as the `~>` before a Substitution's
   // new block, are no container: the parser reads the line without them.
-  return continuation.replace(/\{\+\+|\{--|\{~~|~>|\{==|\{>>|\+\+\}|--\}|~~\}|==\}|<<\}/gu, '')
+  return continuation.replace(CRITIC_MARKER, '')
 }

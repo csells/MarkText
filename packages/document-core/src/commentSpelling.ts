@@ -1,5 +1,6 @@
 import { createDocumentCore, type DocumentRevision, type DocumentSourceEdit, type MarkdownOptions, type SourceRange } from './documentCore.js'
 import { markupAnnotations } from './markupEditOwnership.js'
+import { CRITIC_MARKER_ALTERNATION } from './internal/profile1/sourceTape.js'
 
 /** A Comment payload's source spelling. */
 export interface DocumentCommentPayloadSpelling {
@@ -24,7 +25,8 @@ export interface DocumentCommentPlan {
   readonly escaped: boolean
 }
 
-const CRITIC_TOKENS = /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<</g
+/** Every marker, with a bare `<<` standing in for the Comment closer. */
+export const CRITIC_TOKENS = new RegExp(CRITIC_MARKER_ALTERNATION.replace(String.raw`<<\}`, '<<'), 'g')
 
 /**
  * An odd run of trailing backslashes would escape the Comment closer (E1);

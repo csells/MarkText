@@ -1,3 +1,5 @@
+import { CRITIC_MARKER_ALTERNATION } from './sourceTape.js'
+
 /**
  * Profile rule R3b: inside a GFM table an unescaped `|` keeps delimiting
  * cells between CriticMarkup markers, so an annotation may not cut through a
@@ -45,10 +47,9 @@ const NO_CONTAINMENT: TableCellContainment = Object.freeze({
     firstOffsetAtOrAfter(closerStarts, open.end) < closerStarts.length
 })
 
-const EDGE_DELIMITER = /^(?:\{\+\+|\{--|\{~~|\{==|\{>>|\+\+\}|--\}|~~\}|==\}|<<\}|~>)/u
-const TRAILING_DELIMITER = /(?:\{\+\+|\{--|\{~~|\{==|\{>>|\+\+\}|--\}|~~\}|==\}|<<\}|~>)$/u
-
-const DELIMITER = String.raw`(?:\{\+\+|\{--|\{~~|\{==|\{>>|\+\+\}|--\}|~~\}|==\}|<<\}|~>)`
+const DELIMITER = `(?:${CRITIC_MARKER_ALTERNATION})`
+const EDGE_DELIMITER = new RegExp(`^${DELIMITER}`, 'u')
+const TRAILING_DELIMITER = new RegExp(`${DELIMITER}$`, 'u')
 const LEADING_EDGE = new RegExp(String.raw`^(?:[\s\S]*${DELIMITER})?[ \t]*$`, 'u')
 const TRAILING_EDGE = new RegExp(String.raw`^[ \t]*(?:${DELIMITER}[\s\S]*)?$`, 'u')
 

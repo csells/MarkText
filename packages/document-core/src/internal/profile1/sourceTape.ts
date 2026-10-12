@@ -79,6 +79,34 @@ export const FORM_DEFINITIONS: readonly FormDefinition[] = Object.freeze([
   Object.freeze({ kind: 'comment', open: '{>>', close: '<<}' })
 ])
 
+/** Every marker spelling: each form's opener, closer, and Substitution's divider. */
+export const CRITIC_MARKERS: readonly string[] = Object.freeze(FORM_DEFINITIONS.flatMap(({ open, separator, close }) =>
+  separator === undefined ? [open, close] : [open, separator, close]))
+
+/**
+ * A regular-expression alternation, ungrouped, matching any one marker. No
+ * two markers can start at the same offset, so its order never decides a match.
+ */
+export const CRITIC_MARKER_ALTERNATION = CRITIC_MARKERS
+  .map(marker => marker.replace(/[\\^$.*+?()[\]{}|/]/gu, '\\$&'))
+  .join('|')
+
+export const CRITIC_FORM_SPELLING: Readonly<Record<Profile1CriticKind, FormDefinition>> = Object.freeze(
+  Object.fromEntries(FORM_DEFINITIONS.map(definition => [definition.kind, definition])) as Record<Profile1CriticKind, FormDefinition>
+)
+
+export const CRITIC_FORM_BY_OPENER: Readonly<Record<string, Profile1CriticKind>> = Object.freeze(
+  Object.fromEntries(FORM_DEFINITIONS.map(({ open, kind }) => [open, kind]))
+)
+
+export const CRITIC_FORM_BY_CLOSER: Readonly<Record<string, Profile1CriticKind>> = Object.freeze(
+  Object.fromEntries(FORM_DEFINITIONS.map(({ close, kind }) => [close, kind]))
+)
+
+export const CRITIC_CLOSER_BY_OPENER: Readonly<Record<string, string>> = Object.freeze(
+  Object.fromEntries(FORM_DEFINITIONS.map(({ open, close }) => [open, close]))
+)
+
 function sourceOffset(value: number): SourceOffset {
   return value as SourceOffset
 }
