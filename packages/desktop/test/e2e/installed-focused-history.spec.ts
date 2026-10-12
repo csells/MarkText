@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Locator, Page } from 'playwright'
 import { readFileSync } from 'node:fs'
 import {
+  clickMenuByLabel,
   enterSourceMode,
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
@@ -16,6 +17,7 @@ import {
   expectDefaultCoreAuthority,
   expectInstalledArtifactCommit
 } from './installedArtifactProvenance'
+import { nativeKey } from './reviewGestures'
 
 type Surface = 'markup' | 'source'
 type Trigger = 'native shortcut' | 'Edit menu'
@@ -32,27 +34,15 @@ const launchOptions = {
   }
 } as const
 
-async function menu(app: ElectronApplication, label: string): Promise<void> {
-  await app.evaluate(({ Menu, BrowserWindow }, itemLabel) => {
-    const win = BrowserWindow.getAllWindows()[0]
-    if (!win || win.isVisible() || win.isFocused()) throw new Error('Expected a hidden test window')
-    const item = Menu.getApplicationMenu()
-      ?.items.flatMap((entry) => entry.submenu?.items ?? [])
-      .find((entry) => entry.label === itemLabel)
-    if (!item?.enabled) throw new Error(`Unavailable menu: ${itemLabel}`)
-    item.click(undefined, win, win.webContents)
-  }, label)
+async function menu(app: ElectronApplication, ...labels: string[]): Promise<void> {
+  await expectEditorWindowHidden(app)
+  await clickMenuByLabel(app, ...labels)
 }
 
 async function history(app: ElectronApplication, trigger: Trigger, redo = false): Promise<void> {
-  if (trigger === 'Edit menu') return menu(app, redo ? 'Redo' : 'Undo')
+  if (trigger === 'Edit menu') return menu(app, 'Edit', redo ? 'Redo' : 'Undo')
   // Page.keyboard.press bypasses Electron's window-wide shortcut interception.
-  await app.evaluate(({ BrowserWindow }, isRedo) => {
-    const contents = BrowserWindow.getAllWindows()[0].webContents
-    const modifiers: Array<'meta' | 'shift'> = isRedo ? ['meta', 'shift'] : ['meta']
-    contents.sendInputEvent({ type: 'keyDown', keyCode: 'Z', modifiers })
-    contents.sendInputEvent({ type: 'keyUp', keyCode: 'Z', modifiers })
-  }, redo)
+  await nativeKey(app, 'Z', redo ? ['meta', 'shift'] : ['meta'])
 }
 
 async function focusDocument(
@@ -83,7 +73,7 @@ async function saveAndExpect(
   expected: string
 ): Promise<void> {
   const before = await app.evaluate(() => (globalThis as unknown as SaveProbe).focusedHistorySaves)
-  await menu(app, 'Save')
+  await menu(app, 'File', 'Save')
   // Await this save's acknowledgement even when the previous disk content
   // already equals expected; otherwise a wrong undo can pass before the write.
   await expect
@@ -98,7 +88,7 @@ async function openField(app: ElectronApplication, page: Page, field: Field): Pr
     await page.getByTestId('critic-review-edit-comment').click()
     return page.getByTestId('critic-review-comment-input')
   }
-  await menu(app, field === 'Find' ? 'Find' : 'Command Palette')
+  await menu(app, ...(field === 'Find' ? ['Edit', 'Find'] : ['View', 'Command Palette']))
   return page.locator(field === 'Find' ? '.search-bar .search input' : 'input.search').last()
 }
 

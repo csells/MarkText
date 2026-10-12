@@ -3,22 +3,16 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { execFileSync } from 'node:child_process'
-import { _electron as electron, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import { exportedDocumentText } from './helpers/exportedDocumentText'
 
 import {
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
-  sendIpcToRenderer,
-  waitForEditor,
-  waitForMenuReady
+  launchInstalled,
+  sendIpcToRenderer
 } from './helpers'
-import {
-  defaultCoreLaunchEnvironment,
-  expectDefaultCoreAuthority,
-  expectInstalledArtifactCommit
-} from './installedArtifactProvenance'
 
 const source = [
   '# Export Authority',
@@ -72,49 +66,6 @@ type NativeConsumerObservation = Readonly<{
   mathFontsLoaded: boolean
   options: Readonly<Record<string, unknown>>
 }>
-
-const installedBinary = (): string => {
-  const configured = process.env.MARKTEXT_PACKAGED_APP
-  if (configured === undefined || configured.trim().length === 0) {
-    throw new Error('MARKTEXT_PACKAGED_APP must name the installed MarkText executable')
-  }
-  const absolute = path.resolve(configured)
-  if (!fs.existsSync(absolute)) {
-    throw new Error(`Installed MarkText executable does not exist: ${absolute}`)
-  }
-  return absolute
-}
-
-const launchInstalled = async(
-  binary: string,
-  userDataDir: string,
-  filePath: string
-): Promise<{ app: ElectronApplication; page: Page }> => {
-  const environment = defaultCoreLaunchEnvironment({
-    PERF_TESTING: 'true',
-    MARKTEXT_E2E_HIDDEN_WINDOW: '1',
-    MARKTEXT_ERROR_INTERACTION: '1'
-  })
-  const app = await electron.launch({
-    executablePath: binary,
-    args: ['--user-data-dir', userDataDir, filePath],
-    env: environment,
-    timeout: 60_000
-  })
-  try {
-    const page = await app.firstWindow()
-    await page.waitForLoadState('domcontentloaded')
-    await waitForEditor(page, 60_000)
-    await waitForMenuReady(app, 60_000)
-    await expectInstalledArtifactCommit(page)
-    await expectDefaultCoreAuthority(page)
-    await page.waitForFunction(() => window.__marktextDocumentCore?.authoritySource !== undefined)
-    return { app, page }
-  } catch (error) {
-    await app.close().catch(() => {})
-    throw error
-  }
-}
 
 const installNativeConsumerProbe = async(
   app: ElectronApplication,
@@ -318,7 +269,6 @@ test.describe('installed Core Revised export consumers', () => {
   test.describe.configure({ timeout: 180_000 })
 
   test('styled HTML, PDF, and Print commands consume the same Revised projection', async() => {
-    const binary = installedBinary()
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-export-consumers-'))
     const filePath = path.join(root, 'export-authority.md')
     const htmlPath = path.join(root, 'export-authority.html')
@@ -331,10 +281,11 @@ test.describe('installed Core Revised export consumers', () => {
 
     let app: ElectronApplication | undefined
     try {
-      const launched = await launchInstalled(binary, userDataDir, filePath)
+      const launched = await launchInstalled([filePath], { userDataDir, timeout: 60_000 })
       const installedApp = launched.app
       app = installedApp
       const { page } = launched
+      await page.waitForFunction(() => window.__marktextDocumentCore?.authoritySource !== undefined)
       await expectEditorWindowHidden(installedApp)
       expectEditorNotFrontmost(installedApp)
       expect(

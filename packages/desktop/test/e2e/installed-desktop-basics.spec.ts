@@ -1,78 +1,25 @@
-import { _electron, expect, test } from '@playwright/test'
-import type { ElectronApplication, Page } from 'playwright'
+import { expect, test } from '@playwright/test'
+import type { Page } from 'playwright'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
+  clearRendererErrors,
+  clickMenuByLabel as menu,
+  closeWithoutRendererErrors as close,
   enterSourceMode,
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
-  placeCaretInEditor,
-  waitForEditor,
-  waitForMenuReady
+  launchInstalled,
+  placeCaretInEditor
 } from './helpers'
-import {
-  defaultCoreLaunchEnvironment,
-  expectDefaultCoreAuthority,
-  expectInstalledArtifactCommit
-} from './installedArtifactProvenance'
 
 async function launch(profile: string, files: string[]) {
-  const executablePath = process.env.MARKTEXT_PACKAGED_APP
-  if (!executablePath) throw new Error('Installed desktop checks require MARKTEXT_PACKAGED_APP')
-  const app = await _electron.launch({
-    executablePath,
-    args: ['--user-data-dir', profile, ...files],
-    cwd: path.resolve(__dirname, '../..'),
-    env: defaultCoreLaunchEnvironment({
-      PERF_TESTING: 'true',
-      MARKTEXT_E2E_HIDDEN_WINDOW: '1',
-      MARKTEXT_ERROR_INTERACTION: '1'
-    })
-  })
-  const page = await app.firstWindow()
-  await page.waitForLoadState('domcontentloaded')
-  await waitForEditor(page)
-  await waitForMenuReady(app)
-  await expectInstalledArtifactCommit(page)
-  await expectDefaultCoreAuthority(page)
+  const { app, page } = await launchInstalled(files, { userDataDir: profile })
   await expectEditorWindowHidden(app)
   expectEditorNotFrontmost(app)
-  await app.evaluate(({ ipcMain }) => {
-    const errors: unknown[] = []
-    ;(globalThis as unknown as { desktopBasicsErrors: unknown[] }).desktopBasicsErrors = errors
-    ipcMain.on('mt::handle-renderer-error', (_, error) => errors.push(error))
-  })
+  // Startup errors are outside these checks; only errors from here on count.
+  await clearRendererErrors(app)
   return { app, page }
-}
-
-async function menu(app: ElectronApplication, section: string, label: string) {
-  await app.evaluate(
-    ({ Menu, BrowserWindow }, command) => {
-      const parent = Menu.getApplicationMenu()?.items.find(
-        (item) => item.label.toLowerCase() === command.section.toLowerCase()
-      )
-      const item = parent?.submenu?.items.find(
-        (item) => item.label.replace(/\u2026|\.\.\./g, '') === command.label
-      )
-      const win = BrowserWindow.getAllWindows().find((win) =>
-        win.webContents.getURL().includes('type=editor')
-      )
-      if (!item?.enabled || !win) {
-        throw new Error(`Unavailable menu: ${command.section}/${command.label}`)
-      }
-      item.click(item, win, { triggeredByAccelerator: false })
-    },
-    { section, label }
-  )
-}
-
-async function close(app: ElectronApplication) {
-  const errors = await app.evaluate(
-    () => (globalThis as unknown as { desktopBasicsErrors: unknown[] }).desktopBasicsErrors
-  )
-  expectEditorNotFrontmost(app)
-  await app.close()
-  expect(errors).toEqual([])
 }
 
 function fixture(source: string) {

@@ -1,14 +1,24 @@
-import { _electron as electron, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { enterSourceMode, exitSourceMode, expectEditorNotFrontmost, expectEditorWindowHidden, waitForEditor, waitForMenuReady } from './helpers'
+import {
+  clickMenuByLabel,
+  enterSourceMode,
+  exitSourceMode,
+  expectEditorNotFrontmost,
+  expectEditorWindowHidden,
+  expectNoRendererErrors,
+  getRendererErrors,
+  launchInstalled,
+  menuEnabledByLabel,
+  waitForEditor
+} from './helpers'
 import { exportedDocumentText } from './helpers/exportedDocumentText'
 import { preserveSystemClipboard } from './helpers/systemClipboardFixture'
-import { defaultCoreLaunchEnvironment, expectDefaultCoreAuthority, expectInstalledArtifactCommit } from './installedArtifactProvenance'
 import {
   authoringForms,
   captureContextMenu,
@@ -130,20 +140,11 @@ const REJECTED_ALL = edited(
   ['{++footnote addition++}', '']
 )
 
-const hidden = { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
 const CRITIC_TOKENS = /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/
 const sidebarTabName = 'Comments and Suggestions'
 
 // ---------------------------------------------------------------------------
 // Launch, menus and files
-
-const installedBinary = (): string => {
-  const configured = process.env.MARKTEXT_PACKAGED_APP
-  if (configured === undefined || configured.trim() === '') {
-    throw new Error('The editorial pass requires MARKTEXT_PACKAGED_APP')
-  }
-  return path.resolve(configured)
-}
 
 const scratchRoots: string[] = []
 const scratchRoot = (): string => {
@@ -158,46 +159,17 @@ const writeFixture = (root: string, name: string, content: string | Buffer): str
   return file
 }
 
-async function launch(
-  profile: string,
-  files: string[],
-  env: Record<string, string> = {}
-): Promise<{ app: ElectronApplication; page: Page }> {
-  const app = await electron.launch({
-    executablePath: installedBinary(),
-    args: ['--user-data-dir', profile, ...files],
-    cwd: path.resolve(__dirname, '../..'),
-    env: defaultCoreLaunchEnvironment({
-      PERF_TESTING: 'true',
-      MARKTEXT_ERROR_INTERACTION: '1',
-      ...hidden,
-      ...env
-    }),
-    timeout: 60_000
-  })
+async function launch(profile: string, files: string[]): Promise<{ app: ElectronApplication; page: Page }> {
+  const launched = await launchInstalled(files, { userDataDir: profile, timeout: 60_000 })
   try {
-    await app.evaluate(({ ipcMain }) => {
-      const host = globalThis as unknown as { editorialErrors?: unknown[] }
-      host.editorialErrors = []
-      ipcMain.on('mt::handle-renderer-error', (_event, error) => host.editorialErrors?.push(error))
-    })
-    const page = await app.firstWindow()
-    await page.waitForLoadState('domcontentloaded')
-    await waitForEditor(page, 60_000)
-    await waitForMenuReady(app, 60_000)
-    await expectInstalledArtifactCommit(page)
-    await expectDefaultCoreAuthority(page)
-    await expectEditorWindowHidden(app)
-    expectEditorNotFrontmost(app)
-    return { app, page }
+    await expectEditorWindowHidden(launched.app)
+    expectEditorNotFrontmost(launched.app)
+    return launched
   } catch (error) {
-    await app.close().catch(() => {})
+    await launched.app.close().catch(() => {})
     throw error
   }
 }
-
-const rendererErrors = (app: ElectronApplication): Promise<unknown[]> =>
-  app.evaluate(() => (globalThis as unknown as { editorialErrors?: unknown[] }).editorialErrors ?? [])
 
 /** Answers every native message box in main: close prompts must never show. */
 const answerMessageBoxes = (app: ElectronApplication, response: number) =>
@@ -219,47 +191,16 @@ const prompts = (app: ElectronApplication): Promise<string[]> =>
 async function closeApp(app: ElectronApplication): Promise<void> {
   // A failed step may leave a composer or a dirty tab; never show a real prompt.
   await answerMessageBoxes(app, 1).catch(() => {})
-  const errors = await rendererErrors(app).catch(() => [])
+  const errors = await getRendererErrors(app).catch(() => [])
   await app.close().catch(() => {})
   expect(errors).toEqual([])
 }
 
-/**
- * Clicks an application menu item, found by its label path, the way a pointer
- * click on the native menu does: MenuItem.click with the editor window.
- */
+/** Waits for the menu item at this label path to enable, then clicks it. */
 async function menu(app: ElectronApplication, ...labels: string[]): Promise<void> {
-  await expect.poll(() => menuEnabled(app, ...labels), { message: labels.join(' → ') }).toBe(true)
-  await app.evaluate(({ BrowserWindow, Menu }, labels) => {
-    const clean = (label: string) => label.replace(/…|\.\.\./g, '')
-    let items = Menu.getApplicationMenu()?.items ?? []
-    let item: Electron.MenuItem | undefined
-    for (const label of labels) {
-      item = items.find(candidate => clean(candidate.label) === clean(label))
-      items = item?.submenu?.items ?? []
-    }
-    const win = BrowserWindow.getAllWindows().find(win => win.webContents.getURL().includes('type=editor'))
-    if (!item?.enabled || !win) throw new Error(`Unavailable menu command: ${labels.join(' → ')}`)
-    // Edit's Cut, Copy and Paste are native roles (upstream #5582), which act on
-    // the focused window's contents; the hidden test window is never focused,
-    // so perform the role on the editor window as Electron does for its menu.
-    const role = item.role?.toLowerCase()
-    if (role === 'cut' || role === 'copy' || role === 'paste') win.webContents[role]()
-    else item.click(undefined, win, win.webContents)
-  }, labels)
+  await expect.poll(() => menuEnabledByLabel(app, ...labels), { message: labels.join(' → ') }).toBe(true)
+  await clickMenuByLabel(app, ...labels)
 }
-
-const menuEnabled = (app: ElectronApplication, ...labels: string[]): Promise<boolean> =>
-  app.evaluate(({ Menu }, labels) => {
-    const clean = (label: string) => label.replace(/…|\.\.\./g, '')
-    let items = Menu.getApplicationMenu()?.items ?? []
-    let item: Electron.MenuItem | undefined
-    for (const label of labels) {
-      item = items.find(candidate => clean(candidate.label) === clean(label))
-      items = item?.submenu?.items ?? []
-    }
-    return item?.enabled === true
-  }, labels)
 
 const reviewMenuChecked = (app: ElectronApplication, id: string): Promise<boolean | undefined> =>
   app.evaluate(({ Menu }, id) => Menu.getApplicationMenu()?.getMenuItemById(`critic-${id}`)?.checked, id)
@@ -429,7 +370,7 @@ async function expectBaseline(s: Session): Promise<void> {
   await expect(s.page.locator('.tabs-container li.unsaved')).toHaveCount(0)
   expect(fs.readFileSync(s.annotated, 'utf8')).toBe(ANNOTATED)
   expect(fs.readFileSync(s.ordinary, 'utf8')).toBe(ORDINARY)
-  expect(await rendererErrors(s.app)).toEqual([])
+  await expectNoRendererErrors(s.app)
   await expectEditorWindowHidden(s.app)
   expectEditorNotFrontmost(s.app)
 }
@@ -1116,7 +1057,7 @@ test.describe('installed editorial pass', () => {
     await openReviewTab(app, page)
     await expect(page.getByTestId('critic-review-list').locator('.core-review-comment').filter({ hasText: 'Reopen note' })).toHaveCount(1)
     await expectSaved(app, s.annotated, saved)
-    expect(await rendererErrors(app)).toEqual([])
+    await expectNoRendererErrors(app)
     await retireSession()
   })
 })
@@ -1164,7 +1105,7 @@ test.describe('installed editorial pass: lifecycle and recovery', () => {
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close())
       await expect.poll(() => prompts(app)).toEqual([expect.stringContaining('comment')])
       await expect(input).toHaveValue('Unsubmitted thought')
-      expect(await rendererErrors(app)).toEqual([])
+      await expectNoRendererErrors(app)
       await answerMessageBoxes(app, 0)
       const closed = new Promise<void>(resolve => app.once('close', () => resolve()))
       await menu(app, 'File', 'Close Tab')
@@ -1214,7 +1155,7 @@ test.describe('installed editorial pass: lifecycle and recovery', () => {
       await expect.poll(() => prompts(app)).toEqual([expect.stringContaining('Save changes')])
       await expect(tab(page, file)).toHaveClass(/unsaved/)
       expect(fs.readFileSync(file, 'utf8')).toBe(ANNOTATED)
-      expect(await rendererErrors(app)).toEqual([])
+      await expectNoRendererErrors(app)
       // Quit → Save writes the edit and exits.
       await answerMessageBoxes(app, 0)
       child = app.process()
