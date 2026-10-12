@@ -1,4 +1,4 @@
-export interface Profile1PhysicalTraversalCountsV1 {
+export interface Profile1PhysicalTraversalCounts {
   readonly intrinsicSource: number
   readonly total: number
   readonly intrinsicSourceUnits: number
@@ -49,10 +49,10 @@ export interface Profile1PhysicalTraversalRecorderV1 {
     inputUnits: number,
     outputUnits: number
   ) => void
-  readonly counts: () => Profile1PhysicalTraversalCountsV1
+  readonly counts: () => Profile1PhysicalTraversalCounts
 }
 
-export function createPhysicalTraversalRecorderV1():
+export function createPhysicalTraversalRecorder():
 Profile1PhysicalTraversalRecorderV1 {
   let intrinsicSourceTraversals = 0
   let markerBearingIntrinsicTraversals = 0
@@ -117,7 +117,7 @@ Profile1PhysicalTraversalRecorderV1 {
       retainedFactInputStructuralUnits += inputUnits
       retainedFactOutputStructuralUnits += outputUnits
     },
-    counts: (): Profile1PhysicalTraversalCountsV1 => Object.freeze({
+    counts: (): Profile1PhysicalTraversalCounts => Object.freeze({
       intrinsicSource: intrinsicSourceTraversals,
       total: intrinsicSourceTraversals,
       intrinsicSourceUnits,

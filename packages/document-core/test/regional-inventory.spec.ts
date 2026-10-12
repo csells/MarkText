@@ -4,7 +4,7 @@ import {
   createProfile1DocumentReuseCache,
   parseProfile1Document
 } from '../src/internal/profile1Document.js'
-import { createPhysicalTraversalRecorderV1 } from '../src/internal/profile1/physicalTraversalAccounting.js'
+import { createPhysicalTraversalRecorder } from '../src/internal/profile1/physicalTraversalAccounting.js'
 import {
   applyRegionalInventory,
   createRegionalInventory,
@@ -60,7 +60,7 @@ describe('regional inventory', () => {
       'far {>>note<<}\n\n',
       'tail\n'
     ].join('')
-    const physical = createPhysicalTraversalRecorderV1()
+    const physical = createPhysicalTraversalRecorder()
     const parsed = parseProfile1Document(
       source,
       executionBudget,

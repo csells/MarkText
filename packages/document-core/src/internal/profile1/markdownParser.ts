@@ -5148,8 +5148,8 @@ const MAX_RETAINED_FRAGMENT_ENTRIES = 131_072
  * the per-entry cap below, so a single oversized block can neither be
  * serialized into a key nor evict the whole working set.
  */
-const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1 = 64 * 1_024 * 1_024
-const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1 =
+const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES = 64 * 1_024 * 1_024
+const PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES =
   4 * 1_024 * 1_024
 const RETAINED_STRING_HEADER_BYTES = 16
 const RETAINED_OBJECT_HEADER_BYTES = 24
@@ -5239,7 +5239,7 @@ function referenceDefinitionsKeyDigest(
 
 function fragmentSourceCanFit(source: string): boolean {
   return retainedStringBytes(source) + RETAINED_CACHE_ENTRY_BYTES <=
-    PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1
+    PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES
 }
 
 function retainedValueBytes(value: unknown, seen: Set<object>): number {
@@ -5349,14 +5349,14 @@ function retainFragmentEntry<Value>(
   const keyBytes = retainedStringBytes(key)
   const valueBytes = retainedValueBytes(value, new Set())
   const retainedBytes = keyBytes + valueBytes + RETAINED_CACHE_ENTRY_BYTES
-  if (retainedBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1) {
+  if (retainedBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES) {
     return
   }
   while (
     budget.entries >= MAX_RETAINED_FRAGMENT_ENTRIES ||
     budget.keyBytes + budget.valueBytes +
       budget.entries * RETAINED_CACHE_ENTRY_BYTES + retainedBytes >
-      PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1
+      PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES
   ) {
     evictOldestFragmentEntry(budget)
   }
@@ -5516,7 +5516,7 @@ function astRegionTemplateCanFit(
   literalsKey: string
 ): boolean {
   return astRegionTemplateBaseBytes(key, source, linesKey, literalsKey) <=
-    PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1
+    PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES
 }
 
 function astRegionTemplateNodesCanFit(
@@ -5532,7 +5532,7 @@ function astRegionTemplateNodesCanFit(
     linesKey,
     literalsKey
   ) + nodes.length * RETAINED_AST_TEMPLATE_NODE_MINIMUM_BYTES
-  if (minimumBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1) {
+  if (minimumBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES) {
     return false
   }
   const pending = [...nodes]
@@ -5543,7 +5543,7 @@ function astRegionTemplateNodesCanFit(
     }
     minimumBytes +=
       node.childCount * RETAINED_AST_TEMPLATE_NODE_MINIMUM_BYTES
-    if (minimumBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1) {
+    if (minimumBytes > PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES) {
       return false
     }
     for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
@@ -8487,7 +8487,7 @@ function parseIntrinsicForkRegionFacts(
     ])
     if (
       retainedStringBytes(serialized) + RETAINED_CACHE_ENTRY_BYTES <=
-        PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1
+        PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES
     ) {
       reuseKey = serialized
     }

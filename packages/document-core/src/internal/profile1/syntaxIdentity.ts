@@ -11,8 +11,8 @@ import type {
   SourceRange
 } from '../../revision.js'
 import type {
-  Profile1SyntaxAccountingEventKindV1,
-  Profile1SyntaxAccountingRecorderV1
+  Profile1SyntaxAccountingEventKind,
+  Profile1SyntaxAccountingRecorder
 } from './syntaxAccounting.js'
 import { sameRange, sourceRange } from './sourceRanges.js'
 
@@ -112,7 +112,7 @@ export function defineNodeId<Value extends object>(
  */
 export function createProfile1SyntaxIdentityRegistry(
   sourceLength: number,
-  accounting?: Profile1SyntaxAccountingRecorderV1
+  accounting?: Profile1SyntaxAccountingRecorder
 ): Profile1SyntaxIdentityRegistry {
   const nodes: Profile1SyntaxNode[] = []
   // Keyed by kind first, so a lookup hashes the semantic key as the caller
@@ -175,7 +175,7 @@ export function createProfile1SyntaxIdentityRegistry(
     nodes.push(node)
     ofKind.set(semanticKey, node)
     nodeById.set(nodeId, node)
-    const accountingKind: Profile1SyntaxAccountingEventKindV1 =
+    const accountingKind: Profile1SyntaxAccountingEventKind =
       kind === 'addition' ||
       kind === 'deletion' ||
       kind === 'substitution' ||
