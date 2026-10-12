@@ -1,3 +1,4 @@
+import { isPositionalMarkdownAttribute } from '@marktext/document-core'
 import type { MarkdownAstNode, SourceRange } from '@marktext/document-core'
 import { escapeHTML, type IInlinePresentationContext } from '@muyajs/core'
 import {
@@ -18,7 +19,6 @@ import type {
   MuyaMarkupPath,
   MuyaMarkupView
 } from './muyaMarkupView'
-import { isPositionKey } from '../documentConsumers/astAttributes'
 
 export interface MuyaMarkupPresentationIndex {
   /** Includes removed paths, which remain literal until their view is removed. */
@@ -113,7 +113,7 @@ const sameSyntax = (before: MarkdownAstNode, after: MarkdownAstNode): boolean =>
       if (
         typeof leftValue === 'number' &&
         typeof rightValue === 'number' &&
-        isPositionKey(key)
+        isPositionalMarkdownAttribute(key)
       ) {
         if (leftValue - beforeOrigin !== rightValue - afterOrigin) return false
       } else if (leftValue !== rightValue) return false
