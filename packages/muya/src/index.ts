@@ -48,7 +48,7 @@ export { validEmoji } from './utils/emoji';
 export type { IImageInfo } from './utils/image';
 export { getImageInfo } from './utils/image';
 export { escapeHTML, firstGraphemeLength, sanitize, unescapeHTML, wordCount } from './utils/index';
-export { renderMath } from './utils/marked/extensions/math';
+export { DISPLAY_MATH_MARKERS, renderMath } from './utils/marked/extensions/math';
 export { highlightCode } from './utils/marked/getHighlightHtml';
 export { buildRegexValue, matchString } from './utils/search';
 export type { IRegexMatch, ISearchQueryOptions } from './utils/search';

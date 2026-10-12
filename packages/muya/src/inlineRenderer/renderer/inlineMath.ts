@@ -2,14 +2,10 @@ import type Format from '../../block/base/format';
 import type { CodeEmojiMathToken, ISyntaxRenderOptions, Token } from '../types';
 import type Renderer from './index';
 import { CLASS_NAMES } from '../../config';
-import { renderMath } from '../../utils/marked/extensions/math';
+import { DISPLAY_MATH_MARKERS, renderMath } from '../../utils/marked/extensions/math';
 import { htmlToVNode } from '../../utils/snabbdom';
 
 import 'katex/dist/katex.min.css';
-
-// The openers pandoc reads as display rather than inline math: `$$` from
-// `tex_math_dollars`, `\[` and `\\[` from the two backslash extensions.
-const DISPLAY_MATH_MARKERS = new Set(['$$', '\\[', '\\\\[']);
 
 function isDisplayMarker(marker: string) {
     return DISPLAY_MATH_MARKERS.has(marker);
