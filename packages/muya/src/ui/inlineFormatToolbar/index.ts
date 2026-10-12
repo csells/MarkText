@@ -1,7 +1,6 @@
 import type { VNode } from 'snabbdom';
 import type { IDocumentActiveFormat } from '../../editor/documentEditingTypes';
 import type { Muya } from '../../index';
-import type { Token } from '../../inlineRenderer/types';
 import type { IInlineToolbarAction } from '../../types';
 import type { ColorFormatType, IColorStyle } from '../../utils/colorSpan';
 import type { IBaseOptions } from '../types';
@@ -278,11 +277,13 @@ export class InlineFormatToolbar extends BaseFloat {
         const { _icons: icons, _oldVNode: oldVNode, _formatContainer: formatContainer, _formats: formats } = this;
         const { i18n } = this.muya;
 
-        const children = this._hostActionsOnly ? [] : icons.map(icon =>
-            icon.type === 'color'
-                ? this._createColorItem(icon, i18n)
-                : this._createIconItem(icon, formats, i18n),
-        );
+        const children = this._hostActionsOnly
+            ? []
+            : icons.map(icon =>
+                    icon.type === 'color'
+                        ? this._createColorItem(icon, i18n)
+                        : this._createIconItem(icon, formats, i18n),
+                );
         const actions = this.muya.options.inlineToolbarActions?.() ?? [];
         const iconActions = actions.filter(action => action.icon);
         const textActions = actions.filter(action => !action.icon);
@@ -651,7 +652,7 @@ export class InlineFormatToolbar extends BaseFloat {
         const li = (event.target as HTMLElement | null)?.closest?.('li.item.color');
         const keepOpen = !!li?.classList.contains('mu-color-open');
 
-        this._formats = this._block!.getFormatsInRange().formats;
+        this._formats = this._block!.getActiveFormats();
         this._render();
 
         if (!keepOpen)

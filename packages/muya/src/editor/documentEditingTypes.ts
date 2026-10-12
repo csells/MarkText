@@ -72,6 +72,8 @@ export type DocumentCompositionResult
 export interface IDocumentActiveFormat {
     readonly type: string;
     readonly tag?: string;
+    /** An inline HTML tag's attributes, such as a colour span's `style`. */
+    readonly attrs?: Readonly<Record<string, string | null>>;
 }
 
 /** The bound document model receives user actions before presentation changes. */
