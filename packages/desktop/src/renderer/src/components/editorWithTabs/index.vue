@@ -33,7 +33,7 @@
         :initial-document-selection="coreInitialDocumentSelection"
         :core-plain-text-view="corePlainTextView"
         :core-performance-trace="corePerformanceTrace"
-        :core-test-crash-worker="coreTestCrashWorker"
+        :core-test-crash-core-owner="coreTestCrashCoreOwner"
         :core-test-stale-next-transaction="coreTestStaleNextTransaction"
         :claim-fresh-document="claimFreshCoreDocument"
         @core-fault="handleCoreViewFault"
@@ -291,7 +291,7 @@ const wysiwygCoreLease = computed(() =>
 const coreSourceVisible = computed(
   () => props.sourceCode || coreViewState.value !== 'wysiwyg'
 )
-const coreTestCrashWorker = computed<(() => void) | undefined>(() => {
+const coreTestCrashCoreOwner = computed<(() => void) | undefined>(() => {
   const documentId = coreLease.value?.documentId
   if (!coreLaunchPolicy.testControlsEnabled || documentId === undefined) return undefined
   return () => {

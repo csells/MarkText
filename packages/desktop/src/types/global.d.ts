@@ -220,13 +220,12 @@ declare global {
       reaches(): number
     }
     __marktextDocumentCore?: {
-      readonly mode: 'core'
       readonly documentId?: string
       readonly generation?: number
       settled(): Promise<void>
       latest(): unknown
       authoritySource?(): Promise<string>
-      crashWorker?(): void
+      crashCoreOwner?(): void
       staleNextTransaction?(): void
       resolveCriticMarkup?(
         kind: CriticMarkupKind,

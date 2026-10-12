@@ -564,7 +564,7 @@ const props = defineProps<{
   initialDocumentSelection?: DocumentSelection
   corePlainTextView?: MuyaMarkupView
   corePerformanceTrace?: CoreAuthorityPerformanceTrace
-  coreTestCrashWorker?: () => void
+  coreTestCrashCoreOwner?: () => void
   coreTestStaleNextTransaction?: () => void
   commentComposerState?: CoreReviewComposerState
   /** True once, for the first view of a newly opened document. */
@@ -4080,12 +4080,11 @@ onMounted(() => {
     )
     if (corePerformanceTestBridge !== undefined) {
       window.__marktextDocumentCore = Object.freeze({
-        mode: 'core',
         documentId: props.coreLease.documentId,
         generation: props.coreLease.identity.generation,
-        ...(props.coreTestCrashWorker === undefined
+        ...(props.coreTestCrashCoreOwner === undefined
           ? {}
-          : { crashWorker: props.coreTestCrashWorker }),
+          : { crashCoreOwner: props.coreTestCrashCoreOwner }),
         ...(props.coreTestStaleNextTransaction === undefined
           ? {}
           : { staleNextTransaction: props.coreTestStaleNextTransaction }),

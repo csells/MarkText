@@ -303,7 +303,7 @@ const tab = (page: Page, file: string) => page.locator(`.tabs-container li[title
 async function selectTab(page: Page, file: string): Promise<void> {
   await tab(page, file).click()
   await expect(tab(page, file)).toHaveClass(/active/)
-  await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
+  await page.waitForFunction(() => window.__marktextDocumentCore !== undefined)
   await expect(page.locator('.core-view-handoff')).toHaveCount(0)
   await expect.poll(() => source(page)).not.toBeUndefined()
 }

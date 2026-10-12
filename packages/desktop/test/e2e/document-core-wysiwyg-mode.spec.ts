@@ -795,7 +795,7 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
     await expect(kind).toHaveAttribute('data-kind', 'substitution')
 
     await enterSourceMode(page, app)
-    await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
+    await page.waitForFunction(() => window.__marktextDocumentCore !== undefined)
     await exitSourceMode(page, app)
     await page.waitForFunction(() => window.__marktextDocumentCore?.selectPlainText !== undefined)
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -1003,12 +1003,12 @@ test('Core mode restarts a failed Core owner from acknowledged WYSIWYG history',
 
     await page.evaluate(() => {
       const bridge = window.__marktextDocumentCore
-      if (bridge?.crashWorker === undefined) {
-        throw new Error('Core Worker failure operation is unavailable')
+      if (bridge?.crashCoreOwner === undefined) {
+        throw new Error('Core owner failure operation is unavailable')
       }
       // Input is acknowledged synchronously, so it belongs to restored history.
       bridge.inputPlainText?.(0, 'speculative', 11)
-      bridge.crashWorker()
+      bridge.crashCoreOwner()
     })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
@@ -1107,7 +1107,7 @@ test('Core mode saves a native plain-paragraph WYSIWYG edit', async() => {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await enterSourceMode(page, app)
-    await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
+    await page.waitForFunction(() => window.__marktextDocumentCore !== undefined)
     await exitSourceMode(page, app)
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
@@ -1151,7 +1151,7 @@ test('Core mode orders immediate WYSIWYG undo and redo through actor history', a
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await enterSourceMode(page, app)
-    await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
+    await page.waitForFunction(() => window.__marktextDocumentCore !== undefined)
     await exitSourceMode(page, app)
     await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
 
@@ -1212,7 +1212,7 @@ test('Core mode saves a native paragraph-to-heading conversion', async() => {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await enterSourceMode(page, app)
-    await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
+    await page.waitForFunction(() => window.__marktextDocumentCore !== undefined)
     await exitSourceMode(page, app)
     await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
 
@@ -1302,7 +1302,7 @@ test('Core mode saves one native cross-paragraph typing replacement', async() =>
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await enterSourceMode(page, app)
-    await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
+    await page.waitForFunction(() => window.__marktextDocumentCore !== undefined)
     await exitSourceMode(page, app)
     await page.waitForFunction(
       () => window.__marktextDocumentCore?.replacePlainTextAcrossBlocks !== undefined
@@ -1457,7 +1457,7 @@ test('Core mode saves only the committed native IME composition', async() => {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await enterSourceMode(page, app)
-    await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
+    await page.waitForFunction(() => window.__marktextDocumentCore !== undefined)
     await exitSourceMode(page, app)
     await page.waitForFunction(() => window.__marktextDocumentCore?.composePlainText !== undefined)
 
@@ -1494,7 +1494,7 @@ test('Core mode renders and saves one native math-block conversion', async() => 
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await enterSourceMode(page, app)
-    await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
+    await page.waitForFunction(() => window.__marktextDocumentCore !== undefined)
     await exitSourceMode(page, app)
     await page.waitForFunction(() => window.__marktextDocumentCore?.inputMathBlock !== undefined)
 
@@ -1545,7 +1545,7 @@ for (const { label, table, canonical } of nativeTableFixtures) {
       await expectEditorWindowHidden(app)
       expectEditorNotFrontmost(app)
       await enterSourceMode(page, app)
-      await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
+      await page.waitForFunction(() => window.__marktextDocumentCore !== undefined)
       await exitSourceMode(page, app)
       await page.waitForFunction(
         () => window.__marktextDocumentCore?.pasteMarkdownTable !== undefined
