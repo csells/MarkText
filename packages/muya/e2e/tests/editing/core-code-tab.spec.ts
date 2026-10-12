@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -19,15 +19,16 @@ for (const example of [
                 return marked + (replacing ? '' : ending) + ending + 'outside{>>keep<<}' + ending;
             };
             const source = wrap(example.body);
-            await page.evaluate(async ({ source, tracked, before }) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-                let block = window.muya!.editor.scrollPage!.firstContentInDescendant();
-                while (block && block.blockName !== 'codeblock.content') block = block.nextContentInContext() ?? null;
-                if (!block) throw new Error('Expected code body');
-                block.setCursor(before, before, true);
-            }, { source, tracked, before: example.before });
+            await bootCore(page, source, {
+                tracked,
+                arg: example.before,
+                setup: (before) => {
+                    let block = window.muya!.editor.scrollPage!.firstContentInDescendant();
+                    while (block && block.blockName !== 'codeblock.content') block = block.nextContentInContext() ?? null;
+                    if (!block) throw new Error('Expected code body');
+                    block.setCursor(before, before, true);
+                },
+            });
             try {
                 await page.keyboard.press('Tab');
                 expect(await readCore(page)).toMatchObject({ source: { source: wrap(example.tabbed) }, anchor: example.after, caret: example.focus, legacyCalls: [] });

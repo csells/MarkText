@@ -48,7 +48,7 @@ test('keyboard comment editing restores the selected review item after Escape an
   })
   try {
     const marker = page.locator('.mu-critic-comment-marker')
-    // The marker has no visible text, so its name carries the comment (G18).
+    // The marker has no visible text, so its name carries the comment.
     await expect(marker).toHaveAttribute('aria-label', 'Comment: A comment.')
     await marker.focus()
     await page.keyboard.press('Enter')
@@ -188,7 +188,7 @@ test('sidebar icons show keyboard focus and review actions use shared light/dark
       await page.keyboard.press('Enter')
       await expect(page.getByTestId('critic-review-comment-input')).toBeFocused()
       await expect(page.getByTestId('critic-review-next')).toBeHidden()
-      // The composer sits on its card and the list stays usable (plan 0012 G31).
+      // The composer sits on its card and the list stays usable.
       await expect(page.locator('.core-review-entry.active > button')).toBeEnabled()
       await page.screenshot({ path: test.info().outputPath(`review-${theme}-narrow-focus.png`) })
       await expectReviewFits(page)

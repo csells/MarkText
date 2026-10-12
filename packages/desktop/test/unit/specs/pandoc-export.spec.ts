@@ -108,7 +108,7 @@ describe('pandoc export', () => {
   })
 
   // The argv is asserted because `cwd` is what makes `![](pics/a.png)` resolve, and
-  // because pandoc reads only the JSON AST built from Core, never Markdown (G40).
+  // because pandoc reads only the JSON AST built from Core, never Markdown.
   it('spawns the named binary reading JSON into the target asked for', async() => {
     const { proc, done } = await runToFile('docx', '/tmp/notes.docx', {
       input: '{"blocks":[]}',

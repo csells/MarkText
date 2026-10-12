@@ -21,7 +21,7 @@ import {
 } from '@/documentAuthority/muyaMarkupViewLookup'
 import { muyaMarkupRootsFor } from '@/documentAuthority/muyaMarkupViewRoots'
 
-// Plan 0012 G35: a view made by a regional change holds later roots unmoved
+// A view made by a regional change holds later roots unmoved
 // until they are read. Its root queries answer as the whole lists of the
 // view of the new revision do, and a key's patch and queries never list it.
 

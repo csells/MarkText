@@ -69,15 +69,14 @@ for (const sample of [
 }
 
 test('an image upload retains its captured selection while later typing remains accepted', async ({ page }) => {
-    await page.evaluate(async () => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, 'ab\n');
-        window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(0, 1);
-        window.muya!.options.imageAction = () => new Promise<string>((resolve) => {
-            window.finishClipboardImage = resolve;
-        });
-        window.pendingClipboardImage = window.muya!.editor.clipboard.pasteImage('/original.png');
+    await bootCore(page, 'ab\n', {
+        cursor: [0, 1],
+        setup: () => {
+            window.muya!.options.imageAction = () => new Promise<string>((resolve) => {
+                window.finishClipboardImage = resolve;
+            });
+            window.pendingClipboardImage = window.muya!.editor.clipboard.pasteImage('/original.png');
+        },
     });
     try {
         await page.evaluate(() => {
@@ -135,15 +134,14 @@ for (const sample of [
 }
 
 test('Paste as Plain Text captures its target before the asynchronous clipboard read', async ({ page }) => {
-    await page.evaluate(async () => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, 'ab\n');
-        window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(0, 1);
-        window.muya!.options.clipboardText = () => new Promise<string>((resolve) => {
-            window.finishClipboardImage = resolve;
-        });
-        window.pendingClipboardImage = window.muya!.editor.clipboard.pasteAsPlainText();
+    await bootCore(page, 'ab\n', {
+        cursor: [0, 1],
+        setup: () => {
+            window.muya!.options.clipboardText = () => new Promise<string>((resolve) => {
+                window.finishClipboardImage = resolve;
+            });
+            window.pendingClipboardImage = window.muya!.editor.clipboard.pasteAsPlainText();
+        },
     });
     try {
         await page.evaluate(() => window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2));
@@ -161,18 +159,18 @@ test('Paste as Plain Text captures its target before the asynchronous clipboard 
 
 test('retains raw clipboard bitmap bytes in recoverable pending upload intent', async ({ page }) => {
     const bitmap = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5xkAAAAASUVORK5CYII=';
-    await page.evaluate(async (base64) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, 'ab\n');
-        window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(1, 1);
-        window.muya!.options.imageAction = () => new Promise<string>((resolve) => {
-            window.finishClipboardImage = resolve;
-        });
-        const data = new DataTransfer();
-        data.items.add(new File([Uint8Array.from(atob(base64), value => value.charCodeAt(0))], 'pixel.png', { type: 'image/png' }));
-        window.pendingClipboardImage = window.muya!.editor.clipboard.pasteHandler(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
-    }, bitmap);
+    await bootCore(page, 'ab\n', {
+        cursor: [1, 1],
+        arg: bitmap,
+        setup: (base64) => {
+            window.muya!.options.imageAction = () => new Promise<string>((resolve) => {
+                window.finishClipboardImage = resolve;
+            });
+            const data = new DataTransfer();
+            data.items.add(new File([Uint8Array.from(atob(base64), value => value.charCodeAt(0))], 'pixel.png', { type: 'image/png' }));
+            window.pendingClipboardImage = window.muya!.editor.clipboard.pasteHandler(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+        },
+    });
     try {
         await page.waitForFunction(() => typeof window.finishClipboardImage === 'function');
         expect(await page.evaluate(() => JSON.stringify(window.coreBoundary.recovery()))).toContain(`data:image/png;base64,${bitmap}`);
@@ -245,13 +243,12 @@ for (const operation of ['copy', 'cut'] as const) {
     test(`desktop ${operation} guard replaces stale text payload with the actual selected-image projection`, async ({ page }) => {
         const bitmap = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5xkAAAAASUVORK5CYII=';
         const source = `a{++![](${bitmap})++}a\n`;
-        await page.evaluate(async (source) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(0, 1);
-            await window.coreBoundary.prepareClipboardCopy();
-        }, source);
+        await bootCore(page, source, {
+            cursor: [0, 1],
+            setup: async () => {
+                await window.coreBoundary.prepareClipboardCopy();
+            },
+        });
         try {
             await page.locator('.mu-inline-image img').click();
             const copied = await page.evaluate(operation => window.coreBoundary.guardedClipboard(operation), operation);
@@ -264,15 +261,14 @@ for (const operation of ['copy', 'cut'] as const) {
 }
 
 test('pending image paste stays before subsequent same-caret typing and preserves the later caret', async ({ page }) => {
-    await page.evaluate(async () => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, 'ab\n');
-        window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(1, 1);
-        window.muya!.options.imageAction = () => new Promise<string>((resolve) => {
-            window.finishClipboardImage = resolve;
-        });
-        window.pendingClipboardImage = window.muya!.editor.clipboard.pasteImage('/original.png');
+    await bootCore(page, 'ab\n', {
+        cursor: [1, 1],
+        setup: () => {
+            window.muya!.options.imageAction = () => new Promise<string>((resolve) => {
+                window.finishClipboardImage = resolve;
+            });
+            window.pendingClipboardImage = window.muya!.editor.clipboard.pasteImage('/original.png');
+        },
     });
     try {
         await page.waitForFunction(() => typeof window.finishClipboardImage === 'function');

@@ -40,7 +40,6 @@ import type {
   CoreReviewOverviewEntry
 } from './coreProtocol'
 import { createMuyaMarkupView } from './muyaMarkupView'
-import { stringAttribute } from '../documentConsumers/astAttributes'
 import { searchableBlockKinds, semanticProjectionOf } from '../documentConsumers/semanticProjection'
 import { createReviewOverviewTracker } from './coreReviewOverview'
 import { createConsumerSummaryTracker } from './coreConsumerSummary'
@@ -65,13 +64,7 @@ const diagnosticsOf = (revision: DocumentRevision) =>
     diagnostics: Object.freeze(revision.diagnostics.slice(0, DIAGNOSTIC_SAMPLE_LIMIT))
   })
 
-// Unlike `semanticProjectionOf`'s default, an empty `semanticContent` falls
-// back to the span's `content`.
-const consumerInlineCodeText = (node: MarkdownAstNode): string =>
-  stringAttribute(node, 'semanticContent') || (stringAttribute(node, 'content') ?? '')
-
-const consumerSemanticTextOf = (node: MarkdownAstNode): string =>
-  semanticProjectionOf(node, undefined, consumerInlineCodeText).text
+const consumerSemanticTextOf = (node: MarkdownAstNode): string => semanticProjectionOf(node).text
 
 const nodeAtConsumerPath = (
   ast: MarkdownAst,
@@ -107,7 +100,7 @@ const projectedRangeForConsumerMatch = (
   }
   const block = nodeAtConsumerPath(projection.ast, match.path)
   if (block === undefined || !searchableBlockKinds.has(block.kind)) return undefined
-  const semantic = semanticProjectionOf(block, projection.markdown, consumerInlineCodeText)
+  const semantic = semanticProjectionOf(block, projection.markdown)
   if (semantic.text.slice(match.start, match.end) !== match.match) return undefined
   // Only a text leaf spelled directly can hold the whole match.
   const leaf = semantic.segments.find(
@@ -174,7 +167,7 @@ const selectionAstOf = (
   projection: MarkdownProjection,
   start: number,
   end: number
-): MarkdownAst | undefined => {
+): MarkdownAst => {
   const selected = new Map<MarkdownAstNode, MarkdownAstNode>()
   const intersects = (node: MarkdownAstNode): boolean =>
     node.kind === 'document' || (node.range.start < end && node.range.end > start)
@@ -225,11 +218,6 @@ const selectionAstOf = (
 
     let kind = task.node.kind
     if (!fullySelected && task.node.children.length === 0) {
-      const raw = projection.markdown.slice(task.node.range.start, task.node.range.end)
-      const selectedRaw = raw.slice(
-        rangeStart - task.node.range.start,
-        rangeEnd - task.node.range.start
-      )
       if (task.node.kind === 'text') {
         attributes.semanticText = partialTextMeaning(projection.markdown, task.node, rangeStart, rangeEnd)
       } else {
@@ -237,7 +225,7 @@ const selectionAstOf = (
         // source characters; its whole-node meaning no longer applies.
         kind = 'text'
         for (const name of Object.keys(attributes)) delete attributes[name]
-        attributes.semanticText = selectedRaw
+        attributes.semanticText = projection.markdown.slice(rangeStart, rangeEnd)
       }
     }
 
@@ -261,7 +249,8 @@ const selectionAstOf = (
   }
 
   const root = selected.get(projection.ast.root)
-  return root === undefined ? undefined : Object.freeze({ root })
+  if (root === undefined) throw new Error('The selection walk starts at the document root')
+  return Object.freeze({ root })
 }
 
 export function createCoreActor(
@@ -1316,18 +1305,6 @@ export function createCoreActor(
         const start = documentProjection.coordinates.toProjected(request.range.start, 'next')
         const end = documentProjection.coordinates.toProjected(request.range.end, 'previous')
         const markdown = documentProjection.markdown.slice(start, Math.max(start, end))
-        const selectionAst = selectionAstOf(documentProjection, start, Math.max(start, end))
-        if (selectionAst === undefined) {
-          return Object.freeze({
-            type: 'rejected',
-            session,
-            sequence,
-            revision: revisionNumber,
-            accepted: false,
-            reason: 'invalid-edit',
-            sourceLength: revision.sourceLength
-          })
-        }
         return Object.freeze({
           type: 'selection-projection',
           session,
@@ -1339,7 +1316,7 @@ export function createCoreActor(
             kind: 'markdown-consumer-projection',
             name: 'revised',
             markdown,
-            ast: selectionAst
+            ast: selectionAstOf(documentProjection, start, Math.max(start, end))
           })
         })
       }

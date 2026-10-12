@@ -13,7 +13,7 @@ import * as reveal from '@/components/editorWithTabs/reviewCardReveal'
 import { createReviewOverviewTracker } from '@/documentAuthority/coreReviewOverview'
 import type { CoreReviewOverviewEntry } from '@/documentAuthority/coreProtocol'
 
-// Plan 0012 G35: refreshing the Review overview after an edit renders only
+// Refreshing the Review overview after an edit renders only
 // the entries the edit changed; every other card keeps its element.
 
 const loadComponent = (): Vue.Component => {

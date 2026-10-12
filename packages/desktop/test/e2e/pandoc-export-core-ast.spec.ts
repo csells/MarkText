@@ -7,7 +7,7 @@ import * as path from 'node:path'
 
 import { launchWithMarkdown } from './helpers'
 
-// Plan 0012 G40: File > Export builds Pandoc's input from Core's parse, so the
+// File > Export builds Pandoc's input from Core's parse, so the
 // installed pandoc is only ever asked to read JSON. Word keeps suggestions as
 // tracked changes and comments; the HTML export shows the Revised text.
 

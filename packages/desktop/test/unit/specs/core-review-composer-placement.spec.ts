@@ -6,7 +6,7 @@ import {
 } from '@/components/editorWithTabs/coreReviewComposer'
 import type { CoreReviewOverviewEntry } from '@/documentAuthority/coreProtocol'
 
-// Plan 0012 G1 and G31: an unsubmitted composer stays on its entry's card
+// An unsubmitted composer stays on its entry's card
 // while edits move that entry, and never disappears.
 
 const comment = (start: number, text: string): CoreReviewOverviewEntry => ({

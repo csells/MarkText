@@ -7,7 +7,7 @@ import {
 } from './helpers'
 import { clickText, expectSaved, hiddenCoreEnv as env } from './reviewGestures'
 
-// Plan 0012 G44, Profile 1 CM2/R2/R4/T2: empty payloads form annotations;
+// Profile 1 CM2/R2/R4/T2: empty payloads form annotations;
 // unpaired, mismatched or dividerless markers are literal text that affects
 // nothing after them. Opening, editing near or inside them and saving changes
 // only the typed bytes.

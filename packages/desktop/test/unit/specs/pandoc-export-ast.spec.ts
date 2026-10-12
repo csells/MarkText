@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { projectPandocExport } from '@/documentConsumers/pandocExportProjection'
 import type { PandocJsonNode } from '@shared/types/files'
 
-// Plan 0012 G40: every Pandoc export is built from Core's parse. The expected
+// Every Pandoc export is built from Core's parse. The expected
 // nodes are what pandoc's own `gfm` reader makes of the same Markdown, which is
 // what upstream MarkText exported, except where the cases below say otherwise.
 
@@ -22,7 +22,7 @@ const inlines = (source: string, options = {}): unknown => {
   return first?.c
 }
 
-describe('Pandoc AST from Core for ordinary Markdown (G40)', () => {
+describe('Pandoc AST from Core for ordinary Markdown', () => {
   it('writes ATX and setext headings with pandoc\'s GitHub identifiers', () => {
     expect(blocks('# Head `code` **b**\n\nSetext\n======\n\n## A -- B\n')).toEqual([
       {
@@ -261,7 +261,7 @@ describe('Pandoc AST from Core for ordinary Markdown (G40)', () => {
   })
 })
 
-describe('Pandoc metadata from front matter (G40)', () => {
+describe('Pandoc metadata from front matter', () => {
   const meta = (yaml: string): Record<string, unknown> =>
     projectPandocExport(`---\n${yaml}---\n\nx\n`, {}, 'html').meta
 

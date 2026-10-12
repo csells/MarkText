@@ -272,7 +272,7 @@ const matrixGestures: MatrixGesture[] = [
 
 const matrixEntries = ['toolbar', 'context menu', 'Review menu', 'palette', 'shortcut'] as const
 type MatrixEntry = typeof matrixEntries[number]
-// Only Add Comment has a default shortcut (plan 0012 G33).
+// Only Add Comment has a default shortcut.
 const shortcuts: Partial<Record<AuthoringForm, [string, string[]]>> = {
   'add-comment': ['M', ['meta', 'alt', 'shift']]
 }

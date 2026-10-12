@@ -168,7 +168,7 @@ it('presents restored table-cell identity in Source and uses its actual raw care
       anchor: 0,
       focus: 0
     })
-    // A cut writes only the cell's text (ADR 0007; plan 0012 G24).
+    // A cut writes only the cell's text (ADR 0007).
     expect(editor.getValue()).toBe(
       '| a |  | c |\n| --- | --- | --- |\n| x |\n'
     )

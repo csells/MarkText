@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -9,13 +9,13 @@ for (const tracked of [false, true]) {
         const source = '- {++first++}{>>keep<<}\n- second\n';
         const indented = '- {++first++}{>>keep<<}\n' + (tracked ? '{++  ++}' : '  ') + '- second\n';
         const typed = indented.replace('second', tracked ? 'se{++x++}cond' : 'sexcond');
-        await page.evaluate(async ({ source, tracked }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-            const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!.nextContentInContext()!;
-            block.setCursor(2, 2, true);
-        }, { source, tracked });
+        await bootCore(page, source, {
+            tracked,
+            setup: () => {
+                const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!.nextContentInContext()!;
+                block.setCursor(2, 2, true);
+            },
+        });
         try {
             await page.keyboard.press('Tab');
             expect(await readCore(page)).toMatchObject({ source: { source: indented }, anchor: 2, caret: 2, legacyCalls: [] });
@@ -43,15 +43,15 @@ for (const example of [
     { source: '- first\n  1. second\n- third\n', target: 'third', before: 1, after: 1, shift: false, expected: '- first\n  1. second\n  2. third\n', typed: '- first\n  1. second\n  2. txhird\n' },
 ]) {
     test(`paragraph Tab retains native context and next input at ${JSON.stringify(example.target)}: ${JSON.stringify(example.source)}`, async ({ page }) => {
-        await page.evaluate(async ({ source, target, before }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, false);
-            let block = window.muya!.editor.scrollPage!.firstContentInDescendant();
-            while (block && block.text !== target) block = block.nextContentInContext() ?? null;
-            if (!block) throw new Error('Expected Tab target');
-            block.setCursor(before, before, true);
-        }, example);
+        await bootCore(page, example.source, {
+            arg: { target: example.target, before: example.before },
+            setup: ({ target, before }) => {
+                let block = window.muya!.editor.scrollPage!.firstContentInDescendant();
+                while (block && block.text !== target) block = block.nextContentInContext() ?? null;
+                if (!block) throw new Error('Expected Tab target');
+                block.setCursor(before, before, true);
+            },
+        });
         try {
             await page.keyboard.press(example.shift ? 'Shift+Tab' : 'Tab');
             expect(await readCore(page)).toMatchObject({ source: { source: example.expected }, anchor: example.after, caret: example.after, legacyCalls: [] });

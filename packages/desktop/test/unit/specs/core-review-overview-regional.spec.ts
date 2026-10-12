@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { inspectDocumentCore } from '../../../../document-core/src/internal/documentCoreInspection'
 import { createReviewOverviewTracker } from '@/documentAuthority/coreReviewOverview'
 
-// Plan 0012 G35: after regional edits the Review overview reads only the
+// After regional edits the Review overview reads only the
 // blocks each edit replaced, and reads exactly as the overview of a fresh
 // open of the same source.
 

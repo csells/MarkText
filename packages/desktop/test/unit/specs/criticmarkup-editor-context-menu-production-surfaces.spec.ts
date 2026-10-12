@@ -155,7 +155,7 @@ describe('CriticMarkup editor context-menu production surfaces', () => {
     expect(send.mock.calls).toEqual([['mt::editor-review-context-action', { requestId: 7, command: 'accept' }]])
   })
 
-  // Plan 0012 G16/G29: the menu names removal as the sidebar card does, and
+  // The menu names removal as the sidebar card does, and
   // a standalone highlight under the pointer can take a comment.
   it('names the annotation actions for their target and offers Add Comment on a highlight', () => {
     showEditorContextMenu(fakeWindow, {}, params(''), true, {

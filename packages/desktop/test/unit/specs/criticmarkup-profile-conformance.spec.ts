@@ -14,8 +14,8 @@ const repoRoot = resolve(import.meta.dirname, '../../../../..')
 const profilePath = 'specs/language/marktext-markdown-profile-1.md'
 const profileDigest = (): string => createHash('sha256')
   .update(readFileSync(resolve(repoRoot, profilePath))).digest('hex')
-// The committed map pins Profile 1 and both Profile 2 documents (plan 0012
-// G44). Structural validation neither reviews its expectations nor ratifies a
+// The committed map pins Profile 1 and both Profile 2 documents.
+// Structural validation neither reviews its expectations nor ratifies a
 // profile; each fixture is a fresh copy of the committed map.
 const structuralFixture = (): unknown => JSON.parse(readFileSync(resolve(
   repoRoot, 'specs/baselines/criticmarkup-profile-conformance.json'

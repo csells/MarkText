@@ -5,7 +5,7 @@ import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-// Plan 0012 G40, end to end with the installed pandoc: the renderer builds the
+// End to end with the installed pandoc: the renderer builds the
 // payload from Core, the main process converts it, and the files are read back.
 
 const { handlers, showSaveDialog, sent } = vi.hoisted(() => {

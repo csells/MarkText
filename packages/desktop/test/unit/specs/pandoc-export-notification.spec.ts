@@ -215,7 +215,7 @@ describe('mt::response-pandoc-export notifications', () => {
     expect(optionsOfLastExport()).toMatchObject({ mirrorMedia: true })
   })
 
-  // pandoc reads the AST the renderer built from Core, never Markdown (G40).
+  // pandoc reads the AST the renderer built from Core, never Markdown.
   it('converts the document the renderer built', async() => {
     await exportWith('rst')
     expect(toPandocJson).toHaveBeenLastCalledWith(EXPORT_PAYLOAD.document)

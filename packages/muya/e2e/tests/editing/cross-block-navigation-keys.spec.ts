@@ -6,7 +6,7 @@ import { loadMarkdown } from '../helpers/keyboard';
 import { editor } from '../helpers/selectors';
 import { detachedBlocks, nextFrames } from '../helpers/tree';
 
-// A documented deviation from upstream (plan 0012 G26): upstream cut a
+// A documented deviation from upstream: upstream cut a
 // selection spanning blocks on any key other than an arrow or modifier, so
 // Home, End, PageDown or Escape silently deleted several paragraphs. Only
 // keys that replace a selection in a macOS editor may remove it.

@@ -9,7 +9,7 @@ import {
   sendIpcToRenderer
 } from './helpers'
 
-// Plan 0012 G34: with Track Changes on, editing over existing suggestions
+// With Track Changes on, editing over existing suggestions
 // follows Google Docs (observed hands-on 27 Sep). Every step is a real key
 // gesture in the live editor; the saved source is the independent oracle.
 

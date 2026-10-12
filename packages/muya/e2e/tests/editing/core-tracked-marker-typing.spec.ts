@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { disposeCore, readCore } from '../helpers/coreBoundary';
+import { bootCore, disposeCore, readCore } from '../helpers/coreBoundary';
 
 // Typing a quote or list marker and its space opens the container at once, as
 // upstream does; Track Changes records the same edit and must present it alike.
@@ -11,12 +11,12 @@ for (const tracked of [false, true]) {
         { marker: '>', container: undefined, then: '> x' },
     ]) {
         test(`typed ${JSON.stringify(example.marker)} presents ${example.container ?? 'its paragraph'} with Track ${tracked}`, async ({ page }) => {
-            await page.evaluate(async (tracked) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(window.muya!, 'before\n\n\n\nafter\n', tracked);
-                window.muya!.editor.scrollPage!.firstContentInDescendant()!.nextContentInContext()!.setCursor(0, 0, true);
-            }, tracked);
+            await bootCore(page, 'before\n\n\n\nafter\n', {
+                tracked,
+                setup: () => {
+                    window.muya!.editor.scrollPage!.firstContentInDescendant()!.nextContentInContext()!.setCursor(0, 0, true);
+                },
+            });
             try {
                 await page.keyboard.type(example.marker);
                 const typed = `before\n\n${tracked ? `{++${example.marker}++}` : example.marker}\n\nafter\n`;

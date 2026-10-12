@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -31,12 +31,13 @@ const cases = [
 for (const example of cases) {
     for (const tracked of [false, true]) {
         test(`Core checkbox ${example.name} owns the next key (tracked=${tracked})`, async ({ page }) => {
-            await page.evaluate(async ({ example, tracked }) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(window.muya!, example.source, tracked);
-                window.muya!.setOptions({ autoCheck: example.autoCheck, autoMoveCheckedToEnd: example.autoMove });
-            }, { example, tracked });
+            await bootCore(page, example.source, {
+                tracked,
+                arg: example,
+                setup: (example) => {
+                    window.muya!.setOptions({ autoCheck: example.autoCheck, autoMoveCheckedToEnd: example.autoMove });
+                },
+            });
             const expected = tracked ? example.tracked : example.expected;
             try {
                 await page.locator('.mu-task-list-checkbox').nth(example.target).click();

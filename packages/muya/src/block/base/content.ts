@@ -9,7 +9,7 @@ import diff from 'fast-diff';
 import TreeNode from '../../block/base/treeNode';
 import { ScrollPage } from '../../block/scrollPage';
 import { BRACKET_HASH, CLASS_NAMES, EVENT_KEYS } from '../../config';
-import { dispatchDocumentBlock, ownsDocumentTextKey } from '../../editor/documentEditing';
+import { dispatchDocumentBlock, documentEditingOptions, ownsDocumentTextKey } from '../../editor/documentEditing';
 import Selection from '../../selection';
 import { offsetInBlockAtPoint } from '../../selection/dom';
 import {
@@ -875,11 +875,7 @@ class Content extends TreeNode {
                 data: replacement,
                 selection,
                 range: { anchor, focus },
-                options: {
-                    autoPairBracket: this.muya.options.autoPairBracket,
-                    autoPairQuote: this.muya.options.autoPairQuote,
-                    autoPairMarkdownSyntax: this.muya.options.autoPairMarkdownSyntax,
-                },
+                options: documentEditingOptions(this.muya),
                 historyGroup,
             }, () => {}));
         }

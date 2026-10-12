@@ -99,20 +99,6 @@ export const UNICODE_WHITESPACE_REG = /^\s/;
 // eslint-disable-next-line regexp/no-obscure-range
 export const CJK_REG = /[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯ｦ-ﾝ]|[\uD840-\uD87F][\uDC00-\uDFFF]/;
 
-// The code point starting at `i`, or undefined past the
-// end of the string.
-export function codePointCharAt(s: string, i: number): string | undefined {
-    if (i >= s.length)
-        return undefined;
-    const unit = s.charCodeAt(i);
-    if (unit >= 0xD800 && unit <= 0xDBFF && i + 1 < s.length) {
-        const next = s.charCodeAt(i + 1);
-        if (next >= 0xDC00 && next <= 0xDFFF)
-            return s.slice(i, i + 2);
-    }
-    return s.charAt(i);
-}
-
 function validWidthAndHeight(value: string) {
     if (!/^\d+$/.test(value))
         return '';

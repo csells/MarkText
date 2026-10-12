@@ -1,17 +1,15 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const source of ['same\n', '> s{++am++}e{>>keep<<}\n']) {
     for (const action of ['page-click', 'ArrowRight', 'ArrowDown']) {
         test(`trailing paragraph from ${action} owns the next key: ${source}`, async ({ page }) => {
-            await page.evaluate(async (source) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                const muya = window.muya!;
-                window.coreBoundary = control.bootCoreBoundary(muya, source);
-                const content = muya.editor.scrollPage!.lastContentInDescendant()!;
-                content.setCursor(content.text.length, content.text.length, true);
-            }, source);
+            await bootCore(page, source, {
+                setup: () => {
+                    const content = window.muya!.editor.scrollPage!.lastContentInDescendant()!;
+                    content.setCursor(content.text.length, content.text.length, true);
+                },
+            });
             try {
                 if (action === 'page-click') {
                     const container = await page.locator('.mu-container').boundingBox();

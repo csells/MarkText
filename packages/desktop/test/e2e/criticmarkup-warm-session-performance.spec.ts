@@ -35,15 +35,15 @@ const denseParagraph = 'Review {++new evidence++} alongside {--obsolete details-
 const plainParagraph = 'Writing a useful document takes careful editing and a clear view of the text.'
 const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: boolean, input?: string, media?: boolean, paragraphs?: number, interval?: number, source?: string, ownText?: boolean }> = [
   { name: 'plain', paragraph: plainParagraph, tracking: false },
-  // Plan 0012 G35: the first suggestion in a long plain document, then
+  // The first suggestion in a long plain document, then
   // typing that extends it, with no later suggestion to bound a region.
   { name: 'plain-1000-tracked', paragraph: plainParagraph, tracking: true, paragraphs: 1000 },
   { name: 'dense-criticmarkup-ordinary', paragraph: denseParagraph, tracking: false },
   { name: 'dense-criticmarkup', paragraph: denseParagraph, tracking: true },
-  // Plan 0012 G35: tracked typing in a long document dense with suggestions,
+  // Tracked typing in a long document dense with suggestions,
   // whose keys reparse only the paragraphs they change.
   { name: 'dense-2000-tracked', paragraph: denseParagraph, tracking: true, paragraphs: 2000 },
-  // Plan 0012 G35: the same typing with a pause before every key, so each key
+  // The same typing with a pause before every key, so each key
   // arrives while the passive refresh after the previous one (counts, outline
   // and the Review overview, 150 ms after input stops) is running.
   { name: 'dense-2000-tracked-refresh', paragraph: denseParagraph, tracking: true, paragraphs: 2000, interval: 230 },
@@ -367,7 +367,7 @@ test.describe('warm native-keyboard performance', () => {
     })
   }
 
-  // Plan 0012 G35: Enter splits a paragraph of a long plain document, then a
+  // Enter splits a paragraph of a long plain document, then a
   // character goes into the new paragraph. The latency trace pairs only
   // appended text, so each Enter is timed from the key to the settled
   // authority, which includes one Playwright round trip.

@@ -8,7 +8,7 @@ import {
 import { tocEntryOf } from '@/documentConsumers/documentProjectionConsumers'
 import { projectedHeadingNodes } from '@/documentConsumers/projectedHeadings'
 
-// Plan 0012 G35: after regional edits, counts and the outline read the
+// After regional edits, counts and the outline read the
 // Revised text and headings of only the blocks each edit replaced, and read
 // exactly as the whole Revised projection of a fresh open does.
 

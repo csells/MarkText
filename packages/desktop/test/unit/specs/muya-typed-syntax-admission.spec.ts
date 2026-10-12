@@ -340,7 +340,7 @@ const typeOnLine = async(source: string, offset: number, typed: string, tracked 
 
 describe('native typing of a block marker on a later paragraph line', () => {
   // The blocks upstream (8d6c198c) makes of the same keys, with the other
-  // lines' bytes kept where upstream re-spells them (ADR 0007; plan 0012 G24);
+  // lines' bytes kept where upstream re-spells them (ADR 0007);
   // `offset` is within the multi-line paragraph's text. A converted quote's caret stays before
   // the quoted text, as on a first line; upstream's measure from the
   // paragraph's start slips it into a later line's text.

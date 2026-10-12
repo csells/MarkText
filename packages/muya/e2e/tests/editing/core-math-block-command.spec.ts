@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { floats, quickInsertItem } from '../helpers/selectors';
 
 for (const trigger of ['/math', '/m{++a++}th', '/m{>>inside<<}ath']) {
@@ -9,14 +9,14 @@ for (const trigger of ['/math', '/m{++a++}th', '/m{>>inside<<}ath']) {
             const source = trigger + tail;
             const converted = (tracked ? `{~~${trigger}~>$$\n\n$$~~}` : '$$\n\n$$') + tail;
             const typed = (tracked ? `{~~${trigger}~>$$\nx\n$$~~}` : '$$\nx\n$$') + tail;
-            await page.evaluate(async ({ source, tracked }) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-                const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-                block.setCursor(block.text.length, block.text.length, true);
-                window.muya!.eventCenter.emit('content-change', { block });
-            }, { source, tracked });
+            await bootCore(page, source, {
+                tracked,
+                setup: () => {
+                    const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                    block.setCursor(block.text.length, block.text.length, true);
+                    window.muya!.eventCenter.emit('content-change', { block });
+                },
+            });
             try {
                 await expect(page.locator(floats.quickInsert)).toBeVisible();
                 await page.locator(quickInsertItem('math-block')).click();
@@ -39,15 +39,14 @@ for (const text of ['seed', 'se{++e++}d{>>keep<<}']) {
         test(`Format Math undo restores its actual middle caret (${text}, Track=${tracked})`, async ({ page }) => {
             const source = text + '\n\nother\n';
             const converted = text + (tracked ? '{++\n\n$$\n\n$$++}' : '\n\n$$\n\n$$') + '\n\nother\n';
-            await page.evaluate(async ({ source, tracked }) => {
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
-                const block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-                block.setCursor(2, 2, true);
-                window.muya!.editor.activeContentBlock = block;
-                window.muya!.updateParagraph('mathblock');
-            }, { source, tracked });
+            await bootCore(page, source, {
+                tracked,
+                cursor: [2, 2, true],
+                setup: () => {
+                    window.muya!.editor.activeContentBlock = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                    window.muya!.updateParagraph('mathblock');
+                },
+            });
             try {
                 expect(await readCore(page)).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0, legacyCalls: [] });
                 await coreHistory(page, 'undo');
