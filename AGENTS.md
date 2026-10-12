@@ -57,8 +57,8 @@ root holds shared tooling and CI-facing scripts.
 ```
 <repo-root>/
   package.json              Workspace orchestrator. App scripts proxy to
-                            packages/desktop; document-core and CriticMarkup
-                            parity checks have dedicated root scripts.
+                            packages/desktop; document-core has its own
+                            root `document-core:check` script.
   pnpm-workspace.yaml       `packages: ['packages/*']` plus allowBuilds.
   pnpm-lock.yaml            Single lockfile, shared across all packages.
   eslint.config.js          Root ESLint v9 flat config (covers desktop;
