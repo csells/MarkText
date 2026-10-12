@@ -90,3 +90,23 @@ for (const [name, source, word, edited] of [
     }
   })
 }
+
+for (const [name, source, word, edited] of [
+  ['a backslash escape', 'Cost \\* and more\n', 'and', 'Cost \\*  more\n'],
+  ['an entity', 'Tom &amp; Jerry run\n', 'Jerry', 'Tom &amp;  run\n']
+] as const) {
+  test(`cutting part of a paragraph with ${name} keeps the document`, async() => {
+    const { app, page, filePath } = await launchWithMarkdown(source, { suppressErrorDialog: true, env })
+    try {
+      await app.evaluate(({ clipboard }) => clipboard.clear())
+      await selectWord(page, word)
+      await page.keyboard.press(command('X'))
+      await expect.poll(() => clipboardText(app)).toBe(word)
+      await expectNoRecovery(page)
+      await expectSaved(app, filePath, edited)
+      await expectNoRendererErrors(app)
+    } finally {
+      await app.close()
+    }
+  })
+}
