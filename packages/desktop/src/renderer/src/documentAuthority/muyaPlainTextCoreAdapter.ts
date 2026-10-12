@@ -33,6 +33,7 @@ import {
   muyaViewItemAtPath,
   muyaViewLastBinding
 } from './muyaMarkupViewLookup'
+import { samePath } from './muyaMarkupPath'
 
 export type { MuyaPlainTextSourceBinding } from './muyaSourceBinding'
 
@@ -50,11 +51,6 @@ interface InstalledBindings {
   first(): MuyaPlainTextSourceBinding | undefined
   last(): MuyaPlainTextSourceBinding | undefined
 }
-
-const samePath = (
-  left: readonly (string | number)[],
-  right: readonly (string | number)[]
-): boolean => left.length === right.length && left.every((part, index) => part === right[index])
 
 const isView = (bindings: MuyaPlainTextBindings): bindings is MuyaMarkupView =>
   !Array.isArray(bindings)

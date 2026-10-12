@@ -41,9 +41,7 @@ import {
   muyaViewLastBinding,
   muyaViewPreviousBinding
 } from './muyaMarkupViewLookup'
-
-const samePath = (left: readonly (string | number)[], right: readonly (string | number)[]) =>
-  left.length === right.length && left.every((part, index) => part === right[index])
+import { samePath } from './muyaMarkupPath'
 
 const sameCell = (left: MuyaMarkupBinding['tableCell'], right: MuyaMarkupBinding['tableCell']) =>
   left !== undefined &&

@@ -50,6 +50,7 @@ import {
   type MuyaMarkupRootRun,
   type MuyaMarkupRoots
 } from './muyaMarkupViewRoots'
+import { itemOfPath, listStates } from './muyaMarkupPath'
 
 /** A regional reply carries only canonical runs; gaps are omitted/generated text. */
 export const markupRegionCoordinates = (replacement: MarkupRegionReplacement): ProjectionCoordinateMap => {
@@ -276,16 +277,7 @@ const regionSource = (replacement: MarkupRegionReplacement): string | undefined 
     : undefined
 }
 
-const listStates = new Set(['bullet-list', 'order-list', 'task-list'])
-
-/** The item a binding of a list root belongs to, by its place in the root. */
-const itemOf = (binding: MuyaMarkupBinding): number | undefined =>
-  binding.path[1] === 'children' && typeof binding.path[2] === 'number' ? binding.path[2] : undefined
-
 type StructureNode = MuyaSourceStructure['nodes'][number]
-
-const itemOfPath = (path: readonly (string | number)[]): number | undefined =>
-  path[1] === 'children' && typeof path[2] === 'number' ? path[2] : undefined
 
 /** A list's source structure nodes: the list's own, then its items' by item. */
 interface StructureItems {
@@ -446,7 +438,7 @@ function listItemsPatch(
   })
   const placedGroups: MuyaMarkupBinding[][] = localItems.map(() => [])
   for (const binding of placed) {
-    const item = itemOf(binding)
+    const item = itemOfPath(binding.path)
     if (item === undefined || item < items.itemsBefore || item >= items.itemsBefore + localItems.length) return undefined
     placedGroups[item - items.itemsBefore].push(binding)
   }

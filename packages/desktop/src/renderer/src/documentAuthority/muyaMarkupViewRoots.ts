@@ -7,6 +7,8 @@ import type {
   MuyaMarkupState,
   MuyaMarkupView
 } from './muyaMarkupView'
+import { itemOfPath, rootOf } from './muyaMarkupPath'
+import { isPositionKey } from '../documentConsumers/astAttributes'
 
 /*
  * A regional change replaces a few root blocks of a Markup view and moves
@@ -25,16 +27,6 @@ const shiftRange = (range: SourceRange, delta: number): SourceRange => ({
   start: range.start + delta,
   end: range.end + delta
 })
-
-const positionKeys = new Map<string, boolean>()
-const isPositionKey = (key: string): boolean => {
-  let position = positionKeys.get(key)
-  if (position === undefined) {
-    position = /(?:Start|End)$/u.test(key)
-    positionKeys.set(key, position)
-  }
-  return position
-}
 
 const shiftAttributes = (
   attributes: MarkdownAstNode['attributes'],
@@ -240,9 +232,6 @@ export interface MuyaMarkupItemBindings extends MuyaMarkupItemGroups<MuyaMarkupB
    */
   first(reaches: (binding: MuyaMarkupBinding) => boolean): MuyaMarkupBinding | undefined
 }
-
-const itemOfPath = (path: readonly (number | string)[]): number | undefined =>
-  path[1] === 'children' && typeof path[2] === 'number' ? path[2] : undefined
 
 /** How far later items of a list moved: items later, and source and syntax units. */
 export interface MuyaMarkupItemShift {
@@ -600,11 +589,6 @@ interface RootBase {
 }
 
 type ItemLists = Pick<MuyaMarkupView, 'bindings' | 'decorations' | 'comments'>
-
-const rootOf = (item: { readonly path: readonly (number | string)[] }): number => {
-  const root = item.path[0]
-  return typeof root === 'number' ? root : Number.NaN
-}
 
 /**
  * Items of `list` by root `[first, first + count)`, each root's in list
