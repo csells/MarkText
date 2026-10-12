@@ -216,6 +216,44 @@ describe('Core consumer projection authority', () => {
     actor.dispose()
   })
 
+  it.each([
+    ['a trailing space still being typed', 'a pain, not just \n\nNext.\n', 2, 6, 'pain'],
+    ['the end of a paragraph that ends in a space', 'a pain, not just \n\nNext.\n', 12, 17, 'just'],
+    ['a backslash escape', 'a \\* b and more\n', 7, 10, 'and'],
+    ['an escape cut in the selection', 'a \\* b and more\n', 2, 6, '* b'],
+    ['an entity', 'Tom &amp; Jerry run\n', 10, 15, 'Jerry'],
+    ['a selection inside an entity', 'Tom &amp; Jerry run\n', 4, 8, '&amp']
+  ])('projects part of a text node whose meaning differs from its source: %s', (
+    _name,
+    source,
+    start,
+    end,
+    text
+  ) => {
+    const actor = createCoreActor()
+    actor.handle({ type: 'open', session: 44, sequence: 1, source })
+
+    const reply = actor.handle({
+      type: 'selection-projection-at-barrier',
+      session: 44,
+      sequence: 2,
+      baseRevision: 1,
+      range: { start, end }
+    })
+
+    expect(reply).toMatchObject({
+      type: 'selection-projection',
+      projection: {
+        ast: {
+          root: {
+            children: [{ kind: 'paragraph', children: [{ kind: 'text', attributes: { semanticText: text } }] }]
+          }
+        }
+      }
+    })
+    actor.dispose()
+  })
+
   it('transports one selection projection through the acknowledged editor binding', async() => {
     const binding = createEditorCoreBinding(inMemoryPort())
     await expect(

@@ -129,13 +129,53 @@ const AUTHOR_FORMS = ['addition', 'comment', 'highlight', 'substitution'] as con
 // Stand-in for the user's not-yet-entered comment or replacement text.
 const AUTHOR_PROBE_TEXT = 'x'
 
+/**
+ * The meaning of `[start, end)` within a text node: its source characters, with
+ * each decoded spelling (escape, entity) the range holds whole read as its
+ * value, and without the whitespace the node's meaning trims, such as a
+ * paragraph's trailing space. A spelling the range cuts reads as its selected
+ * source characters.
+ */
+const partialTextMeaning = (
+  markdown: string,
+  node: MarkdownAstNode,
+  start: number,
+  end: number
+): string => {
+  const read = (from: number, to: number): string => {
+    let text = ''
+    let at = from
+    for (const segment of node.semanticTextSegments ?? []) {
+      if (segment.range.start < from || segment.range.end > to) continue
+      text += markdown.slice(at, segment.range.start) + segment.value
+      at = segment.range.end
+    }
+    return text + markdown.slice(at, to)
+  }
+  const meaning = node.attributes.semanticText
+  const whole = read(node.range.start, node.range.end)
+  const lead = typeof meaning === 'string' ? whole.indexOf(meaning) : -1
+  if (
+    typeof meaning !== 'string' ||
+    lead < 0 ||
+    whole.slice(0, lead).trim() !== '' ||
+    whole.slice(lead + meaning.length).trim() !== ''
+  ) {
+    return read(start, end)
+  }
+  // Trimmed whitespace is never a decoded spelling, so it is as long in the
+  // source as in `whole`.
+  const from = Math.max(start, node.range.start + lead)
+  const to = Math.min(end, node.range.end - (whole.length - lead - meaning.length))
+  return from < to ? read(from, to) : ''
+}
+
 const selectionAstOf = (
   projection: MarkdownProjection,
   start: number,
   end: number
 ): MarkdownAst | undefined => {
   const selected = new Map<MarkdownAstNode, MarkdownAstNode>()
-  let supported = true
   const intersects = (node: MarkdownAstNode): boolean =>
     node.kind === 'document' || (node.range.start < end && node.range.end > start)
   const pending: Array<
@@ -145,7 +185,7 @@ const selectionAstOf = (
     }>
   > = [{ node: projection.ast.root, ready: false }]
 
-  while (pending.length > 0 && supported) {
+  while (pending.length > 0) {
     const task = pending.pop()
     if (task === undefined) break
     if (!task.ready) {
@@ -191,11 +231,7 @@ const selectionAstOf = (
         rangeEnd - task.node.range.start
       )
       if (task.node.kind === 'text') {
-        if (attributes.semanticText !== raw) {
-          supported = false
-          break
-        }
-        attributes.semanticText = selectedRaw
+        attributes.semanticText = partialTextMeaning(projection.markdown, task.node, rangeStart, rangeEnd)
       } else {
         // Part of a literal leaf (formula, code span, tag) is its selected
         // source characters; its whole-node meaning no longer applies.
@@ -225,7 +261,7 @@ const selectionAstOf = (
   }
 
   const root = selected.get(projection.ast.root)
-  return supported && root !== undefined ? Object.freeze({ root }) : undefined
+  return root === undefined ? undefined : Object.freeze({ root })
 }
 
 export function createCoreActor(
