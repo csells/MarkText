@@ -3,6 +3,7 @@ import type { MarkdownLineIndex } from './revision.js'
 import { paragraphImageRange } from './paragraphBoundary.js'
 import { containerContinuationPrefix } from './clipboardMarkdown.js'
 import { syntaxPathAt } from './syntaxPath.js'
+import { lineStartAt } from './sourceLines.js'
 import { isLiteralBlock } from './literalBlock.js'
 import { tableCellInlineBreak } from '@marktext/input-policy'
 
@@ -172,8 +173,7 @@ export function paragraphLeadingLine(core: DocumentCore, revision: DocumentRevis
   const lineEnding = core.sourceSlice(revision, { start: position, end: Math.min(revision.sourceLength, position + 2) }).match(/^(?:\r\n|\r|\n)/u)?.[0]
   if (lineEnding === undefined) return undefined
   const next = position + lineEnding.length
-  const preceding = core.sourceSlice(revision, { start: 0, end: position })
-  const lineStart = Math.max(preceding.lastIndexOf('\n'), preceding.lastIndexOf('\r')) + 1
+  const lineStart = lineStartAt(core, revision, position)
   const projectedNext = syntax.coordinates.toProjected(next, 'next')
   let paragraph: MarkdownAstNode | undefined
   const visit = (node: MarkdownAstNode): void => {
@@ -186,7 +186,7 @@ export function paragraphLeadingLine(core: DocumentCore, revision: DocumentRevis
     for (const child of node.children) visit(child)
   }
   visit(syntax.ast.root)
-  return paragraph === undefined ? undefined : { paragraph, lineStart, line: preceding.slice(lineStart) }
+  return paragraph === undefined ? undefined : { paragraph, lineStart, line: core.sourceSlice(revision, { start: lineStart, end: position }) }
 }
 
 /**

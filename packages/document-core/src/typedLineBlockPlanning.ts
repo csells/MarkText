@@ -3,6 +3,7 @@ import { annotationsAround } from './internal/annotationsAround.js'
 import { containerContinuationPrefix } from './clipboardMarkdown.js'
 import { INLINE_UPDATE_REG, inlineUpdateLayout } from './inputPolicy.js'
 import { syntaxPathAt } from './syntaxPath.js'
+import { lineEndAt, lineStartAt } from './sourceLines.js'
 
 interface ParagraphLine {
   /** Source start of the line, before any container prefix. */
@@ -49,8 +50,7 @@ function indentedCodeLine(
   containers: readonly MarkdownAstNode[], caret: number, data: string | null, second: ParagraphLine | undefined
 ): { readonly prefix: string, readonly at: number } | undefined {
   if (data !== ' ' || second === undefined) return undefined
-  const preceding = core.sourceSlice(revision, { start: 0, end: caret })
-  const lineStart = Math.max(preceding.lastIndexOf('\n'), preceding.lastIndexOf('\r')) + 1
+  const lineStart = lineStartAt(core, revision, caret)
   const line = core.sourceSlice(revision, { start: lineStart, end: second.start })
   let runStart = caret - lineStart
   while (line[runStart - 1] === ' ') runStart--
@@ -127,26 +127,6 @@ function splitLines(text: string): Array<{ readonly start: number, readonly end:
   return lines
 }
 
-/** The source line containing `position` reaches this far. */
-function sourceLineEnd(core: DocumentCore, revision: DocumentRevision, position: number): number {
-  for (let span = 256; ; span *= 4) {
-    const end = Math.min(revision.sourceLength, position + span)
-    const found = core.sourceSlice(revision, { start: position, end }).search(/[\r\n]/u)
-    if (found >= 0) return position + found
-    if (end === revision.sourceLength) return end
-  }
-}
-
-function sourceLineStart(core: DocumentCore, revision: DocumentRevision, position: number): number {
-  for (let span = 256; ; span *= 4) {
-    const start = Math.max(0, position - span)
-    const text = core.sourceSlice(revision, { start, end: position })
-    const found = Math.max(text.lastIndexOf('\n'), text.lastIndexOf('\r'))
-    if (found >= 0) return start + found + 1
-    if (start === 0) return 0
-  }
-}
-
 function sourceLineOf(syntax: MarkupSyntax, node: MarkdownAstNode): SourceRange {
   const start = syntax.coordinates.toSource(node.range.start, 'previous')
   return { start, end: Math.max(start, syntax.coordinates.toSource(node.range.end, 'next')) }
@@ -214,7 +194,7 @@ export function planInlineUpdate(
   const containers = path.slice(0, depth)
   if (!containers.every(node => inlineUpdateContainers.has(node.kind))) return undefined
   const start = syntax.coordinates.toSource(paragraph.range.start, 'previous')
-  const end = sourceLineEnd(core, revision, syntax.coordinates.toSource(paragraph.range.end, 'previous'))
+  const end = lineEndAt(core, revision, syntax.coordinates.toSource(paragraph.range.end, 'previous'))
   if (edits.some(edit => edit.start < start || edit.end > end)) return undefined
   const original = core.sourceSlice(revision, { start, end })
   let text = original
@@ -436,15 +416,15 @@ function taskListSeparation(
     return before.endsWith('\r\n') ? '\r\n' : before.endsWith('\r') ? '\r' : '\n'
   }
   const separate = (node: MarkdownAstNode, prefix: string): void => {
-    const at = sourceLineStart(core, revision, syntax.coordinates.toSource(node.range.start, 'next'))
+    const at = lineStartAt(core, revision, syntax.coordinates.toSource(node.range.start, 'next'))
     if (at === 0) return
-    const previous = core.sourceSlice(revision, { start: sourceLineStart(core, revision, at - 1), end: at })
+    const previous = core.sourceSlice(revision, { start: lineStartAt(core, revision, at - 1), end: at })
     if (/^[ \t>]*[\r\n]*$/u.test(previous)) return
     edits.push({ start: at, end: at, insert: prefix.trimEnd() + lineEnding(at) })
   }
   const marker = (node: MarkdownAstNode): string => {
     const at = syntax.coordinates.toSource(node.range.start, 'next')
-    return core.sourceSlice(revision, { start: sourceLineStart(core, revision, at), end: at })
+    return core.sourceSlice(revision, { start: lineStartAt(core, revision, at), end: at })
   }
   const siblings = list.children
   if (index > 0) separate(item, marker(item))

@@ -6,6 +6,7 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { blockCommandTarget } from './blockCommandPlanning.js'
 import { paragraphImageRange } from './paragraphBoundary.js'
 import type { MarkdownLineIndex } from './revision.js'
+import { lineStartAt } from './sourceLines.js'
 import { CRITIC_MARKER_ALTERNATION } from './internal/profile1/sourceTape.js'
 
 const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'gu')
@@ -151,17 +152,7 @@ export function prepareClipboardMarkdown(
 
 export function containerContinuationPrefix(core: DocumentCore, previous: DocumentRevision, current: MarkupSyntax, anchor: MarkdownAstNode, containers: readonly MarkdownAstNode[]): string {
   const prefixEnd = current.coordinates.toSource(anchor.range.start, 'previous')
-  // Widen the search backward only as far as the line's start requires.
-  let firstLineStart = 0
-  for (let span = 256; ; span *= 4) {
-    const start = Math.max(0, prefixEnd - span)
-    const preceding = core.sourceSlice(previous, { start, end: prefixEnd })
-    const found = Math.max(preceding.lastIndexOf('\n'), preceding.lastIndexOf('\r'))
-    if (found >= 0 || start === 0) {
-      firstLineStart = found >= 0 ? start + found + 1 : 0
-      break
-    }
-  }
+  const firstLineStart = lineStartAt(core, previous, prefixEnd)
   let continuation = core.sourceSlice(previous, { start: firstLineStart, end: prefixEnd })
   // Outside any container, a line continues only the block's indentation:
   // text before it on its line, as a suggestion's markers and the old block
