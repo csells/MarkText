@@ -6167,14 +6167,14 @@ function createDocumentCoreWithExecutionBudget(
     let expected: ReadonlyArray<Readonly<{ kind: CriticMarkupNode['kind'], start: number, end: number }>>
     if (at === text.range.start) {
       if (breaking) return undefined
-      planned = { start: owner.range.start, end: owner.range.end, insert: `{~~${old}~>${edit.insert}~~}` }
+      planned = { start: owner.range.start, end: owner.range.end, insert: spellSuggestion('substitution', old, edit.insert) }
       expected = [{ kind: 'substitution', start: owner.range.start, end: owner.range.start + planned.insert.length }]
     } else if (at === text.range.end) {
       if (breaking) return undefined
-      planned = { start: owner.range.end, end: owner.range.end, insert: `{++${edit.insert}++}` }
+      planned = { start: owner.range.end, end: owner.range.end, insert: spellSuggestion('addition', edit.insert) }
       expected = [{ kind: 'addition', start: owner.range.end, end: owner.range.end + planned.insert.length }]
     } else {
-      planned = { start: at, end: at, insert: `--}{++${edit.insert}++}{--` }
+      planned = { start: at, end: at, insert: `--}${spellSuggestion('addition', edit.insert)}{--` }
       const addition = at + 3
       expected = [
         { kind: 'deletion', start: owner.range.start, end: addition },
@@ -6223,7 +6223,7 @@ function createDocumentCoreWithExecutionBudget(
     let expected: ReadonlyArray<Readonly<{ kind: CriticMarkupNode['kind'], start: number, end: number }>>
     if (old.range.start < at && at < old.range.end) {
       const struck = core.sourceSlice(previous, { start: old.range.start, end: at })
-      planned = { start: owner.range.start, end: at, insert: `{--${struck}--}{++${edit.insert}++}{~~` }
+      planned = { start: owner.range.start, end: at, insert: `${spellSuggestionPair(struck, edit.insert)}{~~` }
       const addition = owner.range.start + struck.length + 6
       expected = [
         { kind: 'deletion', start: owner.range.start, end: addition },
@@ -6344,7 +6344,7 @@ function createDocumentCoreWithExecutionBudget(
     const planned = Object.freeze({
       start,
       end: blockEnd + trail,
-      insert: `{~~${old}${between}~>${proposed}${closing}~~}`
+      insert: spellSuggestion('substitution', old + between, proposed + closing)
     })
     const candidate = regionalCandidate(state, planned)
     if (candidate?.structural === undefined) return undefined
@@ -6377,13 +6377,13 @@ function createDocumentCoreWithExecutionBudget(
     let planned: DocumentSourceEdit
     if (replaced === undefined) {
       if (before.length === 0) return undefined
-      planned = Object.freeze({ start: edit.start, end: edit.start, insert: `{++${edit.insert}++}` })
+      planned = Object.freeze({ start: edit.start, end: edit.start, insert: spellSuggestion('addition', edit.insert) })
     } else {
       if (struck === undefined || replaced.arms.length !== 1 || struck.annotations.length !== 0 ||
           struck.range.start !== replaced.range.start + 3 || struck.range.end !== replaced.range.end - 3) return undefined
       const old = core.sourceSlice(previous, struck.range)
       if (!/^[\p{L}\p{N} .,;:'"?!()]+$/u.test(old)) return undefined
-      planned = Object.freeze({ start: replaced.range.start, end: replaced.range.end, insert: `{~~${old}~>${edit.insert}~~}` })
+      planned = Object.freeze({ start: replaced.range.start, end: replaced.range.end, insert: spellSuggestion('substitution', old, edit.insert) })
     }
     const candidate = regionalCandidate(state, planned)
     if (candidate?.structural === undefined || candidate.structural.markerDelta !== (replaced === undefined ? 2 : 1)) return undefined
@@ -6544,7 +6544,7 @@ function createDocumentCoreWithExecutionBudget(
     if (typed !== undefined && typed.arm === undefined && !('literal' in typed && typed.literal !== undefined) &&
         plainLiteralBlockHolding(typed.nextProducts, typed.nextWindow, edit.start - typed.sourceStart,
           edit.start - typed.sourceStart + edit.insert.length) !== undefined) return undefined
-    const insert = `{++${edit.insert}++}`
+    const insert = spellSuggestion('addition', edit.insert)
     const planned = Object.freeze({ start: edit.start, end: edit.start, insert })
     const candidate = regionalCandidate(state, planned)
     if (
@@ -6755,7 +6755,7 @@ function createDocumentCoreWithExecutionBudget(
       return regionalTrackedBreak(state, previous, Object.freeze({ ...edit, start: opened.range.start, end: opened.range.start }))
     }
     if (!plainParagraphAround(previous, at)) return undefined
-    const planned = Object.freeze({ start: at, end: at, insert: owner === undefined ? `{++${edit.insert}++}` : edit.insert })
+    const planned = Object.freeze({ start: at, end: at, insert: owner === undefined ? spellSuggestion('addition', edit.insert) : edit.insert })
     const candidate = regionalCandidate(state, planned)
     if (candidate?.structural === undefined) return undefined
     const shift = candidate.sourceStart
@@ -6800,7 +6800,7 @@ function createDocumentCoreWithExecutionBudget(
         markupAnnotations(rootsAround(previous, edit.start)).some(annotation =>
           annotation.range.start <= edit.end && edit.start <= annotation.range.end) ||
         !plainParagraphAround(previous, edit.start) || !plainParagraphAround(previous, edit.end)) return undefined
-    const planned = Object.freeze({ start: edit.start, end: edit.end, insert: `{--${removed}--}` })
+    const planned = Object.freeze({ start: edit.start, end: edit.end, insert: spellSuggestion('deletion', removed) })
     const candidate = regionalCandidate(state, planned)
     if (candidate?.structural === undefined || candidate.structural.touchesAnnotation ||
         candidate.structural.markerDelta !== 2) return undefined
@@ -6872,7 +6872,7 @@ function createDocumentCoreWithExecutionBudget(
       merged = { kind: right.kind, start: edit.start, end: right.range.end, text: removed + core.sourceSlice(previous, rightText.range) }
       unchanged.push(left)
     } else {
-      planned = { start: edit.start, end: edit.end, insert: `{--${removed}--}` }
+      planned = { start: edit.start, end: edit.end, insert: spellSuggestion('deletion', removed) }
       merged = { kind: 'deletion', start: edit.start, end: edit.end, text: removed }
       unchanged.push(left, right)
     }
@@ -6940,7 +6940,7 @@ function createDocumentCoreWithExecutionBudget(
           old.range.start !== owner.range.start + 3 || proposal.range.end !== owner.range.end - 3) return undefined
       const struck = core.sourceSlice(previous, old.range)
       if (!/^[\p{L}\p{N} .,;:'"?!()]+$/u.test(struck)) return undefined
-      const withdrawn = Object.freeze({ start: owner.range.start, end: owner.range.end, insert: `{--${struck}--}` })
+      const withdrawn = Object.freeze({ start: owner.range.start, end: owner.range.end, insert: spellSuggestion('deletion', struck) })
       const candidate = regionalCandidate(state, withdrawn)
       const root = candidate?.nextProducts.retainedIntrinsic?.roots.find(node => node.range.start === owner.range.start - candidate.sourceStart)
       return candidate?.structural !== undefined && root?.kind === 'deletion' &&
@@ -6976,7 +6976,7 @@ function createDocumentCoreWithExecutionBudget(
     let planned: DocumentSourceEdit
     let expected: Readonly<{ start: number, end: number, content: SourceRange }>
     if (owner === undefined || highlighted !== undefined) {
-      planned = Object.freeze({ start: edit.start, end: edit.end, insert: `{--${removed}--}` })
+      planned = Object.freeze({ start: edit.start, end: edit.end, insert: spellSuggestion('deletion', removed) })
       expected = { start: edit.start, end: edit.start + planned.insert.length, content: { start: edit.start + 3, end: edit.end + 3 } }
     } else {
       const content = owner.arms[0]
