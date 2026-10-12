@@ -9,6 +9,7 @@ import {
   exitSourceMode,
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
+  getRendererErrors,
   launchInstalled
 } from './helpers'
 
@@ -165,11 +166,7 @@ test('tab and window close ask before discarding a pending comment', async() => 
 
     // MarkText quits once its last window closes, even on macOS, so the
     // renderer errors are read first and the discard is observed as that exit.
-    expect(
-      await app.evaluate(
-        () => (globalThis as unknown as { reviewLifecycleErrors: unknown[] }).reviewLifecycleErrors
-      )
-    ).toEqual([])
+    expect(await getRendererErrors(app)).toEqual([])
     const exited = new Promise<void>((resolve) => app.once('close', () => resolve()))
     await closeWindow(0)
     await exited
