@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
-import { inspectDocumentCore, planFromGeneralCompile } from '../src/internal/documentCoreInspection.js'
+import { inspectDocumentCore, planFromGeneralCompile, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
 import { regional } from './support/inputDriver.js'
 
 // A blank line typed with Track Changes into a long document's `$$` block
@@ -214,5 +214,49 @@ describe('a dollar key after closed math blocks', () => {
     const planned = core.trackedEdit(opened, edit)
     expect(inspectDocumentCore(core).documentParses - before).toBeLessThanOrEqual(1)
     expect(planned).toEqual(generalPlan(source, edit))
+  })
+})
+
+// Once one's own draft is accepted, a `$$` line its arm leaves unpaired pairs
+// with the first `$$` after the suggestion, however far, and reads the text
+// between as math. A delimiter typed in the arm then changes the draft's
+// Revised view otherwise than its acceptance, so the compile weighs that
+// acceptance, which a window ending before that `$$` cannot read: the key is
+// then the document's to spell. Words read alike in both.
+describe('typing in one\'s own draft whose `$$` its acceptance pairs past the suggestion', () => {
+  const filler = (count: number): string =>
+    Array.from({ length: count }, (_, index) => `Plain paragraph number ${index} with some ordinary words in it.`).join('\n\n')
+  // `|` marks the caret.
+  const draft = '{++$$\nx + y\n\nabc| def\n++}'
+  /** The key typed at the caret, as a regionally edited core plans it and as the general compile does. */
+  const plans = (marked: string, insert: string) => {
+    const core = createDocumentCore()
+    searchWithoutBudget(core)
+    // regional() types a `q` before the intro.
+    const intro = 'Intro.\n\n'
+    const revision = regional(core, intro + marked.replace('|', ''), 0)
+    const at = 'q'.length + intro.length + marked.indexOf('|')
+    const edit = { start: at, end: at, insert }
+    return { edit, planned: core.trackedEdit(revision, edit), general: generalPlan(revision.source, edit) }
+  }
+
+  it.each([
+    ['a tag before the next $$', `${draft}\n\nmore\n\n$$\n`, '<p>'],
+    ['emphasis before the next $$', `${draft}\n\nmore\n\n$$\n`, '*'],
+    ['punctuation before the next $$', `${draft}\n\nmore\n\n$$\n`, '.'],
+    ['a tag past every window', `${draft}\n\n${filler(40)}\n\n$$\n`, '<p>'],
+    ['a tag in a draft before nested suggestions',
+      '{++$$\nx + y\n +</div>+}\n\n{`js\ncons|t added = 1\n``\n++}\n\n\n{++\\{++n\\++}++}{--gone--}{++\\{--d\\--}++}\n\n{++$$\nx + y\n++}\n\n\n',
+      '<div>']
+  ])('reads %s as the document does', (_name, marked, insert) => {
+    const { edit, planned, general } = plans(marked, insert)
+    expect(general).not.toEqual(edit)
+    expect(planned).toEqual(general)
+  })
+
+  it('keeps words as typed', () => {
+    const { edit, planned, general } = plans(`${draft}\n\n${filler(40)}\n\n$$\n`, 'q')
+    expect(general).toEqual(edit)
+    expect(planned).toEqual(edit)
   })
 })
