@@ -247,7 +247,7 @@ export function planInlineUpdate(
     const tight = [...containers].reverse().find(node => node.kind === 'list')?.attributes.tight === true
     if (tight) rows = rows.map((row, index) => index === layout.line ? { ...row, blankBefore: false } : row)
   }
-  // ADR 0007 (owner decision 25 Sep, plan 0012 G24): typing converts the line
+  // ADR 0007 (owner decision 25 Sep): typing converts the line
   // it converts, and other lines keep their bytes unless their meaning needs
   // a change. Upstream's continuation leads, trimming and blank separations are
   // spelling: lazy continuation keeps those lines where they were. A lazy line

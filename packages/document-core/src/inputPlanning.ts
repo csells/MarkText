@@ -181,7 +181,7 @@ export function planInput(core: DocumentCore, revision: DocumentRevision, action
 
 function respellInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, preview: TablePreview, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined): DocumentInputPlan {
   // Typing, Enter, deletion and drops inside a table change only their own
-  // bytes (ADR 0007; owner decision 25 Sep, plan 0012 G24). The line a
+  // bytes (ADR 0007; owner decision 25 Sep). The line a
   // paragraph's Enter turns into a table is the typed line's conversion.
   if (!('kind' in action)) return action.selection.kind === 'table-cell' ? plan : respellEnteredTable(core, revision, action, plan, preview, regionalSyntax)
   if (!tableCommands.has(action.command)) return plan
