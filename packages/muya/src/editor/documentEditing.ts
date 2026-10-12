@@ -316,7 +316,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
             range: domSelection,
             inputType: 'insertCompositionText',
             data: null,
-            options: { autoPairBracket: muya.options.autoPairBracket, autoPairQuote: muya.options.autoPairQuote, autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax },
+            options: documentEditingOptions(muya),
         });
     };
     const compositionUpdate = (event: Event) => {
@@ -396,20 +396,12 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
             const language = first.text.slice(0, start.offset) + inserted + first.text.slice(end.offset);
             if (language === first.text || /[\r\n`]/u.test(language))
                 return;
-            muya.flush();
-            muya.editor.history.recordModelCommand(historyGroup => model.input({
-                kind: 'command',
-                historyGroup,
+            recordDocumentCommand(muya, model, {
                 command: 'setCodeLanguage',
                 language,
                 infoOffset: start.offset + inserted.length,
                 selection: domSelection,
-                options: {
-                    autoPairBracket: muya.options.autoPairBracket,
-                    autoPairQuote: muya.options.autoPairQuote,
-                    autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
-                },
-            }, () => {}));
+            }, { flush: true });
             return;
         }
         let nativeStart: DocumentDOMPoint = domRange.anchor;
@@ -439,13 +431,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
             range: { anchor: nativeStart, focus: nativeEnd },
             data: structural ? '\n' : data,
             inputType,
-            options: {
-                autoPairBracket: muya.options.autoPairBracket,
-                autoPairQuote: muya.options.autoPairQuote,
-                autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
-                tabSize: muya.options.tabSize,
-                trimUnnecessaryCodeBlockEmptyLines: muya.options.trimUnnecessaryCodeBlockEmptyLines,
-            },
+            options: documentEditingOptions(muya, true),
         };
         // Upstream's Enter handlers mark a word boundary only on some paths;
         // on the others Enter joins the typing around it like any change.
@@ -604,13 +590,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
                 selection: dropped.selection,
                 target: input.domRange,
                 copy: !dropped.moving,
-                options: {
-                    autoPairBracket: muya.options.autoPairBracket,
-                    autoPairQuote: muya.options.autoPairQuote,
-                    autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
-                    tabSize: muya.options.tabSize,
-                    trimUnnecessaryCodeBlockEmptyLines: muya.options.trimUnnecessaryCodeBlockEmptyLines,
-                },
+                options: documentEditingOptions(muya, true),
             }, draft));
             return;
         }
@@ -647,44 +627,57 @@ type DocumentCommand = IDocumentCommandInput extends infer Input
     ? Input extends IDocumentCommandInput ? Omit<Input, 'kind' | 'historyGroup' | 'options'> : never
     : never;
 
-interface IDocumentCommandRun {
+interface IDocumentCommandRecord {
     /** Commit pending native text before the command reads the document. */
     readonly flush: boolean;
-    /** The error thrown when no document is bound. */
-    readonly missing: string;
     /** Also pass the tab size and code-block trimming preferences. */
     readonly editingOptions?: boolean;
 }
 
+interface IDocumentCommandRun extends IDocumentCommandRecord {
+    /** The error thrown when no document is bound. */
+    readonly unboundError: string;
+}
+
+/** The editor preferences a model input reads; `editing` adds the tab size and code-block trimming. */
+export function documentEditingOptions(muya: Muya, editing = false): DocumentTextInput['options'] {
+    return {
+        autoPairBracket: muya.options.autoPairBracket,
+        autoPairQuote: muya.options.autoPairQuote,
+        autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
+        ...(editing
+            ? { tabSize: muya.options.tabSize, trimUnnecessaryCodeBlockEmptyLines: muya.options.trimUnnecessaryCodeBlockEmptyLines }
+            : {}),
+    };
+}
+
 /** Record one model command in its own history step; returns whether it committed a source edit. */
-function runDocumentCommand(muya: Muya, command: DocumentCommand, { flush, missing, editingOptions = false }: IDocumentCommandRun): boolean {
-    const model = muya.editor.documentEditing;
-    if (!model)
-        throw new Error(missing);
+export function recordDocumentCommand(muya: Muya, model: DocumentEditing, command: DocumentCommand, { flush, editingOptions = false }: IDocumentCommandRecord): boolean {
     if (flush)
         muya.flush();
     return muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
         historyGroup,
         ...command,
-        options: {
-            autoPairBracket: muya.options.autoPairBracket,
-            autoPairQuote: muya.options.autoPairQuote,
-            autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
-            ...(editingOptions
-                ? { tabSize: muya.options.tabSize, trimUnnecessaryCodeBlockEmptyLines: muya.options.trimUnnecessaryCodeBlockEmptyLines }
-                : {}),
-        },
+        options: documentEditingOptions(muya, editingOptions),
     }, () => {}));
+}
+
+function runDocumentCommand(muya: Muya, command: DocumentCommand, { unboundError, ...record }: IDocumentCommandRun): boolean {
+    const model = muya.editor.documentEditing;
+    if (!model)
+        throw new Error(unboundError);
+    return recordDocumentCommand(muya, model, command, record);
 }
 
 /** Keyboard and row-popup table commands share one model operation. */
 export function dispatchDocumentTableCommand(muya: Muya, operation: Pick<IDocumentCommandInput, 'selection'> & (
     { command: 'createTable'; rows: number; columns: number; replace: boolean } | { command: 'moveTableRow'; target: DocumentDOMPoint; row: number } | { command: 'moveTableColumn'; target: DocumentDOMPoint; column: number } | { command: 'insertTableRow' | 'insertTableColumn'; placement: 'before' | 'after' } | { command: 'removeTableRow' | 'removeTableColumn' | 'tableBoundaryBackspace' | 'exitTable' } | { command: 'alignTableColumn'; target: DocumentDOMPoint; alignment: 'left' | 'center' | 'right' }
 )): boolean {
-    if (!muya.editor.documentEditing)
+    const model = muya.editor.documentEditing;
+    if (!model)
         return false;
-    runDocumentCommand(muya, operation, { flush: true, missing: 'Table command requires a bound document', editingOptions: true });
+    recordDocumentCommand(muya, model, operation, { flush: true, editingOptions: true });
     return true;
 }
 
@@ -696,33 +689,33 @@ export function dispatchDocumentTask(muya: Muya, checked: boolean, selection: ID
         selection,
         autoCheck: muya.options.autoCheck,
         autoMoveCheckedToEnd: muya.options.autoMoveCheckedToEnd,
-    }, { flush: true, missing: 'Task checkbox requires a bound document' });
+    }, { flush: true, unboundError: 'Task checkbox requires a bound document' });
 }
 
 /** Code insertion retains native menus while the model owns its block and caret. */
 export function dispatchDocumentCodeBlock(muya: Muya, replace: boolean, selection: IDocumentCommandInput['selection']): void {
-    runDocumentCommand(muya, { command: 'createCodeBlock', replace, selection }, { flush: false, missing: 'Code block insertion requires a bound document' });
+    runDocumentCommand(muya, { command: 'createCodeBlock', replace, selection }, { flush: false, unboundError: 'Code block insertion requires a bound document' });
 }
 
 /** Dispatch paragraph menu actions before the native tree is mutated. */
 export function dispatchDocumentBlockMove(muya: Muya, from: DocumentDOMPoint, to: DocumentDOMPoint, placement: 'before' | 'after'): void {
     const selection = muya.editor.selection.getDOMSelection() ?? { anchor: from, focus: from };
-    runDocumentCommand(muya, { command: 'moveBlock', from, to, placement, selection }, { flush: true, missing: 'Block drag requires a bound document' });
+    runDocumentCommand(muya, { command: 'moveBlock', from, to, placement, selection }, { flush: true, unboundError: 'Block drag requires a bound document' });
 }
 
 /** Dispatch paragraph menu actions before the native tree is mutated. */
 export function dispatchDocumentBlock(muya: Muya, change: Extract<IDocumentCommandInput, { command: 'changeBlock' }>['change'], selection: IDocumentCommandInput['selection']): void {
-    runDocumentCommand(muya, { command: 'changeBlock', change, selection }, { flush: false, missing: 'Block command requires a bound document' });
+    runDocumentCommand(muya, { command: 'changeBlock', change, selection }, { flush: false, unboundError: 'Block command requires a bound document' });
 }
 
 /** Wrap the selected document blocks without serializing their native view. */
 export function dispatchDocumentCodeWrap(muya: Muya, selection: IDocumentCommandInput['selection']): void {
-    runDocumentCommand(muya, { command: 'wrapCodeBlocks', selection }, { flush: false, missing: 'Code block wrapping requires a bound document' });
+    runDocumentCommand(muya, { command: 'wrapCodeBlocks', selection }, { flush: false, unboundError: 'Code block wrapping requires a bound document' });
 }
 
 /** Reset a code leaf through its source owner before the next user action. */
 export function dispatchDocumentCodeReset(muya: Muya, selectionMode: 'preserve' | 'end', selection: IDocumentCommandInput['selection']): void {
-    runDocumentCommand(muya, { command: 'resetCodeBlock', selectionMode, selection }, { flush: false, missing: 'Code block reset requires a bound document' });
+    runDocumentCommand(muya, { command: 'resetCodeBlock', selectionMode, selection }, { flush: false, unboundError: 'Code block reset requires a bound document' });
 }
 
 /** Front matter creation shares the live document owner with its next input. */
@@ -732,22 +725,22 @@ export function dispatchDocumentFrontMatter(muya: Muya, replace: boolean, select
         replace,
         style: muya.options.frontmatterType,
         selection,
-    }, { flush: true, missing: 'Front matter insertion requires a bound document' });
+    }, { flush: true, unboundError: 'Front matter insertion requires a bound document' });
 }
 
 /** Horizontal rules and their following insertion point belong to the model. */
 export function dispatchDocumentThematicBreak(muya: Muya, change: 'insert' | 'replace' | 'toggle' | 'reset' | 'enter', selection: IDocumentCommandInput['selection']): void {
-    runDocumentCommand(muya, { command: 'changeThematicBreak', change: { type: change }, selection }, { flush: false, missing: 'Horizontal rule insertion requires a bound document' });
+    runDocumentCommand(muya, { command: 'changeThematicBreak', change: { type: change }, selection }, { flush: false, unboundError: 'Horizontal rule insertion requires a bound document' });
 }
 
 /** Math insertion retains native menus while the model owns its block and caret. */
 export function dispatchDocumentMathBlock(muya: Muya, replace: boolean, selection: IDocumentCommandInput['selection']): void {
-    runDocumentCommand(muya, { command: 'createMathBlock', replace, selection }, { flush: false, missing: 'Math block insertion requires a bound document' });
+    runDocumentCommand(muya, { command: 'createMathBlock', replace, selection }, { flush: false, unboundError: 'Math block insertion requires a bound document' });
 }
 
 /** HTML insertion writes the element template and its caret in one model action. */
 export function dispatchDocumentHtmlBlock(muya: Muya, replace: boolean, selectionMode: 'content' | 'end', selection: IDocumentCommandInput['selection']): void {
-    runDocumentCommand(muya, { command: 'createHtmlBlock', replace, selectionMode, selection }, { flush: false, missing: 'HTML block insertion requires a bound document' });
+    runDocumentCommand(muya, { command: 'createHtmlBlock', replace, selectionMode, selection }, { flush: false, unboundError: 'HTML block insertion requires a bound document' });
 }
 
 /** Paragraph joining submits the caret before native tree mutation. */
@@ -755,12 +748,12 @@ export function dispatchDocumentParagraphJoin(muya: Muya, direction: 'backward' 
     runDocumentCommand(muya, {
         command: direction === 'backward' ? 'joinParagraphBackward' : 'joinParagraphForward',
         selection,
-    }, { flush: true, missing: 'Paragraph join requires a bound document' });
+    }, { flush: true, unboundError: 'Paragraph join requires a bound document' });
 }
 
 /** Tab submits the actual selection before native syntax or tree mutation. */
 export function dispatchDocumentTab(muya: Muya, shift: boolean, selection: IDocumentCommandInput['selection']): void {
-    runDocumentCommand(muya, { command: 'tab', shift, selection }, { flush: true, missing: 'Tab requires a bound document', editingOptions: true });
+    runDocumentCommand(muya, { command: 'tab', shift, selection }, { flush: true, unboundError: 'Tab requires a bound document', editingOptions: true });
 }
 
 /** Existing-list commands reach the live model before native tree mutation. */
@@ -774,17 +767,17 @@ export function dispatchDocumentList(muya: Muya, change: ListChange, selection: 
             orderListDelimiter: muya.options.orderListDelimiter,
             preferLooseListItem: muya.options.preferLooseListItem,
         },
-    }, { flush: false, missing: 'List model command requires a bound document' });
+    }, { flush: false, unboundError: 'List model command requires a bound document' });
 }
 
 /** Menu-bar and paragraph-menu headings use the same explicit model command. */
 export function dispatchDocumentHeading(muya: Muya, change: HeadingChange, selection: IDocumentCommandInput['selection']): void {
-    runDocumentCommand(muya, { command: 'changeHeading', change, selection }, { flush: false, missing: 'Heading model command requires a bound document' });
+    runDocumentCommand(muya, { command: 'changeHeading', change, selection }, { flush: false, unboundError: 'Heading model command requires a bound document' });
 }
 
 /** Paragraph and quick-insert menus retain their distinct quote operations. */
 export function dispatchDocumentBlockquote(muya: Muya, type: 'set' | 'quick-insert' | 'toggle' | 'reset', selection: IDocumentCommandInput['selection']): void {
-    runDocumentCommand(muya, { command: 'changeBlockquote', change: { type }, selection }, { flush: false, missing: 'Blockquote model command requires a bound document' });
+    runDocumentCommand(muya, { command: 'changeBlockquote', change: { type }, selection }, { flush: false, unboundError: 'Blockquote model command requires a bound document' });
 }
 
 /** All bound format entry points dispatch before native syntax recognition. */

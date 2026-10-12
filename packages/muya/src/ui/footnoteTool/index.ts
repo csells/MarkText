@@ -7,6 +7,7 @@ import type { Muya } from '../../muya';
 import type { IFootnoteBlockState } from '../../state/types';
 import type { IBaseOptions } from '../types';
 import { ScrollPage } from '../../block/scrollPage';
+import { recordDocumentCommand } from '../../editor/documentEditing';
 import { h, patch } from '../../utils/snabbdom';
 import BaseFloat from '../baseFloat';
 
@@ -132,18 +133,7 @@ export class FootnoteTool extends BaseFloat {
             const selection = this.muya.editor.selection.getDOMSelection();
             if (!selection)
                 throw new Error('Footnote creation requires a document selection');
-            this.muya.editor.history.recordModelCommand(historyGroup => model.input({
-                kind: 'command',
-                command: 'createFootnote',
-                identifier: this._identifier,
-                selection,
-                options: {
-                    autoPairBracket: this.muya.options.autoPairBracket,
-                    autoPairQuote: this.muya.options.autoPairQuote,
-                    autoPairMarkdownSyntax: this.muya.options.autoPairMarkdownSyntax,
-                },
-                historyGroup,
-            }, () => {}));
+            recordDocumentCommand(this.muya, model, { command: 'createFootnote', identifier: this._identifier, selection }, { flush: false });
             return;
         }
         const { scrollPage } = this.muya.editor;
