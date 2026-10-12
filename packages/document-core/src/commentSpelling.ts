@@ -1,6 +1,6 @@
 import { createDocumentCore, type DocumentRevision, type DocumentSourceEdit, type MarkdownOptions, type SourceRange } from './documentCore.js'
 import { markupAnnotations } from './markupEditOwnership.js'
-import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape } from './criticMarkers.js'
+import { CRITIC_FORM_SPELLING, CRITIC_MARKERS, completeTrailingEscape, markerAlternation } from './criticMarkers.js'
 
 /** A Comment payload's source spelling. */
 export interface DocumentCommentPayloadSpelling {
@@ -26,7 +26,8 @@ export interface DocumentCommentPlan {
 }
 
 /** Every marker, with a bare `<<` standing in for the Comment closer. */
-export const CRITIC_TOKENS = new RegExp(CRITIC_MARKER_ALTERNATION.replace(String.raw`<<\}`, '<<'), 'g')
+export const CRITIC_TOKENS = new RegExp(markerAlternation(CRITIC_MARKERS.map(marker =>
+  marker === CRITIC_FORM_SPELLING.comment.close ? '<<' : marker)), 'g')
 
 /**
  * Payload spellings in the order a Comment prefers them: the author's exact
