@@ -1,8 +1,8 @@
 # CriticMarkup and host-Markdown interaction: upstream evidence
 
 > **Status:** Non-normative evidence. Profile 1 owns ratified language meaning;
-> [native integration architecture](criticmarkup-native-integration.md), active ADRs and
-> plan 0012 own integration decisions and delivery.
+> [native integration architecture](criticmarkup-native-integration.md) and the active ADRs
+> own integration decisions.
 
 ## Question
 
