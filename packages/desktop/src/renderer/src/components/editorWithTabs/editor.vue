@@ -3624,8 +3624,16 @@ onMounted(() => {
   if (props.corePlainTextView !== undefined) {
     installCoreMarkupPresentation(muya, props.corePlainTextView)
   }
-  // A sidebar open can ask to keep focus in the file tree.
-  const takeOpenFocus = editorStore.TAKE_OPEN_INTENT(currentFile.value?.pathname) !== false
+  // The tree, or a name being edited in it, that had focus when this view mounted.
+  const treeFocusedAtMount =
+    document.activeElement instanceof HTMLElement && document.activeElement.closest('.tree-wrapper') !== null
+      ? document.activeElement
+      : null
+  // A sidebar open can ask to keep focus in the file tree. The view mounted
+  // before a document's lease arrives is replaced by the leased one, which
+  // owns that open intent.
+  const openIntent = props.coreLease === undefined ? false : editorStore.TAKE_OPEN_INTENT(currentFile.value?.pathname)
+  const takeOpenFocus = openIntent !== false
   muya.init({ focus: takeOpenFocus })
   // A fresh Core mount has no editing authority until its lease and mappings
   // are installed below. Outgoing mounted views keep their captured lease.
@@ -4590,6 +4598,12 @@ onMounted(() => {
         })
     muya.domNode.focus({ preventScroll: true })
     if (start !== null) muya.editor.selection.setDOMSelection(start, start)
+  }
+  // Placing the restored caret moves the browser's focus into the document. A
+  // file opened or switched to from the sidebar keeps focus in its tree, as
+  // upstream's tree focus scope does, unless the open asked for the editor.
+  if (treeFocusedAtMount?.isConnected && openIntent !== true && document.activeElement !== treeFocusedAtMount) {
+    treeFocusedAtMount.focus({ preventScroll: true })
   }
 
   // Core replaces the mounted view on handoff. Restore the tab's scroll position
