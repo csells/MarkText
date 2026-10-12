@@ -3,6 +3,7 @@ import type { DocumentModelTextSelection } from './sourceInputPlanning.js'
 import { resolveModelTextSelection } from './modelText.js'
 import { positionAfter } from './sourcePosition.js'
 import { isLiteralBlock } from './literalBlock.js'
+import { isPositionalMarkdownAttribute } from './markdownPositions.js'
 
 /** Copy owned Revised syntax; values at intrinsic endpoints never require a parse. */
 export function projectModelTextSelection(core: DocumentCore, revision: DocumentRevision, selection: DocumentModelTextSelection) {
@@ -31,7 +32,7 @@ export function projectModelTextSelection(core: DocumentCore, revision: Document
     const complete = node.range.start >= from && node.range.end <= to
     const attributes: Record<string, MarkdownAttribute> = {}
     for (const [key, value] of Object.entries(node.attributes)) {
-      if (typeof value !== 'number' || !/(?:Start|End)$/.test(key)) attributes[key] = value
+      if (typeof value !== 'number' || !isPositionalMarkdownAttribute(key)) attributes[key] = value
       else if (from <= value && value <= to) attributes[key] = position(value, key.endsWith('End'))
     }
     if (node.kind === 'text') {

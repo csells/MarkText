@@ -13,6 +13,7 @@ import { normalizeEdits, normalizeInputPlan, selectionAfterNormalization, type E
 import { paragraphBackwardStructuralTarget } from './paragraphJoinPlanning.js'
 import { FENCED_LITERAL_BLOCKS, isLiteralBlock } from './literalBlock.js'
 import { lineStartBefore } from './sourceLines.js'
+import { isPositionalMarkdownAttribute, shiftMarkdownAstNode } from './markdownPositions.js'
 import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
@@ -1234,40 +1235,6 @@ function countCriticMarkupAnnotationNodes(
   return count
 }
 
-function shiftMarkdownAstNode(
-  node: MarkdownAstNode,
-  delta: number
-): MarkdownAstNode {
-  const attributes: Record<string, MarkdownAttribute> = { ...node.attributes }
-  for (const [name, value] of Object.entries(attributes)) {
-    if (
-      typeof value === 'number' &&
-      (name.endsWith('Start') || name.endsWith('End'))
-    ) {
-      attributes[name] = value + delta
-    }
-  }
-  return Object.freeze({
-    kind: node.kind,
-    range: Object.freeze({
-      start: node.range.start + delta,
-      end: node.range.end + delta
-    }),
-    attributes: Object.freeze(attributes),
-    ...(node.semanticTextSegments === undefined
-      ? {}
-      : {
-        semanticTextSegments: Object.freeze(node.semanticTextSegments.map(segment => Object.freeze({
-          range: Object.freeze({ start: segment.range.start + delta, end: segment.range.end + delta }),
-          value: segment.value
-        })))
-      }),
-    children: Object.freeze(node.children.map(
-      child => shiftMarkdownAstNode(child, delta)
-    ))
-  })
-}
-
 /** Window annotations inside `[start, end)` of the window, in document source offsets. */
 function regionalAnnotations(
   annotations: readonly CriticMarkupAnnotation[],
@@ -2261,7 +2228,7 @@ function blockStructure(root: MarkdownAstNode): string {
   const parts: string[] = []
   const visit = (node: MarkdownAstNode): void => {
     const attributes = Object.entries(node.attributes)
-      .filter(([name, value]) => !(typeof value === 'number' && /(?:Start|End)$/u.test(name)) &&
+      .filter(([name, value]) => !(typeof value === 'number' && isPositionalMarkdownAttribute(name)) &&
         !(typeof value === 'string' && (node.kind === 'text' || /(?:[Tt]ext|[Cc]ontent)$/u.test(name))))
       .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
     parts.push(`(${node.kind}${JSON.stringify(attributes)}`)
@@ -3465,7 +3432,7 @@ function createDocumentCoreWithExecutionBudget(
             kind: ast.kind,
             range: Object.freeze({ start: next.syntax.start, end: next.syntax.end }),
             attributes: Object.freeze(Object.fromEntries(Object.entries(ast.attributes).filter(([name, value]) =>
-              name !== 'content' && !(typeof value === 'number' && /(?:Start|End)$/u.test(name))))),
+              name !== 'content' && !(typeof value === 'number' && isPositionalMarkdownAttribute(name))))),
             children: Object.freeze([])
           }),
           linesBefore: lines.linesBefore,
@@ -3897,7 +3864,7 @@ function createDocumentCoreWithExecutionBudget(
                   kind: literalBlock.kind,
                   range: Object.freeze({ start: blocks.syntax.start + window.syntax, end: blocks.syntax.end + window.syntax }),
                   attributes: Object.freeze(Object.fromEntries(Object.entries(literalBlock.attributes).filter(([name, value]) =>
-                    name !== 'content' && !(typeof value === 'number' && /(?:Start|End)$/u.test(name))))),
+                    name !== 'content' && !(typeof value === 'number' && isPositionalMarkdownAttribute(name))))),
                   children: Object.freeze([])
                 }),
                 linesBefore: literalLines.linesBefore,

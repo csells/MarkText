@@ -6,6 +6,7 @@ import type {
 import { markupAnnotations } from './markupEditOwnership.js'
 import { positionAfter } from './sourcePosition.js'
 import { FENCED_LITERAL_BLOCKS, SPLITTABLE_LITERAL_BLOCKS } from './literalBlock.js'
+import { isPositionalMarkdownAttribute } from './markdownPositions.js'
 import { CRITIC_MARKER_ALTERNATION, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
 
 type Preview = (edits: readonly DocumentSourceEdit[]) => DocumentRevision
@@ -57,7 +58,7 @@ export function trackedStructure(root: MarkdownAstNode, coordinates: SourceCoord
     end: coordinates.toSource(node.range.end, 'previous')
   })
   const shape = (node: MarkdownAstNode): string => JSON.stringify(Object.entries(node.attributes)
-    .filter(([name, value]) => !(typeof value === 'number' && /(?:Start|End)$/u.test(name)) &&
+    .filter(([name, value]) => !(typeof value === 'number' && isPositionalMarkdownAttribute(name)) &&
       name !== 'content' && name !== 'semanticText' && name !== 'semanticStart' && name !== 'semanticEnd')
     .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0))
   const blocks: TrackedPart[] = []
@@ -214,7 +215,7 @@ export function projectionSignature(root: MarkdownAstNode): string {
   const parts: string[] = []
   const visit = (node: MarkdownAstNode): void => {
     const attributes = Object.entries(node.attributes)
-      .filter(([name, value]) => !(typeof value === 'number' && /(?:Start|End)$/u.test(name)))
+      .filter(([name, value]) => !(typeof value === 'number' && isPositionalMarkdownAttribute(name)))
       .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
     parts.push(`(${node.kind}${JSON.stringify(attributes)}`)
     for (const child of node.children) visit(child)
