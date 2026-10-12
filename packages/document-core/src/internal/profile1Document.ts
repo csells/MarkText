@@ -248,7 +248,7 @@ type MarkupTask = MarkupRangeTask | MarkupAppendTask | MarkupEventTask
 
 /**
  * The intrinsic-pass facts a later reopen can splice instead of re-scanning
- * text its edits never touched (G32). Members alias the frozen arrays the
+ * text its edits never touched. Members alias the frozen arrays the
  * parse already produced — retention adds references, not copies. The bundle
  * is only usable while its guards hold; `parseIntrinsicProfile1` falls back
  * to the full pass otherwise.
@@ -305,7 +305,7 @@ export interface RetainedPassSourceEdit {
 /**
  * A prior parse's retained facts plus the exact edits that produced the new
  * source from its text — the inputs an incremental intrinsic pass splices
- * from (G32). Accepted and currently unused: the splice lands behind this
+ * from. Accepted and currently unused: the splice lands behind this
  * seam without another signature change.
  */
 export interface PreviousIntrinsicPass {
@@ -559,7 +559,7 @@ function createSubstitutionNode(
 
 /**
  * Re-emit a retained CriticMarkup forest into a fresh identity registry with
- * every coordinate shifted — the marker-bearing arm of the G32 splice. The
+ * every coordinate shifted — the marker-bearing arm of the splice. The
  * replay mirrors the pass's emission sequence exactly (children before their
  * parent, node before arms, markers and ownership last) with the same
  * offset-embedded semantic keys, so the registry it fills is
@@ -1860,7 +1860,7 @@ interface NodeAtDepth {
 }
 
 /**
- * Nodes exactly one level past the accepted-depth limit (G18). Their
+ * Nodes exactly one level past the accepted-depth limit. Their
  * subtrees are not descended: a re-parse suppresses each node's whole
  * extent, so everything inside degrades to literal text with it.
  */
@@ -4414,7 +4414,7 @@ function createDiagnosticIndex(items: readonly SyntaxDiagnostic[]): DiagnosticIn
 const CRITIC_MARKER_TOKEN = /\{(?:\+\+|--|~~|==|>>)|(?:\+\+|--|~~|==|<<)\}/
 
 /**
- * The G32 incremental route: when the previous parse's retained facts and
+ * The incremental route: when the previous parse's retained facts and
  * the edit bracket satisfy every splice guard, re-scan only the bracket
  * window and splice, so the recorder is charged the window instead of the
  * document. Returns undefined whenever anything disqualifies — the caller

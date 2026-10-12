@@ -47,8 +47,8 @@ const meaning = (source: string): string => {
 }
 
 // Bytes and caret (`|`) recorded from upstream Muya (8d6c198c) for the same
-// input with default preferences; `\b` is Backspace. ADR 0007 (plan 0012
-// G24): where upstream re-spells lines the input leaves in place, `expected`
+// input with default preferences; `\b` is Backspace. ADR 0007:
+// where upstream re-spells lines the input leaves in place, `expected`
 // keeps their bytes and means what upstream's `upstream` bytes mean.
 const upstream = [
   // A later line reads as a list item on any input anywhere in the paragraph.

@@ -5,7 +5,7 @@ import { parseProfile1Document, parseProfile1Window } from '../src/internal/prof
 import { createPhysicalTraversalRecorderV1 } from '../src/internal/profile1/physicalTraversalAccounting.js'
 import type { ExecutionBudgetId } from '../src/revision.js'
 
-// Plan 0012 G35: work a key repeats is done once. Planning a key previews the
+// Work a key repeats is done once. Planning a key previews the
 // window that applying it parses again, and readers of every annotation
 // (the Review overview's Comment projections) share one fact table.
 

@@ -132,7 +132,7 @@ describe('tracked text authoring', () => {
     const edit = core.trackedEdit(revision, { start: 6, end: 6, insert: 'x' })
     const after = inspectDocumentCore(core)
     expect(edit).toEqual({ start: 6, end: 6, insert: '{++x++}' })
-    // The new Addition is proved by reparsing its paragraph (plan 0012 G35).
+    // The new Addition is proved by reparsing its paragraph.
     expect(after.documentParses - before.documentParses).toBe(0)
     const candidateCore = createDocumentCore()
     candidateCore.open(source.slice(0, 6) + '{++x++}' + source.slice(6))

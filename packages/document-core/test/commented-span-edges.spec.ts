@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { createDocumentCore, type DocumentInputAction } from '../src/index.js'
 
-// Plan 0012 G39 (ADR 0003): nothing typed, pasted or dropped in Markup enters
+// ADR 0003: nothing typed, pasted or dropped in Markup enters
 // the gap between a Highlight and its Comment. Text at a commented span's edges
 // stays outside it, as Google Docs keeps text typed at a comment's edge out of
 // the comment; text typed inside the commented text joins it.

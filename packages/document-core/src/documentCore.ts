@@ -7497,7 +7497,7 @@ function createDocumentCoreWithExecutionBudget(
       : blocksAround.kept(() => windowCore.apply(opened, compiled).revision,
         { start: first.start - sourceStart, end: last.end - sourceStart }, delta, windowEdges)
     // A result splitting the deleted or replaced text that holds the edit
-    // (G34) is that suggestion's, read and weighed within it whatever window
+    // is that suggestion's, read and weighed within it whatever window
     // holds it. Where the window has no block of context beyond a blank line,
     // it is read again with the blocks the document has there: where they
     // keep their structure under the edit and under the result, the result
@@ -8096,7 +8096,7 @@ function createDocumentCoreWithExecutionBudget(
         : undefined
     }
     if (historySplit(previous.annotations, source, untracked, 'before') !== undefined) {
-      // Owner ruling G34: text typed into deleted or replaced text splits that
+      // Owner ruling: text typed into deleted or replaced text splits that
       // suggestion at the caret, so the typing survives Accept All while
       // Reject All restores the original. A spelling that drops it is no
       // spelling of the key, so none is weighed below.
@@ -8188,8 +8188,8 @@ function createDocumentCoreWithExecutionBudget(
   ): readonly DocumentSourceEdit[] | undefined => {
     const planned = planNativeEditsCompiled(previous, input, tracked, typed)
     if (!tracked || windowCores.has(core)) return planned
-    // Typing into deleted or replaced text must survive Accept All as typed
-    // (G34): a plan that writes it inside deleted or replaced text, or adds
+    // Typing into deleted or replaced text must survive Accept All as typed:
+    // a plan that writes it inside deleted or replaced text, or adds
     // to it, is no spelling of the key.
     const typing = input.map(edit => edit.insert).join('')
     if (planned !== undefined && planned.length > 0 && typing.length > 0 &&
@@ -8466,7 +8466,7 @@ function createDocumentCoreWithExecutionBudget(
     },
     planClipboard(previous: DocumentRevision, action: DocumentClipboardAction) {
       // Cut and paste change only their own bytes, in a table too (ADR 0007;
-      // owner decision 25 Sep, plan 0012 G24).
+      // owner decision 25 Sep).
       const plan = planUnspelledClipboard(previous, commentedSpanSafeClipboard(previous, action, at => rootsAround(previous, at)))
       // A tracked plan was normalized before its suggestions were spelled.
       if (action.kind === 'table' || action.tracked) return plan

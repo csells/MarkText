@@ -107,7 +107,7 @@ const caretAt = (position: number): DocumentTextSelection =>
 
 /**
  * Moves a Markup insertion, drop or paste off a commented span's gap and
- * edges (plan 0012 G39). Source edits are not planned here: they keep the
+ * edges (ADR 0003). Source edits are not planned here: they keep the
  * bytes their author typed (ADR 0015).
  */
 /**
@@ -155,7 +155,7 @@ export function commentedSpanSafeClipboard(
 
 /**
  * Adjusts resolution edits so the Highlight/Comment relation stays meaningful
- * (Profile 2, "Editing around commented spans"; plan 0012 G39). `edits` each replace one whole annotation.
+ * (Profile 2, "Editing around commented spans"; ADR 0003). `edits` each replace one whole annotation.
  * A commented passage whose text resolution removes loses its empty Highlight
  * and keeps a standalone Comment where it was (ADR 0003). A standalone Comment
  * that resolution would leave directly after a Highlight it was not paired

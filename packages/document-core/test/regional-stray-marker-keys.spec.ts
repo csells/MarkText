@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
 
-// Plan 0012 G35: stray and unfinished CriticMarkup markers are text with a
+// Stray and unfinished CriticMarkup markers are text with a
 // diagnostic, and a document holding them is edited from the paragraphs
 // around the caret like any other. Every regional result must be the one the
 // document parse gives: a seeded differential compares each key with a core

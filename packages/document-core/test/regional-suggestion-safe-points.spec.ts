@@ -80,7 +80,7 @@ describe('a root suggestion opening a block after a blank line', () => {
     expect(leafStarts(core, listed)).not.toContain(inList.indexOf(suggestion))
   })
 
-  // Plan 0012, 5 October: Enter in one's own Substitution's new arm, inside
+  // Enter in one's own Substitution's new arm, inside
   // its fence, after a paragraph ending in another fenced Substitution, put
   // the whole of both in a new Substitution. It extends the draft, as the
   // untracked edit does, whichever compile reads it.

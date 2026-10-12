@@ -311,7 +311,7 @@ describe('structural commands compile through the tracked path', () => {
   })
 })
 
-describe('edits over existing suggestions follow Google Docs (plan 0012 G34)', () => {
+describe('edits over existing suggestions follow Google Docs', () => {
   // Deleted text and annotation syntax are not editable: an edit over them
   // changes only the rest, so Accept All is the untracked edit of the
   // visible text (`accepted`) and Reject All the previous Original.

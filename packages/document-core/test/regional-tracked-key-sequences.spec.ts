@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
 import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
 
-// Plan 0012 G35: keys pressed one after another beside and inside
+// Keys pressed one after another beside and inside
 // suggestions, such as Backspace then Delete over the text just struck,
 // typing after Backspace, or a break at a suggestion's edge, are planned and
 // applied from the paragraphs around the caret, tracked or not. Every key
