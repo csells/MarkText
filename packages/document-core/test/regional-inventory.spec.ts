@@ -68,7 +68,6 @@ describe('regional inventory', () => {
       executionBudget,
       markdownOptions,
       false,
-      undefined,
       createProfile1DocumentReuseCache(),
       physical
     )
