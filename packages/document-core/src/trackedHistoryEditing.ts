@@ -2,6 +2,7 @@ import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSo
 import { markupAnnotations } from './markupEditOwnership.js'
 import { trackedPreviewFacts } from './trackedExtent.js'
 import { annotationsOverlapping } from './internal/annotationsAround.js'
+import { spellSuggestion } from './criticMarkers.js'
 
 type Preview = (edits: readonly DocumentSourceEdit[]) => DocumentRevision
 
@@ -150,7 +151,7 @@ export function substitutionBeforeDeletion(
   const old = core.sourceSlice(previous, content.range)
   // A deleted block keeps text typed before it as its own Addition.
   if (/[\r\n]/u.test(old)) return undefined
-  const insert = `{~~${old}~>${payload}~~}`
+  const insert = spellSuggestion('substitution', old, payload)
   const edit = Object.freeze({ start: deletion.range.start, end: deletion.range.end, insert })
   const candidate = preview([edit])
   const facts = trackedPreviewFacts.get(candidate)

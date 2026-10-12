@@ -1479,9 +1479,9 @@ export function splitTrackedHistoryEdit(
     ? source(owner.arms.find(arm => arm.name === 'new')?.range ?? { start: owner.range.end, end: owner.range.end })
     : ''
   for (const edit of [
-    { start: owner.range.start, end: owner.range.end, insert: `{~~${kept}~>${text}${proposal}~~}` },
-    { start: owner.range.start, end: owner.range.start, insert: `{++${text}++}` },
-    { start: owner.range.end, end: owner.range.end, insert: `{++${text}++}` }
+    { start: owner.range.start, end: owner.range.end, insert: spellSuggestion('substitution', kept, text + proposal) },
+    { start: owner.range.start, end: owner.range.start, insert: spellSuggestion('addition', text) },
+    { start: owner.range.end, end: owner.range.end, insert: spellSuggestion('addition', text) }
   ]) {
     const from = Math.min(edit.start, offset)
     const to = Math.max(edit.end, offset)

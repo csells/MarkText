@@ -1,6 +1,6 @@
 import { createDocumentCore, type DocumentRevision, type DocumentSourceEdit, type MarkdownOptions, type SourceRange } from './documentCore.js'
 import { markupAnnotations } from './markupEditOwnership.js'
-import { CRITIC_FORM_SPELLING, CRITIC_MARKERS, completeTrailingEscape, markerAlternation } from './criticMarkers.js'
+import { CRITIC_FORM_SPELLING, CRITIC_MARKERS, completeTrailingEscape, markerAlternation, spellSuggestion } from './criticMarkers.js'
 
 /** A Comment payload's source spelling. */
 export interface DocumentCommentPayloadSpelling {
@@ -73,7 +73,7 @@ export function spellCommentPayload(
   if (typeof text !== 'string') return undefined
   const core = createDocumentCore()
   for (const candidate of commentPayloadCandidates(text, payload => core.open(payload, options).diagnostics)) {
-    const source = `{>>${candidate.payload}<<}`
+    const source = spellSuggestion('comment', candidate.payload)
     const revision = core.open(source, options)
     if (holdsComment(revision, { start: 0, end: source.length }, candidate.payload, range => source.slice(range.start, range.end), literal)) return candidate
   }
@@ -97,7 +97,7 @@ export function planCommentEdit(
     annotation.kind === 'comment' && annotation.range.start === start && annotation.range.end === end)
   if (comment === undefined) return undefined
   for (const candidate of commentPayloadCandidates(action.text, diagnosticsOf)) {
-    const insert = `{>>${candidate.payload}<<}`
+    const insert = spellSuggestion('comment', candidate.payload)
     const edit = Object.freeze({ start, end, insert })
     const result = preview([edit])
     if (holdsComment(result, { start, end: start + insert.length }, candidate.payload, range => result.source.slice(range.start, range.end))) {
