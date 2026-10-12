@@ -21,7 +21,7 @@ import { annotationsAround, annotationsOverlapping } from './internal/annotation
 import { planEmptiedSetextReset } from './setextTrailingLine.js'
 import { mergeAdjacentEdits, planEmptiedParagraph } from './emptiedParagraphPlanning.js'
 import { blockCommandTarget, planBlockCommand } from './blockCommandPlanning.js'
-import { isLiteralBlock, literalParagraphSpelling } from './literalBlock.js'
+import { CARET_TARGET_BLOCKS, isLiteralBlock, literalParagraphSpelling } from './literalBlock.js'
 
 /** Shared sparse removal for native table commands and rectangular selections. */
 export function planTableRemoval(
@@ -51,7 +51,7 @@ export function planTableRemoval(
     const outside: MarkdownAstNode[] = []
     const visit = (node: MarkdownAstNode): void => {
       if (node === table) return
-      if (['paragraph', 'heading', 'table-cell', 'code-block', 'math-block', 'diagram', 'front-matter'].includes(node.kind)) outside.push(node)
+      if (CARET_TARGET_BLOCKS.has(node.kind)) outside.push(node)
       else for (const child of node.children) visit(child)
     }
     visit(syntax.ast.root)
@@ -297,7 +297,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     let following: MarkdownAstNode | undefined
     const findFollowing = (node: MarkdownAstNode): void => {
       if (following !== undefined || node === boundary) return
-      if (node.range.start >= boundary.range.end && ['paragraph', 'heading', 'table-cell', 'code-block', 'math-block', 'diagram', 'front-matter'].includes(node.kind)) {
+      if (node.range.start >= boundary.range.end && CARET_TARGET_BLOCKS.has(node.kind)) {
         following = node
         return
       }
@@ -545,7 +545,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         return result([{ start: from, end: to, insert: '' }, ...trailing], { start: from, end: from })
       }
       case 'tab': {
-        const literal = ancestors.find(node => ['code-block', 'diagram', 'math-block', 'html-block', 'front-matter'].includes(node.kind))
+        const literal = ancestors.find(node => isLiteralBlock(node.kind))
         if (literal !== undefined && typeof literal.attributes.contentStart === 'number') {
           const { from, to } = literalContentSource(projection, sourceAt, literal)
           const body = core.sourceSlice(revision, { start: from, end: to })
@@ -584,7 +584,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         const visit = (node: MarkdownAstNode): void => {
           if (node.range.end > table.range.start) {
             for (const child of node.children) visit(child)
-          } else if (['paragraph', 'heading', 'table-cell', 'code-block', 'math-block', 'diagram', 'front-matter'].includes(node.kind)) previous = node
+          } else if (CARET_TARGET_BLOCKS.has(node.kind)) previous = node
           else for (const child of node.children) visit(child)
         }
         visit(projection.ast.root)

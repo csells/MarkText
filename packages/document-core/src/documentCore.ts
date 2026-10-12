@@ -11,7 +11,7 @@ import { planInput, positionBefore, reconcileInput, inputSourceRange, type Docum
 import { editingReconciliation } from './editingReconciliation.js'
 import { normalizeEdits, normalizeInputPlan, selectionAfterNormalization, type EditNormalizationOptions, type EditNormalizationReaders } from './editNormalization.js'
 import { paragraphBackwardStructuralTarget } from './paragraphJoinPlanning.js'
-import { isLiteralBlock } from './literalBlock.js'
+import { FENCED_LITERAL_BLOCKS, isLiteralBlock } from './literalBlock.js'
 import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
@@ -2398,8 +2398,6 @@ function contextBlocksOf(core: DocumentCore, previous: DocumentRevision, limit: 
   return Object.freeze(read)
 }
 
-const LITERAL_BLOCK_KINDS = new Set(['code-block', 'math-block', 'diagram'])
-
 /**
  * The top-level fence or math block of a parse holding `start` to `end`
  * between its opening and closing lines, with no suggestion overlapping it.
@@ -2434,7 +2432,7 @@ function plainLiteralBlockIn(
 ): SourceRange | undefined {
   const block = ast.root.children.find(node =>
     coordinates.toSource(node.range.start, 'next') < start && end < coordinates.toSource(node.range.end, 'previous'))
-  if (block === undefined || !LITERAL_BLOCK_KINDS.has(block.kind)) return undefined
+  if (block === undefined || !FENCED_LITERAL_BLOCKS.has(block.kind)) return undefined
   const range = { start: coordinates.toSource(block.range.start, 'next'), end: coordinates.toSource(block.range.end, 'previous') }
   const text = source.slice(range.start, range.end)
   const openerEnd = range.start + text.search(/[\r\n]/u)
@@ -8495,7 +8493,7 @@ function createDocumentCoreWithExecutionBudget(
         const node = pending.pop()!
         const start = node.attributes.contentStart
         const end = node.attributes.contentEnd
-        if (['code-block', 'math-block', 'diagram', 'html-block', 'front-matter'].includes(node.kind) &&
+        if (isLiteralBlock(node.kind) &&
             typeof start === 'number' && typeof end === 'number' &&
             coordinates.toSource(node.range.start, 'next') <= editedEnd && coordinates.toSource(node.range.end, 'previous') >= editedStart) {
           let covered = start

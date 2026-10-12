@@ -5,6 +5,7 @@ import type {
 } from './documentCore.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import { positionAfter } from './sourcePosition.js'
+import { FENCED_LITERAL_BLOCKS, SPLITTABLE_LITERAL_BLOCKS } from './literalBlock.js'
 import { CRITIC_MARKER_ALTERNATION, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
 
 type Preview = (edits: readonly DocumentSourceEdit[]) => DocumentRevision
@@ -732,7 +733,6 @@ function partiallyResolvable(
 const EOL = /\r\n|\r|\n/u
 
 const LITERAL_KINDS = new Set(['inline-code', 'code-block', 'inline-math', 'math-block', 'inline-html', 'html-block', 'front-matter', 'diagram', 'autolink'])
-const BLOCK_LITERAL_KINDS = new Set(['code-block', 'math-block', 'diagram'])
 /**
  * Spellings a widened search weighs before it gives up. Every search that
  * finds a spelling in the small, 2,000-block, input and delimiter pools
@@ -1417,7 +1417,7 @@ export function splitTrackedHistoryEdit(
     for (const edge of [start, end]) {
       if (history.range.start < edge && edge < history.range.end) points.add(edge)
     }
-    if (BLOCK_LITERAL_KINDS.has(node.kind)) literalBlocks.push({ start, end })
+    if (FENCED_LITERAL_BLOCKS.has(node.kind)) literalBlocks.push({ start, end })
     for (const child of node.children) visit(child)
   }
   visit(syntax.ast.root)
@@ -1551,11 +1551,9 @@ export function rejoinedTrackedHistoryEdit(
  */
 function armBlockLiteral(core: DocumentCore, revision: DocumentRevision, start: number, end: number): string | undefined {
   const { ast, coordinates } = core.project(revision, 'markup').syntax
-  return ast.root.children.find(node => ARM_BLOCK_LITERAL_KINDS.has(node.kind) &&
+  return ast.root.children.find(node => SPLITTABLE_LITERAL_BLOCKS.has(node.kind) &&
     coordinates.toSource(node.range.start, 'next') === start && coordinates.toSource(node.range.end, 'previous') >= end)?.kind
 }
-
-const ARM_BLOCK_LITERAL_KINDS = new Set([...BLOCK_LITERAL_KINDS, 'html-block'])
 
 /** The openers of the HTML blocks a line other than a blank one ends (CommonMark kinds 1-5). */
 const RAW_HTML_OPENER = /^ {0,3}(?:<(?:script|pre|style|textarea)(?:\s|>|$)|<!--|<\?|<![A-Za-z]|<!\[CDATA\[)/iu
