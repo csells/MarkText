@@ -90,7 +90,9 @@ const isRowVisible = (page: Page, filePath: string): Promise<boolean> =>
   }, `.tree-wrapper .side-bar-file[title="${filePath}"]`)
 
 const openProject = async(app: ElectronApplication, page: Page, root: string): Promise<void> => {
-  await page.waitForSelector('.side-bar', { timeout: 15000 })
+  // A hidden test window starts with the side bar collapsed; opening the
+  // project shows it, so only its presence is awaited here.
+  await page.waitForSelector('.side-bar', { state: 'attached', timeout: 15000 })
   await openProjectFolder(app, page, root, path.join(root, 'top.md'))
 }
 
@@ -245,7 +247,8 @@ test.describe('#528 reveal when the project is opened after the file', () => {
     const launched = await launchElectron([fixture.deep])
     app = launched.app
     page = launched.page
-    await tab(page, fixture.deep).first().waitFor({ timeout: 20000 })
+    // The tab bar of a hidden test window with one tab is not shown.
+    await tab(page, fixture.deep).first().waitFor({ state: 'attached', timeout: 20000 })
   })
 
   test.afterAll(async() => {

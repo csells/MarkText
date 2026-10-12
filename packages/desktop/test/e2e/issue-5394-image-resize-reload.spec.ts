@@ -83,7 +83,8 @@ for (const scenario of ['reload-auto-save', 'reload-no-auto-save', 'undo'] as co
 
       await startDrag()
       await page.mouse.up()
-      await expect.poll(() => getMarkdownContent(page, app)).toContain('width="360"')
+      // Markdown Profile 2 spells a resized image's width as its layout suffix.
+      await expect.poll(() => getMarkdownContent(page, app)).toContain('{width=360}')
       await expectNoRendererErrors(app)
     } finally {
       await app.close()
