@@ -323,8 +323,8 @@ export class Editor {
     private _dispatchEvents() {
         const { domNode } = this._muya;
 
-        const eventHandler = (event: Event) => {
-            if (this._isModelCompositionEvent(event)) {
+        const eventHandler = (event: Event, afterBrowserClick = false) => {
+            if (this._isModelCompositionEvent(event) || (afterBrowserClick && !domNode.isConnected)) {
                 return;
             }
             const selectionResult = this.selection.getSelection();
@@ -343,6 +343,14 @@ export class Editor {
             }
 
             if (!isSelectionInSameBlock || !anchorBlock) {
+                // Chromium collapses a range the user clicks inside only after
+                // the click event, at the node it hit. Blurring the active block
+                // now redraws that node away, and the browser drops the selection
+                // instead, so the click is handled once the caret is placed.
+                if (event.type === 'click' && !afterBrowserClick && selectionResult && !selectionResult.isCollapsed) {
+                    setTimeout(() => eventHandler(event, true));
+                    return;
+                }
                 this.activeContentBlock = null;
                 return;
             }
