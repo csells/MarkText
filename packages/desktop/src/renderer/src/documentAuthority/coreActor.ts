@@ -381,6 +381,39 @@ export function createCoreActor(
     }
     return result
   }
+  /**
+   * Whether ordered `edits` leave the source as it is, reading only the span
+   * from the first edit's start to the last one's end.
+   */
+  const leavesSourceUnchanged = (
+    activeCore: DocumentCore,
+    activeRevision: DocumentRevision,
+    edits: readonly DocumentSourceEdit[]
+  ): boolean => {
+    const first = edits[0]
+    const last = edits.at(-1)
+    if (first === null || typeof first !== 'object' || last === null || typeof last !== 'object') {
+      return false
+    }
+    const { start } = first
+    const { end } = last
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start < 0 ||
+      end < start ||
+      end > activeRevision.sourceLength
+    ) {
+      return false
+    }
+    const span = activeCore.sourceSlice(activeRevision, { start, end })
+    const local = edits.map((edit) =>
+      edit === null || typeof edit !== 'object'
+        ? edit
+        : { ...edit, start: edit.start - start, end: edit.end - start }
+    )
+    return applyRecoveryEdits(span, local) === span
+  }
   const restoreHistory = (
     snapshot: CoreHistorySnapshot,
     checkpointSource: string,
@@ -1958,8 +1991,7 @@ export function createCoreActor(
           request.type === 'replace-consumer-search') &&
         edits!.length > 1
       ) {
-        const prospectiveSource = applyRecoveryEdits(revision.source, edits!)
-        if (prospectiveSource === revision.source) {
+        if (leavesSourceUnchanged(core, revision, edits!)) {
           return Object.freeze({
             type: 'rejected',
             session,
