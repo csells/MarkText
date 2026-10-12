@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { disposeCore, reopenCore } from '../helpers/coreBoundary';
 import { floats } from '../helpers/selectors';
 
 for (const { format, marker } of [{ format: 'strong', marker: '**' }, { format: 'em', marker: '*' }]) {
@@ -92,12 +93,12 @@ for (const { format, marker } of [{ format: 'strong', marker: '**' }, { format: 
                 expect.soft(await readSelection()).toEqual(selected);
                 if (bound) {
                     expect(await page.evaluate(() => window.coreBoundary.read().legacyCalls)).toEqual([]);
-                    expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: formatted });
+                    expect(await reopenCore(page)).toMatchObject({ source: formatted });
                 }
             }
             finally {
                 if (bound) {
-                    await page.evaluate(() => window.coreBoundary.dispose());
+                    await disposeCore(page);
                 }
             }
         });

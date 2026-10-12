@@ -6,6 +6,7 @@ import {
   type MarkdownAstNode,
   type MarkdownOptions
 } from '@marktext/document-core'
+import { DISPLAY_MATH_MARKERS } from '@muyajs/core'
 import { isAlias, isMap, isScalar, isSeq, parseDocument, type Document } from 'yaml'
 
 import type { PandocDocument, PandocJsonNode } from '@shared/types/files'
@@ -19,7 +20,7 @@ import { semanticTextPieces, type SemanticTextPiece } from './semanticTextPieces
 export const PANDOC_NEUTRAL_AUTHOR = 'unknown'
 
 /** Pandoc writer whose output carries suggestions and comments natively. */
-export const PANDOC_TRACKED_TARGET = 'docx'
+const PANDOC_TRACKED_TARGET = 'docx'
 
 type Wrap = 'mark' | 'insertion' | 'deletion'
 // Insertion outside deletion is how Word spells text inserted and then deleted.
@@ -192,8 +193,6 @@ const ALIGNMENTS: Readonly<Record<string, string>> = {
   center: 'AlignCenter',
   right: 'AlignRight'
 }
-
-const DISPLAY_MATH_MARKERS = new Set(['$$', '\\[', '\\\\['])
 
 interface TrackingContext {
   /** The wrap key for a position in the AST's coordinate domain. */

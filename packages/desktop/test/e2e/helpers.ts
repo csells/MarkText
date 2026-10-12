@@ -6,6 +6,11 @@ import * as path from 'node:path'
 
 import { LEGACY_MARKDOWN_GUARD_ENV, LEGACY_MARKDOWN_REACH_PREFIX } from '../../src/shared/legacyMarkdownReach'
 import { frontmostApplicationProcessId } from './frontmostApplication'
+import {
+  defaultCoreLaunchEnvironment,
+  expectDefaultCoreAuthority,
+  expectInstalledArtifactCommit
+} from './installedArtifactProvenance'
 
 const projectRoot = path.resolve(__dirname, '../..')
 
@@ -175,7 +180,7 @@ export const launchElectron = async(
 // (`mt::handle-renderer-error`) that exceptionHandler.ts listens on, and
 // accumulate the count in a shared global so specs can read it back via
 // `getRendererErrors`. Multiple listeners are allowed on ipcMain.
-const installRendererErrorCounter = async(app: ElectronApplication): Promise<void> => {
+export const installRendererErrorCounter = async(app: ElectronApplication): Promise<void> => {
   await app.evaluate(({ ipcMain }) => {
     const g = global as unknown as {
       __mt_renderer_errors__?: Array<{ message?: string; name?: string; stack?: string }>
@@ -242,6 +247,70 @@ export const waitForRendererError = async(
   return null
 }
 
+/** The installed MarkText executable that MARKTEXT_PACKAGED_APP names. */
+export const installedBinary = (): string => {
+  const configured = process.env.MARKTEXT_PACKAGED_APP
+  if (configured === undefined || configured.trim().length === 0) {
+    throw new Error('MARKTEXT_PACKAGED_APP must name the installed MarkText executable')
+  }
+  const absolute = path.resolve(configured)
+  if (!fs.existsSync(absolute)) {
+    throw new Error(`Installed MarkText executable does not exist: ${absolute}`)
+  }
+  return absolute
+}
+
+export interface InstalledLaunchOptions {
+  userDataDir: string
+  /** Budget for the launch and for each readiness wait; the helpers' defaults otherwise. */
+  timeout?: number
+  /** Runs in main before the first window loads, e.g. to observe startup IPC. */
+  beforeWindow?: (app: ElectronApplication) => Promise<void>
+}
+
+/**
+ * Launches the installed app hidden, with its default Core policy and the
+ * renderer error counter, and waits until its document and menu are ready.
+ */
+export const launchInstalled = async(
+  files: readonly string[],
+  options: InstalledLaunchOptions
+): Promise<LaunchResult> => {
+  const app = await _electron.launch({
+    executablePath: installedBinary(),
+    args: ['--user-data-dir', options.userDataDir, ...files],
+    cwd: projectRoot,
+    env: defaultCoreLaunchEnvironment({
+      PERF_TESTING: 'true',
+      MARKTEXT_E2E_HIDDEN_WINDOW: '1',
+      MARKTEXT_ERROR_INTERACTION: '1'
+    }),
+    ...(options.timeout === undefined ? {} : { timeout: options.timeout })
+  })
+  try {
+    await installRendererErrorCounter(app)
+    await options.beforeWindow?.(app)
+    const page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+    await waitForEditor(page, options.timeout)
+    await waitForMenuReady(app, options.timeout)
+    await expectInstalledArtifactCommit(page)
+    await expectDefaultCoreAuthority(page)
+    return { app, page }
+  } catch (error) {
+    await app.close().catch(() => {})
+    throw error
+  }
+}
+
+/** Closes the app, then fails on any renderer error it reported. */
+export const closeWithoutRendererErrors = async(app: ElectronApplication): Promise<void> => {
+  const errors = await getRendererErrors(app)
+  expectEditorNotFrontmost(app)
+  await app.close()
+  expect(errors).toEqual([])
+}
+
 export const waitForMenuReady = async(
   app: ElectronApplication,
   timeout = 10000
@@ -279,6 +348,59 @@ export const clickMenuById = async(app: ElectronApplication, id: string): Promis
   }, id)
 }
 
+const clickMenuItem = (
+  app: ElectronApplication,
+  labels: readonly string[],
+  onlyIfEnabled: boolean
+): Promise<boolean> =>
+  app.evaluate(({ BrowserWindow, Menu }, { labels, onlyIfEnabled }) => {
+    const clean = (label: string) => label.replace(/…|\.\.\./g, '')
+    let items = Menu.getApplicationMenu()?.items ?? []
+    let item: Electron.MenuItem | undefined
+    for (const label of labels) {
+      item = items.find(candidate => clean(candidate.label) === clean(label))
+      items = item?.submenu?.items ?? []
+    }
+    const win = BrowserWindow.getAllWindows().find(win => win.webContents.getURL().includes('type=editor'))
+    if (!item || !win || (!item.enabled && !onlyIfEnabled)) {
+      throw new Error(`Unavailable menu command: ${labels.join(' → ')}`)
+    }
+    if (!item.enabled) return false
+    // Edit's Cut, Copy and Paste are native roles (upstream #5582), which act on
+    // the focused window's contents; the hidden test window is never focused,
+    // so perform the role on the editor window as Electron does for its menu.
+    const role = item.role?.toLowerCase()
+    if (role === 'cut' || role === 'copy' || role === 'paste') win.webContents[role]()
+    else item.click(undefined, win, win.webContents)
+    return true
+  }, { labels, onlyIfEnabled })
+
+/**
+ * Clicks an enabled application menu item, found by its label path, the way a
+ * pointer click on the native menu does: MenuItem.click with the editor
+ * window. Labels match without their trailing ellipsis.
+ */
+export const clickMenuByLabel = async(app: ElectronApplication, ...labels: string[]): Promise<void> => {
+  await clickMenuItem(app, labels, false)
+}
+
+/** Like clickMenuByLabel, but leaves a disabled item unclicked; returns whether it was enabled. */
+export const clickMenuByLabelIfEnabled = (app: ElectronApplication, ...labels: string[]): Promise<boolean> =>
+  clickMenuItem(app, labels, true)
+
+/** Whether the application menu item at this label path is enabled. */
+export const menuEnabledByLabel = (app: ElectronApplication, ...labels: string[]): Promise<boolean> =>
+  app.evaluate(({ Menu }, labels) => {
+    const clean = (label: string) => label.replace(/…|\.\.\./g, '')
+    let items = Menu.getApplicationMenu()?.items ?? []
+    let item: Electron.MenuItem | undefined
+    for (const label of labels) {
+      item = items.find(candidate => clean(candidate.label) === clean(label))
+      items = item?.submenu?.items ?? []
+    }
+    return item?.enabled === true
+  }, labels)
+
 export const waitForEditor = async(page: Page, timeout = 15000): Promise<void> => {
   await page.waitForSelector('.editor-component', { state: 'attached', timeout })
   await page.waitForFunction(
@@ -291,7 +413,7 @@ export const waitForEditor = async(page: Page, timeout = 15000): Promise<void> =
   )
   // Core first mounts its authority-backed view after the placeholder editor.
   // Synthetic caret setup must not target that outgoing placeholder subtree.
-  await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core', null, {
+  await page.waitForFunction(() => window.__marktextDocumentCore !== undefined, null, {
     timeout
   })
   await expect(page.locator('.core-view-handoff')).toHaveCount(0)

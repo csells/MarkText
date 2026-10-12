@@ -5215,8 +5215,7 @@ describe('Core document session manager', () => {
     const adapter = createCodeMirrorCoreAdapter(editor, lease.binding, {
       canonicalSource: source,
       canonicalRevision: 1,
-      insertedLineEnding: '\r\n',
-      projections: () => ['markup']
+      insertedLineEnding: '\r\n'
     })
     let detached = false
     lease.settleView(async() => {
@@ -6685,7 +6684,7 @@ describe('CodeMirror Core adapter', () => {
     const recorded: CoreAuthorityPerformanceEvent[] = []
     const clock = [10, 14, 18]
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
-      ...sourceCodeCoreAdapterOptions(source, '\n', 1),
+      ...sourceCodeCoreAdapterOptions(source, 1),
       performanceTrace: {
         documentId: 'source-performance.md',
         clock: () => clock.shift() ?? Number.NaN,
@@ -6736,7 +6735,7 @@ describe('CodeMirror Core adapter', () => {
     const doc = new codeMirror.Doc('abc')
     const events: CoreAuthorityPerformanceEvent[] = []
     const adapter = createCodeMirrorCoreAdapter(doc, binding, {
-      ...sourceCodeCoreAdapterOptions('abc', '\n', 1),
+      ...sourceCodeCoreAdapterOptions('abc', 1),
       performanceTrace: {
         documentId: 'source-sync-latency.md',
         clock: () => now,
@@ -6758,15 +6757,14 @@ describe('CodeMirror Core adapter', () => {
     }
   })
 
-  it('uses the normalized LF renderer domain under a CRLF host save policy', () => {
-    const options = sourceCodeCoreAdapterOptions('a\nb', '\r\n', 1)
+  it('uses the normalized LF renderer domain', () => {
+    const options = sourceCodeCoreAdapterOptions('a\nb', 1)
 
     expect(options).toMatchObject({
       canonicalSource: 'a\nb',
       canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
-    expect(options.projections?.()).toEqual([])
   })
 
   it('faults when a native change arrives without a pre-change capture', () => {
@@ -6813,7 +6811,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n', 1)
+      sourceCodeCoreAdapterOptions(source, 1)
     )
     const start = source.indexOf('text')
 
@@ -6860,7 +6858,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n', 1)
+      sourceCodeCoreAdapterOptions(source, 1)
     )
 
     editor.replaceRange('b', { line: 0, ch: 1 }, { line: 0, ch: 2 }, '+input')
@@ -6895,7 +6893,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n', 1)
+      sourceCodeCoreAdapterOptions(source, 1)
     )
 
     const accepted = adapter.resolve(
@@ -6934,7 +6932,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n', 1)
+      sourceCodeCoreAdapterOptions(source, 1)
     )
 
     await expect(
@@ -6964,7 +6962,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n', 1)
+      sourceCodeCoreAdapterOptions(source, 1)
     )
 
     await expect(
@@ -7004,7 +7002,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n', 1)
+      sourceCodeCoreAdapterOptions(source, 1)
     )
     const locator = {
       kind: 'addition' as const,
@@ -7036,7 +7034,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n', 1)
+      sourceCodeCoreAdapterOptions(source, 1)
     )
 
     editor.replaceRange('!', { line: 0, ch: 0 }, { line: 0, ch: 0 }, '+input')
@@ -7143,7 +7141,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n', 1)
+      sourceCodeCoreAdapterOptions(source, 1)
     )
 
     editor.replaceRange('!', { line: 0, ch: 0 }, { line: 0, ch: 0 }, '+input')
@@ -7171,7 +7169,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n', 1)
+      sourceCodeCoreAdapterOptions(source, 1)
     )
     const start = source.indexOf('text')
     editor.replaceRange(
@@ -7400,7 +7398,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n', 1)
+      sourceCodeCoreAdapterOptions(source, 1)
     )
     const start = source.indexOf('text')
 
@@ -7440,7 +7438,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       lease.binding,
-      sourceCodeCoreAdapterOptions(source, '\n', 1)
+      sourceCodeCoreAdapterOptions(source, 1)
     )
     lease.settleView(() => adapter.settled())
     lease.onHandoff(() => adapter.dispose())

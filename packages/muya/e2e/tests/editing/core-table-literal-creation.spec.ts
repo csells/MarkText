@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { disposeCore } from '../helpers/coreBoundary';
 
 for (const bound of [false, true]) {
     for (const fixture of [
@@ -58,7 +59,7 @@ for (const bound of [false, true]) {
             }
             finally {
                 if (bound)
-                    await page.evaluate(() => window.coreBoundary.dispose());
+                    await disposeCore(page);
             }
         });
     }

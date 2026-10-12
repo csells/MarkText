@@ -6,23 +6,6 @@ export interface IDocumentTextPoint {
     readonly offset: number;
 }
 
-export interface IDocumentTextReplacement {
-    readonly selection: {
-        readonly anchor: DocumentTextPoint;
-        readonly focus: DocumentTextPoint;
-    };
-    readonly text: string;
-    readonly inputType: string;
-    readonly historyGroup?: number;
-}
-
-/** Language context supplied by the same document model that renders this point. */
-export interface IDocumentInputSyntaxContext {
-    readonly type: 'format' | 'literal';
-    readonly isInInlineMath: boolean;
-    readonly isInInlineCode: boolean;
-}
-
 /** The actual selection and browser replacement target are distinct input facts. */
 export interface IDocumentTextInput {
     readonly selection: {
@@ -128,9 +111,7 @@ export interface IDocumentEditing {
 
 export type DocumentTextPoint = IDocumentTextPoint;
 export type DocumentDOMPoint = IDOMPoint;
-export type DocumentTextReplacement = IDocumentTextReplacement;
 export type DocumentTextInput = IDocumentTextInput;
-export type DocumentInputSyntaxContext = IDocumentInputSyntaxContext;
 export type DocumentEditing = IDocumentEditing;
 
 export type DocumentFormatInput = IDocumentFormatInput;

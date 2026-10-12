@@ -33,6 +33,7 @@ import {
   muyaViewItemAtPath,
   muyaViewLastBinding
 } from './muyaMarkupViewLookup'
+import { samePath } from './muyaMarkupPath'
 
 export type { MuyaPlainTextSourceBinding } from './muyaSourceBinding'
 
@@ -50,11 +51,6 @@ interface InstalledBindings {
   first(): MuyaPlainTextSourceBinding | undefined
   last(): MuyaPlainTextSourceBinding | undefined
 }
-
-const samePath = (
-  left: readonly (string | number)[],
-  right: readonly (string | number)[]
-): boolean => left.length === right.length && left.every((part, index) => part === right[index])
 
 const isView = (bindings: MuyaPlainTextBindings): bindings is MuyaMarkupView =>
   !Array.isArray(bindings)
@@ -634,6 +630,26 @@ export function createMuyaPlainTextCoreAdapter(
     for (const waiter of waiters) waiter.reject(terminalError)
     waiters.clear()
   }
+  /** Why queued work cannot start now, if it cannot. */
+  const queueRefusal = (duringComposition: string): Error | undefined =>
+    disposed
+      ? new Error('Core Muya adapter is disposed')
+      : (terminalError ?? (composing ? new Error(duringComposition) : undefined))
+  /**
+   * Faults the adapter and returns the failure when one more transaction, or
+   * `insertUnits` more pending text when given, exceeds the resource policy.
+   */
+  const policyFailure = (insertUnits?: number): Error | undefined => {
+    if (
+      queued.length + (active === undefined ? 0 : 1) < MAXIMUM_PENDING_TRANSACTIONS &&
+      (insertUnits === undefined || pendingInsertUnits + insertUnits <= MAXIMUM_PENDING_INSERT_UNITS)
+    ) {
+      return undefined
+    }
+    const failure = new Error('Core Muya pending work exceeds its resource policy')
+    fault(failure)
+    return failure
+  }
   const pump = (): void => {
     if (active !== undefined || disposed || terminalError !== undefined) return
     const command = queued.shift()
@@ -772,29 +788,32 @@ export function createMuyaPlainTextCoreAdapter(
       )
       acknowledged = submission.acknowledged
       transactionId = submission.identity.transactionId
-      recordPerformance(
-        {
-          phase: 'dispatch',
-          transaction: submission.identity.transactionId,
-          pendingDepth: queued.length + 1,
-          ...(command.kind === 'track'
-            ? {
-              insertedUnits: 'data' in command.input ? (command.input.data?.length ?? 0) : 0,
-              ...selectionMeasurement(command.input.selection)
-            }
-            : command.kind === 'clipboard'
+      // Only a trace pays for measuring the dispatched selection.
+      if (performanceTrace !== undefined) {
+        recordPerformance(
+          {
+            phase: 'dispatch',
+            transaction: submission.identity.transactionId,
+            pendingDepth: queued.length + 1,
+            ...(command.kind === 'track'
               ? {
-                insertedUnits: 'markdown' in command.action ? command.action.markdown.length : 0,
-                ...(command.action.kind === 'table'
-                  ? {}
-                  : selectionMeasurement(command.action.selection))
+                insertedUnits: 'data' in command.input ? (command.input.data?.length ?? 0) : 0,
+                ...selectionMeasurement(command.input.selection)
               }
-              : command.kind === 'apply-prepared' && command.operation.kind === 'clipboard'
-                ? { insertedUnits: command.operation.action.markdown.length }
-                : {})
-        },
-        dispatchedAt
-      )
+              : command.kind === 'clipboard'
+                ? {
+                  insertedUnits: 'markdown' in command.action ? command.action.markdown.length : 0,
+                  ...(command.action.kind === 'table'
+                    ? {}
+                    : selectionMeasurement(command.action.selection))
+                }
+                : command.kind === 'apply-prepared' && command.operation.kind === 'clipboard'
+                  ? { insertedUnits: command.operation.action.markdown.length }
+                  : {})
+          },
+          dispatchedAt
+        )
+      }
     } catch (error) {
       active = undefined
       const failure = error instanceof Error ? error : new Error('Core submission failed')
@@ -939,16 +958,8 @@ export function createMuyaPlainTextCoreAdapter(
     reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
     options?: Readonly<Partial<MarkdownOptions>>
   ): Promise<CoreAppliedReply | undefined> => {
-    if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
-    if (terminalError !== undefined) return Promise.reject(terminalError)
-    if (composing) {
-      return Promise.reject(new Error('Core Muya history cannot run during composition'))
-    }
-    if (queued.length + (active === undefined ? 0 : 1) >= MAXIMUM_PENDING_TRANSACTIONS) {
-      const failure = new Error('Core Muya pending work exceeds its resource policy')
-      fault(failure)
-      return Promise.reject(failure)
-    }
+    const refusal = queueRefusal('Core Muya history cannot run during composition') ?? policyFailure()
+    if (refusal !== undefined) return Promise.reject(refusal)
     return new Promise<CoreAppliedReply | undefined>((resolve, reject) => {
       queued.push(
         Object.freeze({
@@ -976,15 +987,8 @@ export function createMuyaPlainTextCoreAdapter(
     historyGroup?: number
   ): Readonly<{ accepted: boolean; changed: boolean }> => {
     latestNativeChange = { target, operation }
-    if (disposed || terminalError !== undefined || composing) {
-      return Object.freeze({ accepted: false, changed: false })
-    }
     const insertUnits = operation.kind === 'clipboard' ? operation.action.markdown.length : 0
-    if (
-      queued.length + (active === undefined ? 0 : 1) >= MAXIMUM_PENDING_TRANSACTIONS ||
-      pendingInsertUnits + insertUnits > MAXIMUM_PENDING_INSERT_UNITS
-    ) {
-      fault('Core Muya pending work exceeds its resource policy')
+    if (disposed || terminalError !== undefined || composing || policyFailure(insertUnits) !== undefined) {
       return Object.freeze({ accepted: false, changed: false })
     }
     const previousRevision = revision
@@ -1142,15 +1146,8 @@ export function createMuyaPlainTextCoreAdapter(
       tracked = false
     ): Readonly<{ accepted: boolean; changed: boolean }> {
       latestNativeChange = operation
-      if (disposed || terminalError !== undefined || composing) {
-        return Object.freeze({ accepted: false, changed: false })
-      }
-      if (
-        queued.length + (active === undefined ? 0 : 1) >= MAXIMUM_PENDING_TRANSACTIONS ||
-        pendingInsertUnits + ('data' in operation ? (operation.data ?? '') : '').length >
-          MAXIMUM_PENDING_INSERT_UNITS
-      ) {
-        fault('Core Muya pending work exceeds its resource policy')
+      const insertUnits = ('data' in operation ? (operation.data ?? '') : '').length
+      if (disposed || terminalError !== undefined || composing || policyFailure(insertUnits) !== undefined) {
         return Object.freeze({ accepted: false, changed: false })
       }
       const previousRevision = revision
@@ -1172,7 +1169,7 @@ export function createMuyaPlainTextCoreAdapter(
           reject: () => {}
         })
       )
-      pendingInsertUnits += ('data' in operation ? (operation.data ?? '') : '').length
+      pendingInsertUnits += insertUnits
       pump()
       return Object.freeze({ accepted, changed })
     },
@@ -1278,15 +1275,8 @@ export function createMuyaPlainTextCoreAdapter(
       historyGroup?: number
     ): Readonly<{ accepted: boolean; changed: boolean }> {
       latestNativeChange = action
-      if (disposed || terminalError !== undefined || composing) {
-        return Object.freeze({ accepted: false, changed: false })
-      }
-      if (
-        queued.length + (active === undefined ? 0 : 1) >= MAXIMUM_PENDING_TRANSACTIONS ||
-        pendingInsertUnits + ('markdown' in action ? action.markdown.length : 0) >
-          MAXIMUM_PENDING_INSERT_UNITS
-      ) {
-        fault('Core Muya pending work exceeds its resource policy')
+      const insertUnits = 'markdown' in action ? action.markdown.length : 0
+      if (disposed || terminalError !== undefined || composing || policyFailure(insertUnits) !== undefined) {
         return Object.freeze({ accepted: false, changed: false })
       }
       const previousRevision = revision
@@ -1305,7 +1295,7 @@ export function createMuyaPlainTextCoreAdapter(
           reject: () => {}
         })
       )
-      pendingInsertUnits += 'markdown' in action ? action.markdown.length : 0
+      pendingInsertUnits += insertUnits
       pump()
       return Object.freeze({ accepted, changed })
     },
@@ -1315,11 +1305,7 @@ export function createMuyaPlainTextCoreAdapter(
       historyGroup?: number
     ): Readonly<{ accepted: boolean; changed: boolean }> {
       latestNativeChange = action
-      if (disposed || terminalError !== undefined || composing) {
-        return Object.freeze({ accepted: false, changed: false })
-      }
-      if (queued.length + (active === undefined ? 0 : 1) >= MAXIMUM_PENDING_TRANSACTIONS) {
-        fault('Core Muya pending work exceeds its resource policy')
+      if (disposed || terminalError !== undefined || composing || policyFailure() !== undefined) {
         return Object.freeze({ accepted: false, changed: false })
       }
       const previousRevision = revision
@@ -1482,16 +1468,8 @@ export function createMuyaPlainTextCoreAdapter(
       reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
       selection?: MuyaPlainTextAuthorSelection
     ): Promise<CoreAppliedReply | undefined> {
-      if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
-      if (terminalError !== undefined) return Promise.reject(terminalError)
-      if (composing) {
-        return Promise.reject(new Error('Core Muya resolution cannot run during composition'))
-      }
-      if (queued.length + (active === undefined ? 0 : 1) >= MAXIMUM_PENDING_TRANSACTIONS) {
-        const failure = new Error('Core Muya pending work exceeds its resource policy')
-        fault(failure)
-        return Promise.reject(failure)
-      }
+      const refusal = queueRefusal('Core Muya resolution cannot run during composition') ?? policyFailure()
+      if (refusal !== undefined) return Promise.reject(refusal)
       const captured: CoreReviewItemLocator =
         annotation.kind === 'commented-span'
           ? Object.freeze({
@@ -1525,16 +1503,8 @@ export function createMuyaPlainTextCoreAdapter(
       reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
       selection?: MuyaPlainTextAuthorSelection
     ): Promise<CoreAppliedReply | undefined> {
-      if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
-      if (terminalError !== undefined) return Promise.reject(terminalError)
-      if (composing) {
-        return Promise.reject(new Error('Core Muya bulk resolution cannot run during composition'))
-      }
-      if (queued.length + (active === undefined ? 0 : 1) >= MAXIMUM_PENDING_TRANSACTIONS) {
-        const failure = new Error('Core Muya pending work exceeds its resource policy')
-        fault(failure)
-        return Promise.reject(failure)
-      }
+      const refusal = queueRefusal('Core Muya bulk resolution cannot run during composition') ?? policyFailure()
+      if (refusal !== undefined) return Promise.reject(refusal)
       return new Promise<CoreAppliedReply | undefined>((resolve, reject) => {
         queued.push(
           Object.freeze({
@@ -1556,19 +1526,10 @@ export function createMuyaPlainTextCoreAdapter(
       reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
       selection?: MuyaPlainTextAuthorSelection
     ): Promise<CoreAppliedReply | undefined> {
-      if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
-      if (terminalError !== undefined) return Promise.reject(terminalError)
-      if (composing) {
-        return Promise.reject(new Error('Core Muya Comment editing cannot run during composition'))
-      }
-      if (
-        queued.length + (active === undefined ? 0 : 1) >= MAXIMUM_PENDING_TRANSACTIONS ||
-        pendingInsertUnits + text.length > MAXIMUM_PENDING_INSERT_UNITS
-      ) {
-        const failure = new Error('Core Muya pending work exceeds its resource policy')
-        fault(failure)
-        return Promise.reject(failure)
-      }
+      const refusal =
+        queueRefusal('Core Muya Comment editing cannot run during composition') ??
+        policyFailure(text.length)
+      if (refusal !== undefined) return Promise.reject(refusal)
       const captured: CoreReviewItemLocator =
         annotation.kind === 'commented-span'
           ? Object.freeze({
@@ -1604,25 +1565,16 @@ export function createMuyaPlainTextCoreAdapter(
       text: string,
       reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     ): Promise<CoreAppliedReply | undefined> {
-      if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
-      if (terminalError !== undefined) return Promise.reject(terminalError)
-      if (composing) {
-        return Promise.reject(new Error('Core Muya authoring cannot run during composition'))
-      }
+      const refusal = queueRefusal('Core Muya authoring cannot run during composition')
+      if (refusal !== undefined) return Promise.reject(refusal)
       if (
         authorSourceRange(selection) === undefined ||
         (form === 'substitution' && text.length === 0)
       ) {
         return Promise.resolve(undefined)
       }
-      if (
-        queued.length + (active === undefined ? 0 : 1) >= MAXIMUM_PENDING_TRANSACTIONS ||
-        pendingInsertUnits + text.length > MAXIMUM_PENDING_INSERT_UNITS
-      ) {
-        const failure = new Error('Core Muya pending work exceeds its resource policy')
-        fault(failure)
-        return Promise.reject(failure)
-      }
+      const failure = policyFailure(text.length)
+      if (failure !== undefined) return Promise.reject(failure)
       return new Promise<CoreAppliedReply | undefined>((resolve, reject) => {
         queued.push(
           Object.freeze({

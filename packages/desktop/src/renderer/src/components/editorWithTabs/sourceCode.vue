@@ -496,11 +496,7 @@ onMounted(() => {
     props.coreLease.binding,
     {
       nativeHistoryScope: crypto.randomUUID(),
-      ...sourceCodeCoreAdapterOptions(
-        props.markdown ?? '',
-        props.coreLease.lineEnding,
-        props.coreLease.identity.revision
-      ),
+      ...sourceCodeCoreAdapterOptions(props.markdown ?? '', props.coreLease.identity.revision),
       ...(props.corePerformanceTrace === undefined
         ? {}
         : {
@@ -577,8 +573,6 @@ onMounted(() => {
       })
     )
     latest = Object.freeze({
-      mode: 'core',
-      worker: 'dedicated',
       revision: event.outcome.revision,
       sourceLength: event.outcome.sourceLength,
       change: event.outcome.change
@@ -651,7 +645,6 @@ onMounted(() => {
   )
   if (corePerformanceTestBridge !== undefined) {
     window.__marktextDocumentCore = Object.freeze({
-      mode: 'core',
       documentId: props.coreLease.documentId,
       generation: props.coreLease.identity.generation,
       async settled (): Promise<void> {

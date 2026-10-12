@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const example of [
     { name: 'code', source: '```js\nbody\n```\n', changed: 'body\n', typed: 'xbody\n' },
@@ -19,7 +20,7 @@ for (const example of [
         }, prefix + example.source);
         try {
             await page.keyboard.press('Backspace');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: prefix + example.changed }, anchor: 0, caret: 0, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: prefix + example.changed }, anchor: 0, caret: 0, legacyCalls: [] });
             if (example.displayed !== undefined) {
                 const displayed = await page.evaluate(() => {
                     // What shows: hidden syntax markers take no space, and a
@@ -38,14 +39,14 @@ for (const example of [
                 expect(displayed).toEqual({ kind: 'paragraph.content', text: example.displayed });
             }
             await page.keyboard.type('x');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: prefix + example.typed }, anchor: 1, caret: 1, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: prefix + example.source }, anchor: 0, caret: 0 });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: prefix + example.typed });
+            expect(await readCore(page)).toMatchObject({ source: { source: prefix + example.typed }, anchor: 1, caret: 1, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source: prefix + example.source }, anchor: 0, caret: 0 });
+            await coreHistory(page, 'redo');
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: prefix + example.typed });
         }
-        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        finally { await disposeCore(page); }
     });
 }

@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { holdUndoSteps, separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -22,25 +23,25 @@ for (const text of ['plain', 'plain\nsecond']) {
                 muya.updateParagraph('blockquote');
             }, { source, tracked });
             try {
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: quoted }, caret: text.length, legacyCalls: [] });
+                expect(await readCore(page)).toMatchObject({ source: { source: quoted }, caret: text.length, legacyCalls: [] });
                 await expect(page.locator('.mu-block-quote')).toHaveCount(1);
                 await page.keyboard.type('!');
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, caret: text.length + 1, legacyCalls: [] });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: quoted } });
+                expect(await readCore(page)).toMatchObject({ source: { source: typed }, caret: text.length + 1, legacyCalls: [] });
+                await coreHistory(page, 'undo');
+                expect(await readCore(page)).toMatchObject({ source: { source: quoted } });
                 await page.evaluate(() => {
                     const content = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
                     content.setCursor(0, 0, true);
                     window.muya!.editor.activeContentBlock = content;
                     window.muya!.updateParagraph('blockquote');
                 });
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, legacyCalls: [] });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: quoted } });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
+                expect(await readCore(page)).toMatchObject({ source: { source }, legacyCalls: [] });
+                await coreHistory(page, 'undo');
+                expect(await readCore(page)).toMatchObject({ source: { source: quoted } });
+                await coreHistory(page, 'undo');
+                expect(await reopenCore(page)).toMatchObject({ source });
             } finally {
-                await page.evaluate(() => window.coreBoundary.dispose());
+                await disposeCore(page);
             }
         });
     }
@@ -66,19 +67,19 @@ for (const example of [
             muya.updateParagraph('blockquote');
         }, { source });
         try {
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: quoted }, anchor: example.text.length, caret: example.text.length, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: quoted }, anchor: example.text.length, caret: example.text.length, legacyCalls: [] });
             expect(await page.evaluate(() => window.muya!.getState())).toMatchObject([{ name: 'block-quote', children: [{ name: 'paragraph', text: example.text }] }]);
             await page.keyboard.type('X');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, caret: example.text.length + 1, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: quoted }, caret: example.text.length });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, caret: example.text.length });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+            expect(await readCore(page)).toMatchObject({ source: { source: typed }, caret: example.text.length + 1, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source: quoted }, caret: example.text.length });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source }, caret: example.text.length });
+            await coreHistory(page, 'redo');
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: typed });
         } finally {
-            await page.evaluate(() => window.coreBoundary.dispose());
+            await disposeCore(page);
         }
     });
 }
@@ -155,9 +156,9 @@ for (const example of [
                 await history('redo');
                 await history('redo');
                 expect(await read()).toMatchObject({ source: typed });
-                if (bound) expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+                if (bound) expect(await reopenCore(page)).toMatchObject({ source: typed });
             } finally {
-                if (bound) await page.evaluate(() => window.coreBoundary.dispose());
+                if (bound) await disposeCore(page);
             }
         });
     }
@@ -235,7 +236,7 @@ for (const bound of [false, true]) {
                 await page.evaluate(async (bound) => { if (bound) await window.coreBoundary.history('redo'); else window.muya!.redo(); }, bound);
                 expect(await read()).toEqual(bound ? expect.objectContaining({ source: expected }) : expected);
                 if (bound)
-                    expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+                    expect(await reopenCore(page)).toMatchObject({ source: expected });
             }
             catch (error) {
                 failed = true;
@@ -243,7 +244,7 @@ for (const bound of [false, true]) {
             }
             finally {
                 if (bound && !failed)
-                    await page.evaluate(() => window.coreBoundary.dispose());
+                    await disposeCore(page);
             }
         });
     }

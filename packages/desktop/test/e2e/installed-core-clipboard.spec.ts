@@ -1,21 +1,15 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { _electron as electron, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 
 import {
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
-  sendIpcToRenderer,
-  waitForEditor,
-  waitForMenuReady
+  launchInstalled,
+  sendIpcToRenderer
 } from './helpers'
-import {
-  defaultCoreLaunchEnvironment,
-  expectDefaultCoreAuthority,
-  expectInstalledArtifactCommit
-} from './installedArtifactProvenance'
 import { preserveSystemClipboard } from './helpers/systemClipboardFixture'
 
 let clipboardFixture: ReturnType<typeof preserveSystemClipboard>
@@ -32,47 +26,6 @@ const cutSource = 'alpha ta\n'
 const pasteSource = `${projectionSource}\nZ\n`
 const pastedSource = `${projectionSource}\nZcopied\n\nnew\n\nbe\n`
 const typedPastedSource = `${projectionSource}\nZcopied\n\nnew\n\nbeX\n`
-
-const installedBinary = (): string => {
-  const configured = process.env.MARKTEXT_PACKAGED_APP
-  if (configured === undefined || configured.trim().length === 0) {
-    throw new Error('MARKTEXT_PACKAGED_APP must name the installed MarkText executable')
-  }
-  const absolute = path.resolve(configured)
-  if (!fs.existsSync(absolute)) {
-    throw new Error(`Installed MarkText executable does not exist: ${absolute}`)
-  }
-  return absolute
-}
-
-const launchInstalled = async(
-  binary: string,
-  userDataDir: string,
-  filePath: string
-): Promise<{ app: ElectronApplication; page: Page }> => {
-  const app = await electron.launch({
-    executablePath: binary,
-    args: ['--user-data-dir', userDataDir, filePath],
-    env: defaultCoreLaunchEnvironment({
-      PERF_TESTING: 'true',
-      MARKTEXT_E2E_HIDDEN_WINDOW: '1',
-      MARKTEXT_ERROR_INTERACTION: '1'
-    }),
-    timeout: 60_000
-  })
-  try {
-    const page = await app.firstWindow()
-    await page.waitForLoadState('domcontentloaded')
-    await waitForEditor(page, 60_000)
-    await waitForMenuReady(app, 60_000)
-    await expectInstalledArtifactCommit(page)
-    await expectDefaultCoreAuthority(page)
-    return { app, page }
-  } catch (error) {
-    await app.close().catch(() => {})
-    throw error
-  }
-}
 
 const selectProjectedRange = async(page: Page): Promise<void> => {
   const selected = await page.evaluate(() => {
@@ -229,14 +182,13 @@ test.describe('installed Core projected clipboard authority', () => {
   test.describe.configure({ timeout: 180_000 })
 
   test('native Copy publishes the selected Revised rich and plain projections', async() => {
-    const binary = installedBinary()
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-clipboard-'))
     const filePath = path.join(root, 'clipboard.md')
     const userDataDir = path.join(root, 'profile')
     fs.writeFileSync(filePath, projectionSource, 'utf8')
     let launched: { app: ElectronApplication; page: Page } | undefined
     try {
-      launched = await launchInstalled(binary, userDataDir, filePath)
+      launched = await launchInstalled([filePath], { userDataDir, timeout: 60_000 })
       const { app, page } = launched
       await expectEditorWindowHidden(app)
       expectEditorNotFrontmost(app)
@@ -252,7 +204,7 @@ test.describe('installed Core projected clipboard authority', () => {
 
       await app.close()
       launched = undefined
-      launched = await launchInstalled(binary, userDataDir, filePath)
+      launched = await launchInstalled([filePath], { userDataDir, timeout: 60_000 })
       await expectEditorWindowHidden(launched.app)
       expectEditorNotFrontmost(launched.app)
       expect(fs.readFileSync(filePath, 'utf8')).toBe(projectionSource)
@@ -263,14 +215,13 @@ test.describe('installed Core projected clipboard authority', () => {
   })
 
   test('native Cut writes its Revised payload before one actor history mutation', async() => {
-    const binary = installedBinary()
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-clipboard-'))
     const filePath = path.join(root, 'clipboard.md')
     const userDataDir = path.join(root, 'profile')
     fs.writeFileSync(filePath, projectionSource, 'utf8')
     let launched: { app: ElectronApplication; page: Page } | undefined
     try {
-      launched = await launchInstalled(binary, userDataDir, filePath)
+      launched = await launchInstalled([filePath], { userDataDir, timeout: 60_000 })
       const { app, page } = launched
       await expectEditorWindowHidden(app)
       expectEditorNotFrontmost(app)
@@ -295,7 +246,7 @@ test.describe('installed Core projected clipboard authority', () => {
 
       await app.close()
       launched = undefined
-      launched = await launchInstalled(binary, userDataDir, filePath)
+      launched = await launchInstalled([filePath], { userDataDir, timeout: 60_000 })
       await expectEditorWindowHidden(launched.app)
       expectEditorNotFrontmost(launched.app)
       expect(fs.readFileSync(filePath, 'utf8')).toBe(cutSource)
@@ -306,14 +257,13 @@ test.describe('installed Core projected clipboard authority', () => {
   })
 
   test('native Paste commits a copied Revised projection through actor history', async() => {
-    const binary = installedBinary()
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-clipboard-'))
     const filePath = path.join(root, 'clipboard.md')
     const userDataDir = path.join(root, 'profile')
     fs.writeFileSync(filePath, pasteSource, 'utf8')
     let launched: { app: ElectronApplication; page: Page } | undefined
     try {
-      launched = await launchInstalled(binary, userDataDir, filePath)
+      launched = await launchInstalled([filePath], { userDataDir, timeout: 60_000 })
       const { app, page } = launched
       await expectEditorWindowHidden(app)
       expectEditorNotFrontmost(app)
@@ -373,7 +323,7 @@ test.describe('installed Core projected clipboard authority', () => {
 
       await app.close()
       launched = undefined
-      launched = await launchInstalled(binary, userDataDir, filePath)
+      launched = await launchInstalled([filePath], { userDataDir, timeout: 60_000 })
       await expectEditorWindowHidden(launched.app)
       expectEditorNotFrontmost(launched.app)
       expect(fs.readFileSync(filePath, 'utf8')).toBe(typedPastedSource)

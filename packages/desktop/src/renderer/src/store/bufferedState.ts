@@ -8,7 +8,7 @@ import { coreDocumentSaveAuthority } from '../documentAuthority/coreDocumentSave
 const BUFFERED_STATE_DEBOUNCE_MS = 1000
 const BUFFERED_STATE_VERSION = 1
 
-export const createBufferedState = () => {
+const createBufferedState = () => {
   const editorState = useEditorStore().CREATE_BUFFERED_STATE()
   if (!editorState) return null
   return {

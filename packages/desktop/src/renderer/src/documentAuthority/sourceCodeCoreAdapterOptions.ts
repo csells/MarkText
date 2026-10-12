@@ -1,5 +1,4 @@
 import type { CodeMirrorCoreAdapterOptions } from './codeMirrorCoreAdapter'
-import type { CanonicalLineEnding } from './canonicalEolIndex'
 
 /**
  * The renderer store and CodeMirror use an LF-normalized view. The host line
@@ -8,13 +7,11 @@ import type { CanonicalLineEnding } from './canonicalEolIndex'
  */
 export function sourceCodeCoreAdapterOptions(
   rendererMarkdown: string,
-  _hostLineEnding: CanonicalLineEnding,
   canonicalRevision: number
 ): CodeMirrorCoreAdapterOptions {
   return Object.freeze({
     canonicalSource: rendererMarkdown,
     canonicalRevision,
-    insertedLineEnding: '\n',
-    projections: () => Object.freeze([])
+    insertedLineEnding: '\n'
   })
 }

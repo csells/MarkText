@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const tracked of [false, true]) {
     test(`Core imported list arms retain their containers through native typing (tracked=${tracked})`, async ({ page }) => {
@@ -17,13 +18,13 @@ for (const tracked of [false, true]) {
         }, { source, tracked });
         try {
             await page.keyboard.type('XY');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 2, caret: 2, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
-        } finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+            expect(await readCore(page)).toMatchObject({ source: { source: typed }, anchor: 2, caret: 2, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            await coreHistory(page, 'undo');
+            expect(await reopenCore(page)).toMatchObject({ source });
+            await coreHistory(page, 'redo');
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: typed });
+        } finally { await disposeCore(page); }
     });
 }

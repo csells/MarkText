@@ -1,5 +1,5 @@
 export { default as htmlEscapeCharacters } from './config/escapeCharacter';
-export type { DocumentClipboardInput, DocumentCompositionResult, DocumentDOMPoint, DocumentEditing, DocumentFormatInput, DocumentInput, DocumentInputSyntaxContext, DocumentTextInput, DocumentTextPoint, DocumentTextReplacement } from './editor/documentEditingTypes';
+export type { DocumentClipboardInput, DocumentCompositionResult, DocumentDOMPoint, DocumentEditing, DocumentFormatInput, DocumentInput, DocumentTextInput, DocumentTextPoint } from './editor/documentEditingTypes';
 export type { IReconcileRegion } from './editor/index';
 export type { ISerializedHistory } from './history';
 export type { ILocale } from './i18n/types';
@@ -47,8 +47,8 @@ export type { IExportRenderOptions } from './utils/diagram/render';
 export { validEmoji } from './utils/emoji';
 export type { IImageInfo } from './utils/image';
 export { getImageInfo } from './utils/image';
-export { escapeHTML, sanitize, unescapeHTML, wordCount } from './utils/index';
-export { renderMath } from './utils/marked/extensions/math';
+export { escapeHTML, firstGraphemeLength, sanitize, unescapeHTML, wordCount } from './utils/index';
+export { DISPLAY_MATH_MARKERS, renderMath } from './utils/marked/extensions/math';
 export { highlightCode } from './utils/marked/getHighlightHtml';
 export { buildRegexValue, matchString } from './utils/search';
 export type { IRegexMatch, ISearchQueryOptions } from './utils/search';

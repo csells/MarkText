@@ -7,6 +7,7 @@ import {
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
   expectNoRendererErrors,
+  installRendererErrorCounter,
   launchElectron,
   placeCaretInEditor,
   waitForEditor,
@@ -37,16 +38,10 @@ async function prepare(app: ElectronApplication, page: Page): Promise<void> {
   await expectEditorWindowHidden(app)
   expectEditorNotFrontmost(app)
   await expectInstalledArtifactCommit(page)
+  await installRendererErrorCounter(app)
   // Select the native menu item without showing a popup or sheet. Its real
   // click handler still traverses main IPC, renderer dispatch and the model.
-  await app.evaluate(({ Menu, dialog, ipcMain }) => {
-    const errors = globalThis as unknown as { __mt_renderer_errors__?: unknown[] }
-    if (!errors.__mt_renderer_errors__) {
-      errors.__mt_renderer_errors__ = []
-      ipcMain.on('mt::handle-renderer-error', (_event, error) =>
-        errors.__mt_renderer_errors__?.push(error)
-      )
-    }
+  await app.evaluate(({ Menu, dialog }) => {
     const probe: LifecycleProbe = {
       openPaths: [],
       savePaths: [],

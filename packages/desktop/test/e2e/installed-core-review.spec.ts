@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { _electron as electron, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 
 import {
@@ -9,12 +9,10 @@ import {
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
   getMarkdownContent,
+  launchInstalled,
   sendIpcToRenderer,
-  waitForEditor,
-  waitForMenuReady,
   showReviewSidebar
 } from './helpers'
-import { defaultCoreLaunchEnvironment, expectDefaultCoreAuthority, expectInstalledArtifactCommit } from './installedArtifactProvenance'
 import {
   readInputLatencyTrace,
   startInputLatencyTrace,
@@ -226,51 +224,27 @@ const installedBulkResolutionCases = [{
 
 const bulkResolutionSource = 'A {++new++} B {--old--} C {~~left~>right~~}\n'
 
-const installedBinary = (): string => {
-  const configured = process.env.MARKTEXT_PACKAGED_APP
-  if (configured === undefined || configured.trim().length === 0) {
-    throw new Error('MARKTEXT_PACKAGED_APP must name the installed MarkText executable')
-  }
-  const absolute = path.resolve(configured)
-  if (!fs.existsSync(absolute)) {
-    throw new Error(`Installed MarkText executable does not exist: ${absolute}`)
-  }
-  return absolute
-}
-
-const launchInstalled = async(
-  binary: string,
+/** Launches with the save requests main receives recorded and the Review sidebar shown. */
+const launchReview = async(
   userDataDir: string,
   filePath: string
 ): Promise<{ app: ElectronApplication, page: Page }> => {
-  const app = await electron.launch({
-    executablePath: binary,
-    args: ['--user-data-dir', userDataDir, filePath],
-    env: defaultCoreLaunchEnvironment({
-      PERF_TESTING: 'true',
-      MARKTEXT_E2E_HIDDEN_WINDOW: '1',
-      MARKTEXT_ERROR_INTERACTION: '1'
-    }),
-    timeout: 60_000
-  })
-  try {
-    await app.evaluate(({ ipcMain }) => {
+  const launched = await launchInstalled([filePath], {
+    userDataDir,
+    timeout: 60_000,
+    beforeWindow: app => app.evaluate(({ ipcMain }) => {
       const host = globalThis as typeof globalThis & { installedSaveRequests?: unknown[] }
       host.installedSaveRequests = []
       ipcMain.on('mt::response-file-save', (_event, id, filename, pathname, source, options, _defaultPath, identity) => {
         host.installedSaveRequests?.push({ at: Date.now(), id, filename, pathname, source, options, identity })
       })
     })
-    const page = await app.firstWindow()
-    await page.waitForLoadState('domcontentloaded')
-    await waitForEditor(page, 60_000)
-    await waitForMenuReady(app, 60_000)
-    await expectInstalledArtifactCommit(page)
-    await expectDefaultCoreAuthority(page)
-    await showReviewSidebar(app)
-    return { app, page }
+  })
+  try {
+    await showReviewSidebar(launched.app)
+    return launched
   } catch (error) {
-    await app.close().catch(() => {})
+    await launched.app.close().catch(() => {})
     throw error
   }
 }
@@ -313,14 +287,13 @@ test.describe('installed Core Review authority', () => {
 
   for (const { row, testCase } of installedResolveRows) {
     test(`${row.id} follows the installed interaction matrix`, async() => {
-      const binary = installedBinary()
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-matrix-'))
       const filePath = path.join(root, 'interaction.md')
       const userDataDir = path.join(root, 'profile')
       fs.writeFileSync(filePath, row.source, 'utf8')
       let launched: { app: ElectronApplication, page: Page } | undefined
       try {
-        launched = await launchInstalled(binary, userDataDir, filePath)
+        launched = await launchReview(userDataDir, filePath)
         const { app, page } = launched
         await expectEditorWindowHidden(app)
         expectEditorNotFrontmost(app)
@@ -367,7 +340,7 @@ test.describe('installed Core Review authority', () => {
         await app.close()
         launched = undefined
 
-        launched = await launchInstalled(binary, userDataDir, filePath)
+        launched = await launchReview(userDataDir, filePath)
         await expectEditorWindowHidden(launched.app)
         expectEditorNotFrontmost(launched.app)
         expect(fs.readFileSync(filePath, 'utf8')).toBe(row.expectedSource)
@@ -386,7 +359,6 @@ test.describe('installed Core Review authority', () => {
 
   for (const { row, testCase } of installedSaveReopenRows) {
     test(`${row.id} follows the installed interaction matrix`, async() => {
-      const binary = installedBinary()
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-matrix-'))
       const filePath = path.join(root, 'interaction.md')
       const userDataDir = path.join(root, 'profile')
@@ -398,7 +370,7 @@ test.describe('installed Core Review authority', () => {
         else await expect(kind).toHaveAttribute('data-kind', testCase.reviewKind)
       }
       try {
-        launched = await launchInstalled(binary, userDataDir, filePath)
+        launched = await launchReview(userDataDir, filePath)
         await expectEditorWindowHidden(launched.app)
         expectEditorNotFrontmost(launched.app)
         expect(await launched.page.evaluate(() =>
@@ -411,7 +383,7 @@ test.describe('installed Core Review authority', () => {
         await launched.app.close()
         launched = undefined
 
-        launched = await launchInstalled(binary, userDataDir, filePath)
+        launched = await launchReview(userDataDir, filePath)
         await expectEditorWindowHidden(launched.app)
         expectEditorNotFrontmost(launched.app)
         await expectReviewKind(launched.page)
@@ -425,7 +397,6 @@ test.describe('installed Core Review authority', () => {
 
   for (const { row, testCase } of installedSourceRoundTripRows) {
     test(`${row.id} follows the installed interaction matrix`, async() => {
-      const binary = installedBinary()
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-matrix-'))
       const filePath = path.join(root, 'interaction.md')
       const userDataDir = path.join(root, 'profile')
@@ -442,7 +413,7 @@ test.describe('installed Core Review authority', () => {
         if (testCase.reviewKind !== null) await page.getByTestId('critic-review-next').click()
       }
       try {
-        launched = await launchInstalled(binary, userDataDir, filePath)
+        launched = await launchReview(userDataDir, filePath)
         await expectEditorWindowHidden(launched.app)
         expectEditorNotFrontmost(launched.app)
         expect(await launched.page.evaluate(() =>
@@ -458,7 +429,7 @@ test.describe('installed Core Review authority', () => {
         await launched.app.close()
         launched = undefined
 
-        launched = await launchInstalled(binary, userDataDir, filePath)
+        launched = await launchReview(userDataDir, filePath)
         await expectEditorWindowHidden(launched.app)
         expectEditorNotFrontmost(launched.app)
         expect(await getMarkdownContent(launched.page, launched.app))
@@ -475,14 +446,13 @@ test.describe('installed Core Review authority', () => {
 
   for (const { row, testCase } of installedRenderRows) {
     test(`${row.id} follows the installed interaction matrix`, async() => {
-      const binary = installedBinary()
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-matrix-'))
       const filePath = path.join(root, 'interaction.md')
       const userDataDir = path.join(root, 'profile')
       fs.writeFileSync(filePath, row.source, 'utf8')
       let launched: { app: ElectronApplication, page: Page } | undefined
       try {
-        launched = await launchInstalled(binary, userDataDir, filePath)
+        launched = await launchReview(userDataDir, filePath)
         const { app, page } = launched
         await expectEditorWindowHidden(app)
         expectEditorNotFrontmost(app)
@@ -529,7 +499,7 @@ test.describe('installed Core Review authority', () => {
         await app.close()
         launched = undefined
 
-        launched = await launchInstalled(binary, userDataDir, filePath)
+        launched = await launchReview(userDataDir, filePath)
         await expectEditorWindowHidden(launched.app)
         expectEditorNotFrontmost(launched.app)
         expect(fs.readFileSync(filePath, 'utf8')).toBe(row.expectedSource)
@@ -542,14 +512,13 @@ test.describe('installed Core Review authority', () => {
 
   for (const { row, testCase, actionOutcome } of installedAuthorRows) {
     test(`${row.id} follows the installed interaction matrix`, async() => {
-      const binary = installedBinary()
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-matrix-'))
       const filePath = path.join(root, 'interaction.md')
       const userDataDir = path.join(root, 'profile')
       fs.writeFileSync(filePath, row.source, 'utf8')
       let launched: { app: ElectronApplication, page: Page } | undefined
       try {
-        launched = await launchInstalled(binary, userDataDir, filePath)
+        launched = await launchReview(userDataDir, filePath)
         const { app, page } = launched
         await expectEditorWindowHidden(app)
         expectEditorNotFrontmost(app)
@@ -624,7 +593,7 @@ test.describe('installed Core Review authority', () => {
         await app.close()
         launched = undefined
 
-        launched = await launchInstalled(binary, userDataDir, filePath)
+        launched = await launchReview(userDataDir, filePath)
         await expectEditorWindowHidden(launched.app)
         expectEditorNotFrontmost(launched.app)
         expect(fs.readFileSync(filePath, 'utf8')).toBe(row.expectedSource)
@@ -670,14 +639,13 @@ test.describe('installed Core Review authority', () => {
 
   for (const testCase of installedBulkResolutionCases) {
     test(`bulk ${testCase.decision} is one installed Review history unit`, async() => {
-      const binary = installedBinary()
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-core-'))
       const filePath = path.join(root, 'review.md')
       const userDataDir = path.join(root, 'profile')
       fs.writeFileSync(filePath, bulkResolutionSource, 'utf8')
       let launched: { app: ElectronApplication, page: Page } | undefined
       try {
-        launched = await launchInstalled(binary, userDataDir, filePath)
+        launched = await launchReview(userDataDir, filePath)
         const { app, page } = launched
         await expectEditorWindowHidden(app)
         expectEditorNotFrontmost(app)
@@ -724,7 +692,7 @@ test.describe('installed Core Review authority', () => {
         await app.close()
         launched = undefined
 
-        launched = await launchInstalled(binary, userDataDir, filePath)
+        launched = await launchReview(userDataDir, filePath)
         await expectEditorWindowHidden(launched.app)
         expectEditorNotFrontmost(launched.app)
         expect(fs.readFileSync(filePath, 'utf8')).toBe(testCase.expectedSource)
@@ -737,7 +705,6 @@ test.describe('installed Core Review authority', () => {
   }
 
   test('tracks continuously, edits a Comment, saves, and reopens exact bytes', async() => {
-    const binary = installedBinary()
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-core-'))
     const filePath = path.join(root, 'review.md')
     const userDataDir = path.join(root, 'profile')
@@ -746,7 +713,7 @@ test.describe('installed Core Review authority', () => {
     fs.writeFileSync(filePath, source, 'utf8')
     let launched: { app: ElectronApplication, page: Page } | undefined
     try {
-      launched = await launchInstalled(binary, userDataDir, filePath)
+      launched = await launchReview(userDataDir, filePath)
       const { app, page } = launched
       await expectEditorWindowHidden(app)
       expectEditorNotFrontmost(app)
@@ -834,7 +801,7 @@ test.describe('installed Core Review authority', () => {
       await app.close()
       launched = undefined
 
-      launched = await launchInstalled(binary, userDataDir, filePath)
+      launched = await launchReview(userDataDir, filePath)
       await expect(launched.page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'addition')
       await expect(launched.page.locator('span.mu-paragraph-content').nth(0))
         .toHaveText('seed!')

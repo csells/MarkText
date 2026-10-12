@@ -98,7 +98,7 @@ for (const failure of [
       if (failure === 'Source Worker failure') {
         await page.evaluate(() => {
           const host = window as typeof window & { crashSourceWorker?: () => void }
-          host.crashSourceWorker = window.__marktextDocumentCore?.crashWorker
+          host.crashSourceWorker = window.__marktextDocumentCore?.crashCoreOwner
         })
         if (app === undefined) throw new Error('Electron application is unavailable')
         await enterSourceMode(page, app)
@@ -130,7 +130,7 @@ for (const failure of [
           }
         }, acceptedText)
         expect(burst).toEqual({ dispatched: 129, acknowledged: 129, maximumPending: 1 })
-        await page.evaluate(() => window.__marktextDocumentCore?.crashWorker?.())
+        await page.evaluate(() => window.__marktextDocumentCore?.crashCoreOwner?.())
       } else if (failure === 'Source Worker failure') {
         await page.evaluate((offset) => {
           const host = document.querySelector('.source-code .CodeMirror') as Element & {
@@ -163,7 +163,7 @@ for (const failure of [
         }
         await paragraph.fill(draftText)
         if (failure === 'Worker failure') {
-          await page.evaluate(() => window.__marktextDocumentCore?.crashWorker?.())
+          await page.evaluate(() => window.__marktextDocumentCore?.crashCoreOwner?.())
         }
       }
       if (failure === 'backup failure') {
