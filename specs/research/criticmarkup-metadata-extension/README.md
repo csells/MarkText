@@ -14,6 +14,14 @@ current state. Highlights carry no metadata. The schema evolves through optional
 additions while preserving unknown fields. These are proposal decisions, not
 claims about the capabilities of the current editor.
 
+The [Wayfinder map](decisions/map.md) holds the proposal's destination, standing
+constraints and scope. Its [tickets](decisions/issues/) record each resolved
+question with its full answer: stewardship, prior art, carriers, proposal
+posture, the reference grammar with the alternatives it rejected, and the record
+model and lifecycle rules. They also list the open work: the MarkText
+implementation, the conformance contract, the proposal blueprint and the
+proposal text.
+
 ## Research chronology
 
 | Report | Status and purpose |
@@ -30,7 +38,9 @@ claims about the capabilities of the current editor.
 The five later reports and domain additions had remained uncommitted in the shared
 CM1 worktree. This branch consolidates them with the three previously committed
 reports. Original research files are preserved verbatim; their recommendations
-must be read in chronological context. The local Wayfinder map and decision
-working files remain preserved under `.scratch/criticmarkup-metadata-extension/`;
-this index does not assert that its proposed implementation or conformance work
-has been completed.
+must be read in chronological context. The `research/cm2-stewardship`,
+`research/cm2-prior-art` and `research/cm2-markdown-carriers` branches are
+retired; their reports are here unchanged. The Wayfinder map and tickets under
+`decisions/` are verbatim copies of the local working files; this index does not
+assert that their proposed implementation or conformance work has been
+completed.
