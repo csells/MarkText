@@ -1422,7 +1422,7 @@ describe('document-core semantic changes', () => {
     const large = buildFor(100_000)
     expect(large.nodes).toBeLessThan(small.nodes * 2)
     expect(large.buildUnits).toBeLessThan(small.buildUnits * 110)
-  }, 30_000)
+  })
 
   it('keeps a deeply nested Comment annotation and projection regional', () => {
     const depth = 3_000
@@ -3897,7 +3897,7 @@ describe('document-core semantic changes', () => {
     expect(large.visits).toBeLessThan(small.visits * 3)
     expect(large.allocations).toBeLessThan(small.allocations * 3)
     expect(large.localCopies).toBe(large.allocations)
-  }, 30_000)
+  })
 
   it('lazily projects head and older regional revisions in isolation', () => {
     const source = 'head\n\ntarget word\n\ntail\n\n'
@@ -4434,7 +4434,7 @@ describe('document-core semantic changes', () => {
     expect(inspection.retainedCommittedUpdates).toBe(64)
     expect(inspection.retainedOverlayNodesAllocated).toBeLessThan(2_000)
     expect(inspection.retainedOverlayMaximumDepth).toBeLessThan(32)
-  }, 30_000)
+  })
 
   it('updates boundary and alternating far-region overlay ranks', () => {
     let source = 'guard\n\nfirst word\n\nmiddle word\n\nlast word\n\nguardtail\n\n'

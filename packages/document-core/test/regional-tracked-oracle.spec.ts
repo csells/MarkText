@@ -38,7 +38,7 @@ describe('tracked keys validated from the blocks they change', () => {
     const control = createDocumentCore()
     planFromDocumentParse(control)
     expect(actual).toEqual(control.trackedEdit(regional(control, source), { start, end: start + length, insert }))
-  }, 30_000)
+  })
 })
 
 describe('tracked keys in a literal block beside suggestions', () => {

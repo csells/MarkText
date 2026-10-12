@@ -124,7 +124,7 @@ describe('keys in a document with 10,000 stray markers cost no document parse', 
 
   it('holds 10,000 stray markers', () => {
     expect(createDocumentCore().open(source).diagnostics.length).toBeGreaterThanOrEqual(10_000)
-  }, 30_000)
+  })
 
   const keys: ReadonlyArray<{ name: string, key: Key, tracked: boolean }> = [
     { name: 'untracked typing', key: 'insertText', tracked: false },
