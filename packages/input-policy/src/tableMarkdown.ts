@@ -42,15 +42,15 @@ export function escapeTableCellPipes(text: string, before = '', onEscape?: (inde
 function escapeText(input: string, positions: boolean) {
   const str = input.trim()
   const trimStart = input.length - input.trimStart().length
-  let text = ''
+  const escapes: number[] = []
+  const text = escapeTableCellPipes(str, '', index => escapes.push(index))
+  if (!positions) { return { text, offsets: [] } }
   const offsets: number[] = []
-  for (let index = 0; index <= str.length; index++) {
-    if (positions) { offsets.push(text.length) }
-    if (index === str.length) { break }
-    if (str[index] === '|' && str[index - 1] !== '\\') { text += '\\' }
-    text += str[index]
+  for (let index = 0, escaped = 0; index <= str.length; index++) {
+    offsets.push(index + escaped)
+    if (escapes[escaped] === index) { escaped++ }
   }
-  return { text, offsets: positions ? Array.from({ length: input.length + 1 }, (_, index) => offsets[Math.max(0, Math.min(str.length, index - trimStart))]!) : [] }
+  return { text, offsets: Array.from({ length: input.length + 1 }, (_, index) => offsets[Math.max(0, Math.min(str.length, index - trimStart))]!) }
 }
 
 /** Native table fragment spelling, excluding its enclosing block's line ending. */
