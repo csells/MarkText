@@ -107,6 +107,17 @@ export const CRITIC_CLOSER_BY_OPENER: Readonly<Record<string, string>> = Object.
   Object.fromEntries(FORM_DEFINITIONS.map(({ open, close }) => [open, close]))
 )
 
+/** A `kind` suggestion around `text`; a Substitution proposes `proposed` after its divider. */
+export function spellSuggestion(kind: Profile1CriticKind, text: string, proposed = ''): string {
+  const { open, separator, close } = CRITIC_FORM_SPELLING[kind]
+  return separator === undefined ? `${open}${text}${close}` : `${open}${text}${separator}${proposed}${close}`
+}
+
+/** A Deletion of `old` then an Addition of `next`: two suggestions in place of one Substitution. */
+export function spellSuggestionPair(old: string, next: string): string {
+  return spellSuggestion('deletion', old) + spellSuggestion('addition', next)
+}
+
 function sourceOffset(value: number): SourceOffset {
   return value as SourceOffset
 }

@@ -1,6 +1,7 @@
 import { CRITIC_TOKENS, commentPayloadCandidates } from './commentSpelling.js'
 import { highlightCommentLayout, type HighlightCommentLayout, type HighlightCommentPair } from './commentedSpans.js'
 import { protectNativeCriticText } from './trackedAuthoring.js'
+import { spellSuggestion } from './internal/profile1/sourceTape.js'
 import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, SourceRange } from './documentCore.js'
 
 export type DocumentAuthorForm = 'addition' | 'comment' | 'highlight' | 'substitution'
@@ -152,12 +153,12 @@ export const planAuthor = (
   ): Omit<DocumentAuthorPlan, 'escaped'> | undefined => {
     const insert =
         request.form === 'addition'
-          ? `{++${selected}++}`
+          ? spellSuggestion('addition', selected)
           : request.form === 'comment'
-            ? `{==${selected}==}{>>${authoredText}<<}`
+            ? spellSuggestion('highlight', selected) + spellSuggestion('comment', authoredText)
             : request.form === 'highlight'
-              ? `{==${selected}==}`
-              : `{~~${selected}~>${authoredText}~~}`
+              ? spellSuggestion('highlight', selected)
+              : spellSuggestion('substitution', selected, authoredText)
     const edit = Object.freeze({
       start: authoredRange.start,
       end: authoredRange.end,
@@ -304,7 +305,7 @@ function planHighlightComment(
   const at = highlight.range.end
   const payloads = [text, ...commentPayloadCandidates(text, diagnosticsOf).map(({ payload }) => payload).filter(payload => payload !== text)]
   for (const payload of payloads) {
-    const edit = Object.freeze({ start: at, end: at, insert: `{>>${payload}<<}` })
+    const edit = Object.freeze({ start: at, end: at, insert: spellSuggestion('comment', payload) })
     const candidate = preview([edit])
     const end = at + edit.insert.length
     if (candidate.diagnostics.some(diagnostic => diagnostic.range.start < end && diagnostic.range.end > at)) continue
