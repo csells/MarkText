@@ -1,12 +1,9 @@
 import { expect, test } from '../fixtures/muya';
+import { bootCore } from '../helpers/coreBoundary';
 
 for (const source of ['text[^fresh]\n', 't{++ext++}[^fresh]{>>keep<<}\n', 'text[^fr{++esh++}]{>>keep<<}\n']) {
     test(`footnote Create enters the common stack (${source.includes('{++') ? source.includes('[^fr{') ? 'CM label' : 'CM' : 'plain'})`, async ({ page }) => {
-        await page.evaluate(async (source) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, false, undefined, { footnotes: true });
-        }, source);
+        await bootCore(page, source, { options: { footnotes: true } });
         try {
             await expect(page.locator('#noteref-fresh')).toHaveCount(1);
             await page.locator('#noteref-fresh').click();
@@ -29,12 +26,7 @@ for (const source of ['text[^fresh]\n', 't{++ext++}[^fresh]{>>keep<<}\n', 'text[
 for (const math of ['$$\nx+y\n$$', '{++$$\nx+y\n$$++}']) {
     test(`preview Delete owns its paragraph and next key (${math.includes('{++') ? 'CM' : 'plain'})`, async ({ page }) => {
         const source = `first{>>keep<<}\n\n${math}\n\nlast\n`;
-        await page.evaluate(async (source) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2, true);
-        }, source);
+        await bootCore(page, source, { cursor: [2, 2, true] });
         try {
             await page.locator('.mu-math-preview').hover();
             await page.locator('.mu-preview-tools li.delete').click();
@@ -115,12 +107,7 @@ for (const tracked of [false, true]) {
 
 test('heading Backspace preserves suggestions before trusted typing', async ({ page }) => {
     const source = '# s{++a++}me{>>keep<<}\n';
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-        window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(0, 0, true);
-    }, source);
+    await bootCore(page, source, { cursor: [0, 0, true] });
     try {
         await page.keyboard.press('Backspace');
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: 's{++a++}me{>>keep<<}\n' }, anchor: 0, caret: 0, legacyCalls: [] });

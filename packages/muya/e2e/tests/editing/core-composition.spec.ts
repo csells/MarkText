@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { bootCore } from '../helpers/coreBoundary';
 
 // CDP exercises Chromium composition events; it does not operate an OS IME panel.
 for (const example of [
@@ -9,12 +10,7 @@ for (const example of [
     test(`Core composition commits ${example.name} before the next browser key`, async ({ page }) => {
         const errors: string[] = [];
         page.on('pageerror', error => errors.push(error.message));
-        await page.evaluate(async (example) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, example.source);
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(example.start, example.end);
-        }, example);
+        await bootCore(page, example.source, { cursor: [example.start, example.end] });
         const cdp = await page.context().newCDPSession(page);
         try {
             await cdp.send('Input.imeSetComposition', { text: '日', selectionStart: 1, selectionEnd: 1 });
@@ -49,12 +45,7 @@ for (const selected of [false, true]) {
     test(`Core Chromium composition cancellation restores ${selected ? 'selected text' : 'the caret'} before the next key`, async ({ page }) => {
         const errors: string[] = [];
         page.on('pageerror', error => errors.push(error.message));
-        await page.evaluate(async (selected) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, 'a{++aa++}a\n');
-            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, selected ? 3 : 2);
-        }, selected);
+        await bootCore(page, 'a{++aa++}a\n', { cursor: [2, selected ? 3 : 2] });
         const cdp = await page.context().newCDPSession(page);
         try {
             await cdp.send('Input.imeSetComposition', { text: '日', selectionStart: 1, selectionEnd: 1 });

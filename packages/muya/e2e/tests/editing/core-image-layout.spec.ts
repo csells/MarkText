@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { bootCore } from '../helpers/coreBoundary';
 
 const url = 'https://example.test/layout.svg';
 const image = `![cat](${url})`;
@@ -10,11 +11,7 @@ for (const resize of [false, true]) {
             body: '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80"><rect width="160" height="80" fill="blue"/></svg>',
         }));
         const original = `${image} ${image}\n`;
-        await page.evaluate(async (source) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-        }, original);
+        await bootCore(page, original);
         try {
             const images = page.locator('#editor .mu-inline-image img');
             await expect(images).toHaveCount(2);
@@ -64,11 +61,7 @@ test('native resizing preserves independent CM labels and comments through input
     const original = `![A {++sunny ++}{++sandy ++}beach{>>keep<<}](${url})\n`;
     const expected = `![A {++sunny ++}{++sandy ++}beach{>>keep<<}](${url}){width=200}\n`;
     const caret = `![A sunny sandy beach](${url}){width=200}`.length;
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-    }, original);
+    await bootCore(page, original);
     try {
         const image = page.locator('#editor .mu-inline-image img');
         await expect.poll(() => image.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(160);
@@ -179,11 +172,7 @@ test('repeated tracked native resizing presents the latest width while preservin
     const original = `![a{++b++}c{>>keep<<}](${url}){width=120}\n`;
     const firstResize = `![a{++b++}c{>>keep<<}](${url}){width={~~120~>200~~}}\n`;
     const expected = `![a{++b++}c{>>keep<<}](${url}){width={~~120~>240~~}}\n`;
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source, true);
-    }, original);
+    await bootCore(page, original, { tracked: true });
     try {
         const image = page.locator('#editor .mu-inline-image img');
         await expect(image).toHaveAttribute('width', '120');

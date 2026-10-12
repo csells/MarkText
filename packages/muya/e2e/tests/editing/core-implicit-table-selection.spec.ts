@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { bootCore } from '../helpers/coreBoundary';
 import { editor } from '../helpers/selectors';
 import { dragSelect, selectedCount } from '../helpers/tableSelection';
 
@@ -89,11 +90,7 @@ for (const bound of [false, true]) {
 }
 
 test('Core pairing in the later implicit cell governs the next key without an acknowledgement wait', async ({ page }) => {
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-    }, source);
+    await bootCore(page, source);
     // Typing writes only its own bytes and adds its missing cells minimally (ADR 0007).
     const expected = '| a | b | c |\n| --- | --- | --- |\n| x | | (x) |\n';
     const laterCell = page.locator(editor.table).first().locator('tr').nth(1).locator('td').nth(2);
