@@ -61,4 +61,21 @@ describe('editor.focus()', () => {
         muya.focus();
         expect(muya.editor.activeContentBlock).toBe(first);
     });
+
+    // The editing host needs DOM focus as well as a selection, or no caret
+    // blinks (upstream #5638: a double click on a sidebar file hands focus to
+    // the editor).
+    it.each([true, false])('takes DOM focus from another element (prior caret: %s)', (prior) => {
+        const muya = bootMuya('alpha\n\nbeta\n');
+        if (prior)
+            (muya.editor.scrollPage!.lastContentInDescendant() as Content).setCursor(1, 1, true);
+        const elsewhere = document.createElement('input');
+        document.body.appendChild(elsewhere);
+        bootedHosts.push(elsewhere);
+        elsewhere.focus();
+        expect(document.activeElement).toBe(elsewhere);
+
+        muya.focus();
+        expect(document.activeElement).toBe(muya.domNode);
+    });
 });
