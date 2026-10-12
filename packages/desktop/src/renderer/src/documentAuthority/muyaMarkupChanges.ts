@@ -14,6 +14,7 @@ import {
   isMuyaSplitListRoot,
   muyaCaretSnaps,
   muyaDecorationAfterLastBlock,
+  muyaMarkdownSegments,
   muyaRootsOfBlocks,
   type MuyaCaretSnap,
   type MuyaMarkdownSegment,
@@ -584,33 +585,11 @@ function listItemsPatch(
  * editing syntax, as the whole view reads them (see `createMuyaMarkupView`).
  */
 function regionMarkdown(replacement: MarkupRegionReplacement): Pick<MuyaMarkupView, 'markdown' | 'markdownSegments'> {
-  const markdownSegments: MuyaMarkdownSegment[] = []
-  let markdown = ''
-  let run = 0
-  const runs = replacement.coordinates
-  for (const event of replacement.events) {
-    if (event.kind !== 'text') continue
-    while (run < runs.length && runs[run].source.end <= event.sourceRange.start) run += 1
-    for (let index = run; index < runs.length; index += 1) {
-      const segment = runs[index]
-      if (segment.source.start >= event.sourceRange.end) break
-      const start = Math.max(segment.source.start, event.sourceRange.start)
-      const end = Math.min(segment.source.end, event.sourceRange.end)
-      if (start >= end) continue
-      appendMuyaMarkdownSegment(markdownSegments, {
-        syntax: {
-          start: segment.projected.start + start - segment.source.start,
-          end: segment.projected.start + end - segment.source.start
-        },
-        text: {
-          start: markdown.length + start - event.sourceRange.start,
-          end: markdown.length + end - event.sourceRange.start
-        }
-      })
-    }
-    markdown += event.text
+  const events = replacement.events.filter((event) => event.kind === 'text')
+  return {
+    markdown: events.map((event) => event.text).join(''),
+    markdownSegments: muyaMarkdownSegments(events, replacement.coordinates)
   }
-  return { markdown, markdownSegments }
 }
 
 const literalStates = new Set(['code-block', 'math-block', 'html-block', 'diagram'])

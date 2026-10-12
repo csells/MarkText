@@ -250,6 +250,43 @@ export function appendMuyaMarkdownSegment(
   } else segments.push(segment)
 }
 
+/**
+ * Runs locating the joined text of `events` in editing syntax; events and
+ * runs are both in source order.
+ */
+export function muyaMarkdownSegments(
+  events: readonly Readonly<{ text: string; sourceRange: SourceRange }>[],
+  runs: readonly Readonly<{ source: SourceRange; projected: SourceRange }>[]
+): MuyaMarkdownSegment[] {
+  const segments: MuyaMarkdownSegment[] = []
+  let markdownOffset = 0
+  let runIndex = 0
+  for (const event of events) {
+    while (runIndex < runs.length && runs[runIndex].source.end <= event.sourceRange.start) {
+      runIndex += 1
+    }
+    for (let index = runIndex; index < runs.length; index += 1) {
+      const run = runs[index]
+      if (run.source.start >= event.sourceRange.end) break
+      const start = Math.max(run.source.start, event.sourceRange.start)
+      const end = Math.min(run.source.end, event.sourceRange.end)
+      if (start >= end) continue
+      appendMuyaMarkdownSegment(segments, {
+        syntax: {
+          start: run.projected.start + start - run.source.start,
+          end: run.projected.start + end - run.source.start
+        },
+        text: {
+          start: markdownOffset + start - event.sourceRange.start,
+          end: markdownOffset + end - event.sourceRange.start
+        }
+      })
+    }
+    markdownOffset += event.text.length
+  }
+  return segments
+}
+
 /** Only an owned text node can explain a non-linear display/source mapping. */
 export function isMuyaNormalizedTextSegment(
   binding: { readonly text: string; readonly syntax?: MarkdownAstNode },
@@ -468,36 +505,10 @@ export function createMuyaMarkupView(
     precedingEvents.length === 0 && following === undefined
       ? sourceEvents
       : [...precedingEvents, ...sourceEvents, ...(following?.events ?? [])]
-  const markdownSegments: MuyaMarkdownSegment[] = []
-  const sourceRuns = projection.syntax.coordinates.sourceSegments ?? []
-  let markdownOffset = 0
-  let runIndex = 0
-  for (const event of sourceEvents) {
-    while (
-      runIndex < sourceRuns.length &&
-      sourceRuns[runIndex].source.end <= event.sourceRange.start
-    ) {
-      runIndex += 1
-    }
-    for (let index = runIndex; index < sourceRuns.length; index += 1) {
-      const run = sourceRuns[index]
-      if (run.source.start >= event.sourceRange.end) break
-      const start = Math.max(run.source.start, event.sourceRange.start)
-      const end = Math.min(run.source.end, event.sourceRange.end)
-      if (start >= end) continue
-      appendMuyaMarkdownSegment(markdownSegments, {
-        syntax: {
-          start: run.projected.start + start - run.source.start,
-          end: run.projected.start + end - run.source.start
-        },
-        text: {
-          start: markdownOffset + start - event.sourceRange.start,
-          end: markdownOffset + end - event.sourceRange.start
-        }
-      })
-    }
-    markdownOffset += event.text.length
-  }
+  const markdownSegments = muyaMarkdownSegments(
+    sourceEvents,
+    projection.syntax.coordinates.sourceSegments ?? []
+  )
   // Text events are in source order, so a range's text starts at the first
   // event ending after it: found by bisection, not by scanning every event.
   // The text a regional view was read with begins at a line start, after a
