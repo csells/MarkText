@@ -5310,8 +5310,7 @@ export function createMarkdownLaneState(
  * Extracted so the canonical CriticMarkup-bearing driver can emit the same line
  * records the plain driver does. Line emission is the only thing the plain
  * driver has that the canonical one lacks, and it is the reason two drivers
- * exist over one lane state machine; sharing this is the first step to
- * collapsing them (Phase 0.5 step 7).
+ * exist over one lane state machine.
  */
 function lazyContinuationOpenFor(checkpoint: MarkdownCheckpoint): boolean {
   return checkpoint.paragraphOpen || checkpoint.definitionLazyContinuation === true
