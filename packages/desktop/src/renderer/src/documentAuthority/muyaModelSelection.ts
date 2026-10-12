@@ -1,5 +1,6 @@
 import { documentActiveFormats } from '@marktext/document-core'
 import isEqual from 'lodash/isEqual'
+import { firstGraphemeLength } from '@muyajs/core'
 import type {
   DocumentClipboardInput,
   DocumentDOMPoint,
@@ -1237,8 +1238,6 @@ export function muyaClipboardSelection(
   return selection === null ? undefined : muyaTableSelectionToModel(muya, view, selection)
 }
 
-const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-
 /**
  * Upstream Muya's own Backspace (#113, #4926) removes the whole grapheme
  * before a caret that ends a top-level inline token of the line, or follows
@@ -1315,8 +1314,8 @@ export function muyaBackspaceRemovesGrapheme(
     const textStart = toText(node.range.start)
     const textEnd = toText(node.range.end)
     if (textStart === undefined || textEnd === undefined) return false
-    const [grapheme] = graphemes.segment(binding.text.slice(textStart, textEnd))
-    return grapheme !== undefined && caret === start + grapheme.segment.length
+    const grapheme = firstGraphemeLength(binding.text.slice(textStart, textEnd))
+    return grapheme > 0 && caret === start + grapheme
   })
 }
 

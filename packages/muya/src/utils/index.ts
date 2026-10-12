@@ -404,6 +404,23 @@ function combines(char: string): boolean {
         || `${decomposed}̴`.normalize('NFD') !== `${decomposed}̴`;
 }
 
+// The Unicode code point ending at `i` as a 1- or 2-char string, or '' at the
+// start of the string. Bracket indexing / charAt return a single UTF-16 code
+// unit, splitting a non-BMP code point into raw surrogate halves that never
+// match PUNCTUATION_REG / CJK_REG / UNICODE_WHITESPACE_REG. Reading the full
+// code point keeps CJK_REG's surrogate-pair branch live for Ext-B ideographs.
+export function codePointBefore(s: string, i: number): string {
+    if (i <= 0)
+        return '';
+    const lastUnit = s.charCodeAt(i - 1);
+    if (lastUnit >= 0xDC00 && lastUnit <= 0xDFFF && i >= 2) {
+        const prevUnit = s.charCodeAt(i - 2);
+        if (prevUnit >= 0xD800 && prevUnit <= 0xDBFF)
+            return s.slice(i - 2, i);
+    }
+    return s.charAt(i - 1);
+}
+
 /**
  * Length in UTF-16 code units of what Chromium's Backspace removes before the
  * end of `text`: Blink's BackspaceStateMachine. Unlike a grapheme cluster, it
@@ -418,11 +435,9 @@ export function backspaceLength(text: string): number {
     let unread = text.length;
     const point = (index: number): string => {
         while (points.length <= index && unread > 0) {
-            const unit = text.charCodeAt(unread - 1);
-            const lead = unread >= 2 ? text.charCodeAt(unread - 2) : 0;
-            const size = unit >= 0xDC00 && unit <= 0xDFFF && lead >= 0xD800 && lead <= 0xDBFF ? 2 : 1;
-            points.push(text.slice(unread - size, unread));
-            unread -= size;
+            const previous = codePointBefore(text, unread);
+            points.push(previous);
+            unread -= previous.length;
         }
         return points[index] ?? '';
     };

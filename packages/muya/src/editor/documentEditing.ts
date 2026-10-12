@@ -10,7 +10,7 @@ import { BLOCK_DOM_PROPERTY, isOsx } from '../config';
 import { findContentDOM, getOffsetOfParagraph } from '../selection/dom';
 
 import { SelectionDirection } from '../selection/types';
-import { backspaceLength, lastGraphemeLength } from '../utils';
+import { backspaceLength, firstGraphemeLength, lastGraphemeLength } from '../utils';
 
 export type { DocumentDOMPoint, DocumentEditing, DocumentTextInput, DocumentTextReplacement } from './documentEditingTypes';
 
@@ -250,7 +250,7 @@ function replacementRange(range: ISelection, inputType: string, backspaceGraphem
             return undefined;
         // A caret past the model's text (its DOM holds text the model lacks)
         // reaches past it, where no DOM point is found and the input is refused.
-        const deleted = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(last.text.slice(end.offset))][0]?.segment.length ?? 1;
+        const deleted = firstGraphemeLength(last.text.slice(end.offset)) || 1;
         end = { ...end, offset: end.offset + deleted };
     }
     return { start, end, first, last };
