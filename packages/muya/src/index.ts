@@ -47,7 +47,7 @@ export type { IExportRenderOptions } from './utils/diagram/render';
 export { validEmoji } from './utils/emoji';
 export type { IImageInfo } from './utils/image';
 export { getImageInfo } from './utils/image';
-export { escapeHTML, sanitize, unescapeHTML, wordCount } from './utils/index';
+export { escapeHTML, firstGraphemeLength, sanitize, unescapeHTML, wordCount } from './utils/index';
 export { renderMath } from './utils/marked/extensions/math';
 export { highlightCode } from './utils/marked/getHighlightHtml';
 export { buildRegexValue, matchString } from './utils/search';
