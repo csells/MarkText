@@ -28,6 +28,7 @@
         :text-direction="textDirection"
         :platform="platform"
         :comment-composer-state="commentComposerFor(currentFile.id)"
+        :track-changes-mode-for="coreTrackChangesModes.forDocument"
         :core-lease="wysiwygCoreLease"
         :core-document-lease="currentCoreLease"
         :initial-document-selection="coreInitialDocumentSelection"
@@ -76,6 +77,7 @@ import {
   coreDocumentReloadAuthority,
   coreDocumentSaveAuthority,
   createCoreAuthorityPerformanceTrace,
+  createCoreTrackChangesModes,
   measureCoreDocumentOpen,
   resolveCoreDocumentLaunchPolicy,
   handoffCorePlainTextView,
@@ -149,6 +151,7 @@ const commentComposerFor = (documentId: string): CoreReviewComposerState => {
   }
   return composer
 }
+const coreTrackChangesModes = createCoreTrackChangesModes()
 const coreLaunchPolicy = resolveCoreDocumentLaunchPolicy(window.electron.process.env)
 interface CoreModelOwnerRegistration {
   control?: CoreModelTestControl
@@ -514,6 +517,7 @@ watch(
       // Only the actors retired by this transition relinquish their handlers.
       for (const documentId of retiringDocumentIds) {
         coreModelOwners.delete(documentId)
+        coreTrackChangesModes.forget(documentId)
         coreReloadRegistrations.get(documentId)?.()
         coreReloadRegistrations.delete(documentId)
         coreRecoveryRegistrations.get(documentId)?.()
@@ -681,6 +685,7 @@ watch(
           coreRecoveryRegistrations.delete(documentId)
           coreModelOwners.delete(documentId)
           coreViewSelections.delete(documentId)
+          coreTrackChangesModes.forget(documentId)
         }
         return
       }

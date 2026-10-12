@@ -18,7 +18,9 @@ export {
 export {
   canToggleCoreTrackChanges,
   createCoreTrackChangesMode,
-  type CoreTrackChangesMode
+  createCoreTrackChangesModes,
+  type CoreTrackChangesMode,
+  type CoreTrackChangesModes
 } from './coreTrackChangesMode'
 export { handoffCorePlainTextView, leaseCorePlainTextView } from './corePlainTextViewHandoff'
 export { createCoreActor, type CoreActor } from './coreActor'
