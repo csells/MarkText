@@ -13,6 +13,7 @@ import type { CoreReviewItemLocator, CoreReviewOverviewEntry } from './coreProto
 import { commentPassage, documentArmPassage } from '../documentConsumers/markupPassage'
 import { literalChildText, markupRegionCoordinates } from './muyaMarkupChanges'
 import type { MarkupPassage } from '../documentConsumers/markupPassage'
+import { isPositionKey } from '../documentConsumers/astAttributes'
 
 /**
  * What the Review overview reads of a revision: its whole document, or the
@@ -254,23 +255,12 @@ const readingEntries = (reading: ReviewReading): CoreReviewOverviewEntry[] => {
 const shiftedRange = (range: SourceRange, delta: number): SourceRange =>
   Object.freeze({ start: range.start + delta, end: range.end + delta })
 
-const positionAttributes = new Map<string, boolean>()
-/** Whether an attribute named `key` holds a source position. */
-const isPositionAttribute = (key: string): boolean => {
-  let position = positionAttributes.get(key)
-  if (position === undefined) {
-    position = /(?:Start|End)$/u.test(key)
-    positionAttributes.set(key, position)
-  }
-  return position
-}
-
 const shiftedNode = (node: MarkdownAstNode, at: number, delta: number): MarkdownAstNode => {
   const moved = (position: number): number => position >= at ? position + delta : position
   let attributes: Record<string, MarkdownAstNode['attributes'][string]> | undefined
   for (const key in node.attributes) {
     const value = node.attributes[key]
-    if (typeof value !== 'number' || !isPositionAttribute(key) || moved(value) === value) continue
+    if (typeof value !== 'number' || !isPositionKey(key) || moved(value) === value) continue
     attributes ??= { ...node.attributes }
     attributes[key] = moved(value)
   }

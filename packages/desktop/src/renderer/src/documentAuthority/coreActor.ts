@@ -40,6 +40,8 @@ import type {
   CoreReviewOverviewEntry
 } from './coreProtocol'
 import { createMuyaMarkupView } from './muyaMarkupView'
+import { stringAttribute } from '../documentConsumers/astAttributes'
+import { searchableBlockKinds, semanticProjectionOf } from '../documentConsumers/semanticProjection'
 import { createReviewOverviewTracker } from './coreReviewOverview'
 import { createConsumerSummaryTracker } from './coreConsumerSummary'
 
@@ -63,42 +65,13 @@ const diagnosticsOf = (revision: DocumentRevision) =>
     diagnostics: Object.freeze(revision.diagnostics.slice(0, DIAGNOSTIC_SAMPLE_LIMIT))
   })
 
-const consumerSearchBlockKinds = new Set<MarkdownAstNode['kind']>([
-  'paragraph',
-  'heading',
-  'code-block',
-  'html-block',
-  'front-matter',
-  'math-block',
-  'diagram',
-  'table-cell'
-])
+// Unlike `semanticProjectionOf`'s default, an empty `semanticContent` falls
+// back to the span's `content`.
+const consumerInlineCodeText = (node: MarkdownAstNode): string =>
+  stringAttribute(node, 'semanticContent') || (stringAttribute(node, 'content') ?? '')
 
-const consumerSemanticTextOf = (node: MarkdownAstNode): string => {
-  const stringAttribute = (name: string): string => {
-    const value = node.attributes[name]
-    return typeof value === 'string' ? value : ''
-  }
-  switch (node.kind) {
-    case 'text':
-      return stringAttribute('semanticText')
-    case 'soft-break':
-    case 'hard-break':
-      return '\n'
-    case 'inline-code':
-      return stringAttribute('semanticContent') || stringAttribute('content')
-    case 'code-block':
-    case 'html-block':
-    case 'front-matter':
-    case 'math-block':
-    case 'diagram':
-      return stringAttribute('content')
-    case 'definition':
-      return ''
-    default:
-      return node.children.map(consumerSemanticTextOf).join('')
-  }
-}
+const consumerSemanticTextOf = (node: MarkdownAstNode): string =>
+  semanticProjectionOf(node, undefined, consumerInlineCodeText).text
 
 const nodeAtConsumerPath = (
   ast: MarkdownAst,
@@ -133,55 +106,22 @@ const projectedRangeForConsumerMatch = (
     return undefined
   }
   const block = nodeAtConsumerPath(projection.ast, match.path)
-  if (block === undefined || !consumerSearchBlockKinds.has(block.kind)) return undefined
-  if (consumerSemanticTextOf(block).slice(match.start, match.end) !== match.match) {
-    return undefined
-  }
-
-  let semanticOffset = 0
-  let resolved: Readonly<{ readonly start: number; readonly end: number }> | undefined
-  const visit = (node: MarkdownAstNode): void => {
-    if (resolved !== undefined) return
-    if (node.kind === 'text') {
-      const semantic = consumerSemanticTextOf(node)
-      const leafStart = semanticOffset
-      const leafEnd = leafStart + semantic.length
-      if (match.start >= leafStart && match.end <= leafEnd) {
-        const raw = projection.markdown.slice(node.range.start, node.range.end)
-        const suffix = raw.slice(semantic.length)
-        if (raw === semantic || (raw.startsWith(semantic) && /^\s*$/u.test(suffix))) {
-          resolved = Object.freeze({
-            start: node.range.start + match.start - leafStart,
-            end: node.range.start + match.end - leafStart
-          })
-        }
-      }
-      semanticOffset = leafEnd
-      return
-    }
-    if (
-      node.kind === 'soft-break' ||
-      node.kind === 'hard-break' ||
-      node.kind === 'inline-code' ||
-      node.kind === 'code-block' ||
-      node.kind === 'html-block' ||
-      node.kind === 'front-matter' ||
-      node.kind === 'math-block' ||
-      node.kind === 'diagram' ||
-      node.kind === 'definition'
-    ) {
-      semanticOffset += consumerSemanticTextOf(node).length
-      return
-    }
-    for (const child of node.children) visit(child)
-  }
-  visit(block)
-  if (
-    resolved === undefined ||
-    projection.markdown.slice(resolved.start, resolved.end) !== match.match
-  ) {
-    return undefined
-  }
+  if (block === undefined || !searchableBlockKinds.has(block.kind)) return undefined
+  const semantic = semanticProjectionOf(block, projection.markdown, consumerInlineCodeText)
+  if (semantic.text.slice(match.start, match.end) !== match.match) return undefined
+  // Only a text leaf spelled directly can hold the whole match.
+  const leaf = semantic.segments.find(
+    (segment) =>
+      segment.kind === 'text' &&
+      match.start >= segment.semanticStart &&
+      match.end <= segment.semanticEnd
+  )
+  if (leaf === undefined) return undefined
+  const resolved = Object.freeze({
+    start: leaf.projectionStart + match.start - leaf.semanticStart,
+    end: leaf.projectionStart + match.end - leaf.semanticStart
+  })
+  if (projection.markdown.slice(resolved.start, resolved.end) !== match.match) return undefined
   return resolved
 }
 
@@ -402,8 +342,9 @@ export function createCoreActor(
     })
   const recoveryHistory = (): CoreHistorySnapshot =>
     Object.freeze({
-      undo: Object.freeze(undoStack.map(copyEntry)),
-      redo: Object.freeze(redoStack.map(copyEntry)),
+      // Entries are deeply frozen when recorded.
+      undo: Object.freeze([...undoStack]),
+      redo: Object.freeze([...redoStack]),
       ...(nativeHistoryGroup !== undefined && undoStack.at(-1) === nativeHistoryGroup.entry
         ? { nativeHistoryGroup: nativeHistoryGroup.id }
         : {})
@@ -440,6 +381,39 @@ export function createCoreActor(
       result = result.slice(0, edit.start) + edit.insert + result.slice(edit.end)
     }
     return result
+  }
+  /**
+   * Whether ordered `edits` leave the source as it is, reading only the span
+   * from the first edit's start to the last one's end.
+   */
+  const leavesSourceUnchanged = (
+    activeCore: DocumentCore,
+    activeRevision: DocumentRevision,
+    edits: readonly DocumentSourceEdit[]
+  ): boolean => {
+    const first = edits[0]
+    const last = edits.at(-1)
+    if (first === null || typeof first !== 'object' || last === null || typeof last !== 'object') {
+      return false
+    }
+    const { start } = first
+    const { end } = last
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start < 0 ||
+      end < start ||
+      end > activeRevision.sourceLength
+    ) {
+      return false
+    }
+    const span = activeCore.sourceSlice(activeRevision, { start, end })
+    const local = edits.map((edit) =>
+      edit === null || typeof edit !== 'object'
+        ? edit
+        : { ...edit, start: edit.start - start, end: edit.end - start }
+    )
+    return applyRecoveryEdits(span, local) === span
   }
   const restoreHistory = (
     snapshot: CoreHistorySnapshot,
@@ -648,18 +622,18 @@ export function createCoreActor(
         ? {}
         : { beforeSelection: previous.beforeSelection }),
       undo: Object.freeze([
-        {
+        Object.freeze({
           start: start + prefix,
           end: start + after.length - suffix,
           insert: before.slice(prefix, before.length - suffix)
-        }
+        })
       ]),
       redo: Object.freeze([
-        {
+        Object.freeze({
           start: start + prefix,
           end: start + before.length - suffix,
           insert: after.slice(prefix, after.length - suffix)
-        }
+        })
       ])
     })
   }
@@ -2018,8 +1992,7 @@ export function createCoreActor(
           request.type === 'replace-consumer-search') &&
         edits!.length > 1
       ) {
-        const prospectiveSource = applyRecoveryEdits(revision.source, edits!)
-        if (prospectiveSource === revision.source) {
+        if (leavesSourceUnchanged(core, revision, edits!)) {
           return Object.freeze({
             type: 'rejected',
             session,

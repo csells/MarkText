@@ -1,20 +1,16 @@
-import { _electron, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
+  clickMenuByLabelIfEnabled as menu,
+  closeWithoutRendererErrors,
   enterSourceMode,
   exitSourceMode,
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
-  waitForEditor,
-  waitForMenuReady
+  launchInstalled
 } from './helpers'
-import {
-  defaultCoreLaunchEnvironment,
-  expectDefaultCoreAuthority,
-  expectInstalledArtifactCommit
-} from './installedArtifactProvenance'
 
 const original = 'alpha {++beta++} omega.{>>old note<<}\n'
 async function launch(second = false) {
@@ -24,64 +20,24 @@ async function launch(second = false) {
   const other = path.join(root, 'second.md')
   fs.writeFileSync(file, original, { flag: 'wx' })
   if (second) fs.writeFileSync(other, 'Second document.\n', { flag: 'wx' })
-  const executablePath = process.env.MARKTEXT_PACKAGED_APP
-  if (!executablePath) throw new Error('Installed review lifecycle requires MARKTEXT_PACKAGED_APP')
-  const app = await _electron.launch({
-    executablePath,
-    args: ['--user-data-dir', path.join(root, 'profile'), file, ...(second ? [other] : [])],
-    cwd: path.resolve(__dirname, '../..'),
-    env: defaultCoreLaunchEnvironment({
-      PERF_TESTING: 'true',
-      MARKTEXT_E2E_HIDDEN_WINDOW: '1',
-      MARKTEXT_ERROR_INTERACTION: '1'
-    })
+  const { app, page } = await launchInstalled([file, ...(second ? [other] : [])], {
+    userDataDir: path.join(root, 'profile')
   })
-  await app.evaluate(({ ipcMain }) => {
-    const errors: unknown[] = []
-    ;(globalThis as unknown as { reviewLifecycleErrors: unknown[] }).reviewLifecycleErrors = errors
-    ipcMain.on('mt::handle-renderer-error', (_, error) => errors.push(error))
-  })
-  const page = await app.firstWindow()
-  await page.waitForLoadState('domcontentloaded')
-  await waitForEditor(page)
-  await waitForMenuReady(app)
-  await expectInstalledArtifactCommit(page)
-  await expectDefaultCoreAuthority(page)
   await expectEditorWindowHidden(app)
   expectEditorNotFrontmost(app)
   if (second) await page.locator(`.tabs-container li[title="${file}"]`).click()
   return { app, page, file, other }
 }
 async function close(app: ElectronApplication) {
-  const errors = await app.evaluate(({ dialog }) => {
+  await app.evaluate(({ dialog }) => {
     // A failed case may leave a composer open; never show a real close prompt.
     dialog.showMessageBox = (async() => ({
       response: 0,
       checkboxChecked: false
     })) as typeof dialog.showMessageBox
-    return (globalThis as unknown as { reviewLifecycleErrors: unknown[] }).reviewLifecycleErrors
   })
-  expectEditorNotFrontmost(app)
-  await app.close()
-  expect(errors).toEqual([])
+  await closeWithoutRendererErrors(app)
 }
-async function menu(app: ElectronApplication, section: string, label: string): Promise<boolean> {
-  return app.evaluate(
-    ({ Menu, BrowserWindow }, command) => {
-      const item = Menu.getApplicationMenu()
-        ?.items.find((item) => item.label === command.section)
-        ?.submenu?.items.find((item) => item.label.replace(/\u2026|\.\.\./g, '') === command.label)
-      const win = BrowserWindow.getAllWindows().find((win) =>
-        win.webContents.getURL().includes('type=editor')
-      )
-      if (!item || !win) throw new Error(`Missing command ${command.section}/${command.label}`)
-      if (item.enabled) item.click(item, win, { triggeredByAccelerator: false })
-      return item.enabled
-    },
-    { section, label }
-  )
-}
-
 // A pointer on the comment marker only selects its entry (ADR 0004); Review →
 // Edit Comment opens the composer, and with it the sidebar.
 async function editMarkedComment(app: ElectronApplication, page: Page) {

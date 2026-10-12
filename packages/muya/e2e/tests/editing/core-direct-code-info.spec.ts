@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const example of [
     { source: '```js\nbody\n```\n', typed: '```jxys\nbody\n```\n', offset: 1, language: 'jxys' },
@@ -20,14 +21,14 @@ for (const example of [
             await page.keyboard.type('x');
             expect(await page.evaluate(() => window.muya!.getSelection()?.anchor.path)).toEqual([0, 'meta', 'lang']);
             await page.keyboard.type('y');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.typed }, anchor: example.offset + 2, caret: example.offset + 2, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.source }, caret: example.offset });
+            expect(await readCore(page)).toMatchObject({ source: { source: example.typed }, anchor: example.offset + 2, caret: example.offset + 2, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source: example.source }, caret: example.offset });
             expect(await page.evaluate(() => window.muya!.getSelection()?.anchor.path)).toEqual([0, 'meta', 'lang']);
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            const saved = await page.evaluate(() => window.coreBoundary.reopen());
+            await coreHistory(page, 'redo');
+            await coreHistory(page, 'redo');
+            const saved = await reopenCore(page);
             expect(saved).toMatchObject({ source: example.typed });
             await page.evaluate(async (source) => {
                 window.coreBoundary.dispose();
@@ -37,6 +38,6 @@ for (const example of [
             }, saved.source);
             expect(await page.locator('.mu-language-input').textContent()).toBe(example.language);
         }
-        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        finally { await disposeCore(page); }
     });
 }

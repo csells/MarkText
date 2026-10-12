@@ -7,6 +7,7 @@ import {
   type MuyaMarkupRootItems,
   type MuyaMarkupRoots
 } from './muyaMarkupViewRoots'
+import { itemOfPath, listStates, rootOf, samePath } from './muyaMarkupPath'
 
 /**
  * Items of a view list, such as its bindings or decorations, that belong to
@@ -14,11 +15,6 @@ import {
  * Views list items in root order; a list out of that order is scanned.
  */
 const ordered = new WeakMap<readonly unknown[], boolean>()
-
-const rootOf = (item: { readonly path: MuyaMarkupPath }): number => {
-  const root = item.path[0]
-  return typeof root === 'number' ? root : Number.NaN
-}
 
 function inRootOrder(items: readonly { readonly path: MuyaMarkupPath }[]): boolean {
   let result = ordered.get(items)
@@ -36,7 +32,7 @@ function inRootOrder(items: readonly { readonly path: MuyaMarkupPath }[]): boole
 }
 
 /** The items whose path starts at root `root`, in list order. */
-export function muyaItemsAtRoot<Item extends { readonly path: MuyaMarkupPath }>(
+function muyaItemsAtRoot<Item extends { readonly path: MuyaMarkupPath }>(
   items: readonly Item[],
   root: number
 ): readonly Item[] {
@@ -54,7 +50,7 @@ export function muyaItemsAtRoot<Item extends { readonly path: MuyaMarkupPath }>(
 }
 
 /** The items whose path starts at a root in `[start, end)`, in list order. */
-export function muyaItemsInRoots<Item extends { readonly path: MuyaMarkupPath }>(
+function muyaItemsInRoots<Item extends { readonly path: MuyaMarkupPath }>(
   items: readonly Item[],
   start: number,
   end: number
@@ -75,11 +71,8 @@ export function muyaItemsInRoots<Item extends { readonly path: MuyaMarkupPath }>
   return items.slice(first(start), first(end))
 }
 
-const samePath = (left: MuyaMarkupPath, right: MuyaMarkupPath): boolean =>
-  left.length === right.length && left.every((part, index) => part === right[index])
-
 /** The items at exactly `path`, in list order. */
-export function muyaItemsAtPath<Item extends { readonly path: MuyaMarkupPath }>(
+function muyaItemsAtPath<Item extends { readonly path: MuyaMarkupPath }>(
   items: readonly Item[],
   path: MuyaMarkupPath
 ): Item[] {
@@ -109,9 +102,6 @@ export function muyaItemAtPath<Item extends { readonly path: MuyaMarkupPath }>(
 
 type ViewLists = Pick<MuyaMarkupView, 'bindings' | 'decorations' | 'comments'>
 type ViewItem<Kind extends keyof MuyaMarkupRootItems> = MuyaMarkupRootItems[Kind][number]
-
-const itemOfPath = (path: MuyaMarkupPath): number | undefined =>
-  path[1] === 'children' && typeof path[2] === 'number' ? path[2] : undefined
 
 /**
  * The bindings of `roots`' root `path[0]` that can be at `path`: for a list
@@ -160,8 +150,6 @@ function itemsNear(groups: MuyaMarkupItemBindings, low: number, high: number): n
   for (let item = first; item <= Math.min(groups.count - 1, after + 1); item += 1) items.push(item)
   return items
 }
-
-const listStates = new Set(['bullet-list', 'order-list', 'task-list'])
 
 /** The item groups of fully listed list roots, made by their first search. */
 const listedItemGroups = new WeakMap<MuyaMarkupRootItems, MuyaMarkupItemBindings | null>()

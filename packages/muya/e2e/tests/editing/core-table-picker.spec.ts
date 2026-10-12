@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { disposeCore } from '../helpers/coreBoundary';
 import { editor, floats, quickInsertItem, tablePickerCell } from '../helpers/selectors';
 
 for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: true, tracked: false }, { bound: true, tracked: true }]) {
@@ -52,7 +53,7 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
         }
         finally {
             if (bound)
-                await page.evaluate(() => window.coreBoundary.dispose());
+                await disposeCore(page);
         }
     });
 }
@@ -104,7 +105,7 @@ for (const bound of [false, true]) {
             }
             finally {
                 if (bound)
-                    await page.evaluate(() => window.coreBoundary.dispose());
+                    await disposeCore(page);
             }
         });
     }

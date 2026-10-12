@@ -564,7 +564,7 @@ const props = defineProps<{
   initialDocumentSelection?: DocumentSelection
   corePlainTextView?: MuyaMarkupView
   corePerformanceTrace?: CoreAuthorityPerformanceTrace
-  coreTestCrashWorker?: () => void
+  coreTestCrashCoreOwner?: () => void
   coreTestStaleNextTransaction?: () => void
   commentComposerState?: CoreReviewComposerState
   /** True once, for the first view of a newly opened document. */
@@ -1639,6 +1639,16 @@ const reconcileCoreHistoryView = (outcome: CoreAppliedReply): MuyaPlainTextBindi
   return view
 }
 
+/** Reconciles a preparation's outcome only while `lease` still owns this view. */
+const reconcileWhileLeased =
+  (lease: typeof props.coreLease, preparation: string) =>
+    (outcome: CoreAppliedReply): MuyaPlainTextBindings => {
+      if (props.coreLease !== lease) {
+        throw new Error(`${preparation} view lease changed during preparation`)
+      }
+      return reconcileCoreHistoryView(outcome)
+    }
+
 const showCoreProjection = async (mode: 'markup' | 'original' | 'revised'): Promise<void> => {
   if (coreDisplayLoading.value || props.coreLease === undefined) return
   if (mode === 'markup') {
@@ -2100,7 +2110,7 @@ const authorCoreReview = async (
     (selection.anchor.offset === selection.focus.offset &&
       selection.anchor.path.join('/') === selection.focus.path.join('/'))
   ) {
-    // A caret in a standalone highlight comments on that highlight (plan 0012 G16).
+    // A caret in a standalone highlight comments on that highlight.
     if (form === 'comment' && coreReviewHighlightTarget.value !== undefined) {
       coreAuthorInvocationSelection.value = undefined
       await commentOnCoreHighlight(coreReviewHighlightTarget.value)
@@ -2154,7 +2164,7 @@ const authorCoreReview = async (
       coreAuthorSelection.value = undefined
       await refreshCoreReviewItem('next', 0)
       // As in Google Docs, the item just made holds the selection, so its card
-      // is the active one until the caret leaves it (G13).
+      // is the active one until the caret leaves it.
       const authored = outcome.authorResult?.selection.start
       const entry = authored === undefined
         ? undefined
@@ -2234,7 +2244,7 @@ const beginCoreAuthorReview = (
 }
 
 // A selection takes the forms Core can author over it; a caret in a
-// standalone highlight can take a comment on that highlight (plan 0012 G16).
+// standalone highlight can take a comment on that highlight.
 const coreReviewAuthorForms = computed<readonly CoreAuthorForm[]>(() =>
   coreAuthorSelection.value !== undefined
     ? coreAuthorForms.value
@@ -3729,12 +3739,7 @@ onMounted(() => {
         const preparation = adapter.prepareImage(
           action,
           payload,
-          (outcome) => {
-            if (props.coreLease !== lease) {
-              throw new Error('Image view lease changed during preparation')
-            }
-            return reconcileCoreHistoryView(outcome)
-          },
+          reconcileWhileLeased(lease, 'Image'),
           operation.historyGroup
         )
         const presentImage = presentPendingClipboardImage(
@@ -3809,12 +3814,7 @@ onMounted(() => {
                 })
           },
           payload,
-          (outcome) => {
-            if (props.coreLease !== lease) {
-              throw new Error('Clipboard view lease changed during preparation')
-            }
-            return reconcileCoreHistoryView(outcome)
-          },
+          reconcileWhileLeased(lease, 'Clipboard'),
           historyGroup
         )
         const presentImage = presentPendingClipboardImage(
@@ -4080,12 +4080,11 @@ onMounted(() => {
     )
     if (corePerformanceTestBridge !== undefined) {
       window.__marktextDocumentCore = Object.freeze({
-        mode: 'core',
         documentId: props.coreLease.documentId,
         generation: props.coreLease.identity.generation,
-        ...(props.coreTestCrashWorker === undefined
+        ...(props.coreTestCrashCoreOwner === undefined
           ? {}
-          : { crashWorker: props.coreTestCrashWorker }),
+          : { crashCoreOwner: props.coreTestCrashCoreOwner }),
         ...(props.coreTestStaleNextTransaction === undefined
           ? {}
           : { staleNextTransaction: props.coreTestStaleNextTransaction }),

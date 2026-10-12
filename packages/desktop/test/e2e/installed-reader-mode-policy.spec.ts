@@ -1,19 +1,15 @@
-import { _electron, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
+  clickMenuByLabelIfEnabled as menu,
+  closeWithoutRendererErrors as close,
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
-  waitForEditor,
-  waitForMenuReady,
+  launchInstalled,
   showReviewSidebar
 } from './helpers'
-import {
-  defaultCoreLaunchEnvironment,
-  expectDefaultCoreAuthority,
-  expectInstalledArtifactCommit
-} from './installedArtifactProvenance'
 
 const original = 'alpha {++beta++} alpha.\n\nSecond alpha paragraph.\n'
 
@@ -22,68 +18,10 @@ async function launch() {
   fs.mkdirSync(root, { recursive: true })
   const file = path.join(root, 'reader.md')
   fs.writeFileSync(file, original, { flag: 'wx' })
-  const executablePath = process.env.MARKTEXT_PACKAGED_APP
-  if (!executablePath) {
-    throw new Error('Installed reader-mode policy requires MARKTEXT_PACKAGED_APP')
-  }
-  const app = await _electron.launch({
-    executablePath,
-    args: ['--user-data-dir', path.join(root, 'profile'), file],
-    cwd: path.resolve(__dirname, '../..'),
-    env: defaultCoreLaunchEnvironment({
-      PERF_TESTING: 'true',
-      MARKTEXT_E2E_HIDDEN_WINDOW: '1',
-      MARKTEXT_ERROR_INTERACTION: '1'
-    })
-  })
-  await app.evaluate(({ ipcMain }) => {
-    const errors: unknown[] = []
-    ;(globalThis as unknown as { readerPolicyErrors: unknown[] }).readerPolicyErrors = errors
-    ipcMain.on('mt::handle-renderer-error', (_, error) => errors.push(error))
-  })
-  const page = await app.firstWindow()
-  await page.waitForLoadState('domcontentloaded')
-  await waitForEditor(page)
-  await waitForMenuReady(app)
-  await expectInstalledArtifactCommit(page)
-  await expectDefaultCoreAuthority(page)
+  const { app, page } = await launchInstalled([file], { userDataDir: path.join(root, 'profile') })
   await expectEditorWindowHidden(app)
   expectEditorNotFrontmost(app)
   return { app, page, file }
-}
-
-async function close(app: ElectronApplication) {
-  const errors = await app.evaluate(
-    () => (globalThis as unknown as { readerPolicyErrors: unknown[] }).readerPolicyErrors
-  )
-  expectEditorNotFrontmost(app)
-  await app.close()
-  expect(errors).toEqual([])
-}
-
-/** Clicks the menu item only when enabled, returning its native enabled state. */
-async function menu(app: ElectronApplication, section: string, label: string): Promise<boolean> {
-  return app.evaluate(
-    ({ Menu, BrowserWindow }, command) => {
-      const find = (items: Electron.MenuItem[]): Electron.MenuItem | undefined => {
-        for (const item of items) {
-          if (item.label.replace(/…|\.\.\./g, '') === command.label) return item
-          const nested = item.submenu ? find(item.submenu.items) : undefined
-          if (nested) return nested
-        }
-        return undefined
-      }
-      const top = Menu.getApplicationMenu()?.items.find((item) => item.label === command.section)
-      const item = top?.submenu ? find(top.submenu.items) : undefined
-      const win = BrowserWindow.getAllWindows().find((win) =>
-        win.webContents.getURL().includes('type=editor')
-      )
-      if (!item || !win) throw new Error(`Missing command ${command.section}/${command.label}`)
-      if (item.enabled) item.click(item, win, { triggeredByAccelerator: false })
-      return item.enabled
-    },
-    { section, label }
-  )
 }
 
 async function selectFirstWord(page: Page) {

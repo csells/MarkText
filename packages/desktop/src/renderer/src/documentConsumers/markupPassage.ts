@@ -8,6 +8,7 @@ import type {
   ProjectionCoordinateMap,
   SourceRange
 } from '@marktext/document-core'
+import { isPositionKey } from './astAttributes'
 
 /** One CriticMarkup arm, located in its Markup syntax's projected coordinates. */
 export type MarkupPassageMark = Readonly<{
@@ -62,16 +63,6 @@ const collectMarks = (
     }
     for (const nested of arm.annotations) collectMarks(coordinates, nested, marks)
   }
-}
-
-const positionKeys = new Map<string, boolean>()
-const isPositionKey = (key: string): boolean => {
-  let position = positionKeys.get(key)
-  if (position === undefined) {
-    position = /(?:Start|End)$/u.test(key)
-    positionKeys.set(key, position)
-  }
-  return position
 }
 
 // Keeps the ancestors of whatever the range touches, so the passage keeps the

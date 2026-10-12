@@ -3,6 +3,7 @@ import path from 'node:path'
 import { _electron, expect, test } from '@playwright/test'
 import type { ElectronApplication } from 'playwright'
 import {
+  clickMenuByLabel as menu,
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
   waitForEditor,
@@ -49,24 +50,6 @@ async function launch(source: string) {
     await app.close()
     throw error
   }
-}
-
-async function menu(app: ElectronApplication, section: string, label: string) {
-  await app.evaluate(
-    ({ Menu, BrowserWindow }, command) => {
-      const item = Menu.getApplicationMenu()
-        ?.items.find((item) => item.label === command.section)
-        ?.submenu?.items.find((item) => item.label === command.label)
-      const win = BrowserWindow.getAllWindows().find((win) =>
-        win.webContents.getURL().includes('type=editor')
-      )
-      if (!item?.enabled || !win) {
-        throw new Error(`Unavailable menu ${command.section}/${command.label}`)
-      }
-      item.click(item, win, { triggeredByAccelerator: false })
-    },
-    { section, label }
-  )
 }
 
 async function save(app: ElectronApplication, file: string, expected: string) {
@@ -140,18 +123,10 @@ test('installed emoji matches Markup in reader modes, comments and the HTML expo
     await page.getByTestId('critic-review-revised').click()
     await expect(page.locator('[data-projection="revised"]')).toHaveText('Plain 😄 😄 :smile:.\n')
     const htmlPath = path.join(root, 'inline.html')
-    await app.evaluate(({ dialog, Menu, BrowserWindow }, destination) => {
+    await app.evaluate(({ dialog }, destination) => {
       dialog.showSaveDialog = async() => ({ canceled: false, filePath: destination })
-      const command = Menu.getApplicationMenu()
-        ?.items.find((item) => item.label === 'File')
-        ?.submenu?.items.find((item) => item.label === 'Export')
-        ?.submenu?.items.find((item) => item.label === 'Export as HTML')
-      const win = BrowserWindow.getAllWindows().find((win) =>
-        win.webContents.getURL().includes('type=editor')
-      )
-      if (!command?.enabled || !win) throw new Error('Export as HTML command is unavailable')
-      command.click(command, win, { triggeredByAccelerator: false })
     }, htmlPath)
+    await menu(app, 'File', 'Export', 'Export as HTML')
     const settings = page.locator('.print-settings-dialog .el-dialog')
     await expect(settings).toBeVisible()
     await settings.locator('.button-primary').click()

@@ -1,5 +1,6 @@
 import process from 'node:process';
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const example of [
     { key: 'Backspace', offset: 9, type: 'deleteWordBackward', changed: 'same {++same ++}{>>keep<<}\n', typed: 'same {++same X++}{>>keep<<}\n', caret: 10 },
@@ -27,20 +28,20 @@ test(`trusted word ${example.key} owns the browser range inside an annotation`, 
     try {
         await page.keyboard.press(`${process.platform === 'darwin' ? 'Alt' : 'Control'}+${example.key}`);
         expect(await page.evaluate(() => ({ ...window.muya!.domNode.dataset }))).toMatchObject({ deletionType: example.type, deletionTrusted: 'true', deletionRangeCount: '1' });
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({
+        expect(await readCore(page)).toMatchObject({
             source: { source: example.changed },
             anchor: example.caret, caret: example.caret, legacyCalls: [],
         });
         await page.keyboard.type('X');
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.typed }, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 5 + example.offset, caret: 5 + example.offset });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.typed });
+        expect(await readCore(page)).toMatchObject({ source: { source: example.typed }, legacyCalls: [] });
+        await coreHistory(page, 'undo');
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source }, anchor: 5 + example.offset, caret: 5 + example.offset });
+        await coreHistory(page, 'redo');
+        await coreHistory(page, 'redo');
+        expect(await reopenCore(page)).toMatchObject({ source: example.typed });
     }
-    finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    finally { await disposeCore(page); }
 });
 }
 
@@ -71,16 +72,16 @@ test(`trusted macOS line ${example.key} retains annotated literal text and histo
     try {
         await page.keyboard.press(example.shortcut);
         expect(await page.evaluate(() => ({ ...window.muya!.domNode.dataset }))).toMatchObject({ deletionType: example.type, deletionTrusted: 'true', deletionRangeCount: '1' });
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: changed }, anchor: 7, caret: 7, legacyCalls: [] });
+        expect(await readCore(page)).toMatchObject({ source: { source: changed }, anchor: 7, caret: 7, legacyCalls: [] });
         await page.keyboard.type('X');
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: example.offset, caret: example.offset });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+        expect(await readCore(page)).toMatchObject({ source: { source: typed }, legacyCalls: [] });
+        await coreHistory(page, 'undo');
+        await coreHistory(page, 'undo');
+        expect(await readCore(page)).toMatchObject({ source: { source }, anchor: example.offset, caret: example.offset });
+        await coreHistory(page, 'redo');
+        await coreHistory(page, 'redo');
+        expect(await reopenCore(page)).toMatchObject({ source: typed });
     }
-    finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    finally { await disposeCore(page); }
 });
 }

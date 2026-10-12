@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -39,7 +40,7 @@ for (const example of cases) {
             const expected = tracked ? example.tracked : example.expected;
             try {
                 await page.locator('.mu-task-list-checkbox').nth(example.target).click();
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, anchor: 0, caret: 0, legacyCalls: [] });
+                expect(await readCore(page)).toMatchObject({ source: { source: expected }, anchor: 0, caret: 0, legacyCalls: [] });
                 expect(await page.locator('.mu-task-list-checkbox').evaluateAll(nodes => nodes.map(node => (node as HTMLInputElement).checked))).toEqual(tracked ? example.trackedFlags : example.flags);
                 await page.keyboard.type('X');
                 const at = expected.lastIndexOf(example.needle);
@@ -47,16 +48,16 @@ for (const example of cases) {
                 // Changes extends the pending addition.
                 const replacement = !tracked && 'untrackedReplacement' in example ? example.untrackedReplacement : example.replacement;
                 const next = expected.slice(0, at) + replacement + expected.slice(at + example.needle.length);
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: next }, anchor: 1, caret: 1, legacyCalls: [] });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.source });
-                await page.evaluate(() => window.coreBoundary.history('redo'));
-                await page.evaluate(() => window.coreBoundary.history('redo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: next });
+                expect(await readCore(page)).toMatchObject({ source: { source: next }, anchor: 1, caret: 1, legacyCalls: [] });
+                await coreHistory(page, 'undo');
+                expect(await reopenCore(page)).toMatchObject({ source: expected });
+                await coreHistory(page, 'undo');
+                expect(await reopenCore(page)).toMatchObject({ source: example.source });
+                await coreHistory(page, 'redo');
+                await coreHistory(page, 'redo');
+                expect(await reopenCore(page)).toMatchObject({ source: next });
             }
-            finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+            finally { await disposeCore(page); }
         });
     }
 }

@@ -3,6 +3,7 @@ import type { ElectronApplication, Page } from 'playwright'
 import { readFileSync } from 'node:fs'
 import type { CoreDocumentViewLease } from '../../src/renderer/src/documentAuthority/coreDocumentSessionManager'
 import {
+  clickMenuByLabel,
   enterSourceMode,
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
@@ -92,16 +93,9 @@ async function typeNative(app: ElectronApplication, text: string): Promise<void>
   }, text)
 }
 
-async function menu(app: ElectronApplication, label: string): Promise<void> {
-  await app.evaluate(({ Menu, BrowserWindow }, label) => {
-    const win = BrowserWindow.getAllWindows()[0]
-    if (win.isVisible() || win.isFocused()) throw new Error('Expected a hidden test window')
-    const item = Menu.getApplicationMenu()
-      ?.items.flatMap((section) => section.submenu?.items ?? [])
-      .find((item) => item.label === label)
-    if (!item?.enabled) throw new Error(`Unavailable menu: ${label}`)
-    item.click(undefined, win, win.webContents)
-  }, label)
+async function menu(app: ElectronApplication, ...labels: string[]): Promise<void> {
+  await expectEditorWindowHidden(app)
+  await clickMenuByLabel(app, ...labels)
 }
 
 for (const content of ['**word**', '{++word++}']) {
@@ -154,11 +148,11 @@ for (const content of ['**word**', '{++word++}']) {
           .filter((row) => row.visible.includes('Xseed'))
           .every((row) => row.source === `X${source}` && row.revision === 2)
       ).toBe(true)
-      await menu(app, 'Undo')
+      await menu(app, 'Edit', 'Undo')
       await expect
         .poll(() => page.evaluate(() => window.__marktextDocumentCore?.authoritySource?.()))
         .toBe(source)
-      await menu(app, 'Redo')
+      await menu(app, 'Edit', 'Redo')
       await expect
         .poll(() => page.evaluate(() => window.__marktextDocumentCore?.authoritySource?.()))
         .toBe(`X${source}`)
@@ -166,7 +160,7 @@ for (const content of ['**word**', '{++word++}']) {
       await expect
         .poll(() => page.evaluate(() => window.__marktextDocumentCore?.authoritySource?.()))
         .toBe(`XY${source}`)
-      await menu(app, 'Save')
+      await menu(app, 'File', 'Save')
       await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(`XY${source}`)
       await expectNoRendererErrors(app)
     } finally {

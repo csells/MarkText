@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import { expect, test } from '../fixtures/muya';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { editor } from '../helpers/selectors';
 
 const source = '| a | b | c |\n| --- | --- | --- |\n| x |\n';
@@ -52,7 +53,7 @@ for (const bound of [false, true]) {
             expect(observation).toMatchObject({ error: undefined, cells: ['a', 'b', 'c', 'x', '', 'y'], focus: 1, column: 2 });
             if (bound) {
                 expect(observation.state).toMatchObject({ source: { source: corePastedSource }, legacyCalls: [] });
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: corePastedSource });
+                expect(await reopenCore(page)).toMatchObject({ source: corePastedSource });
             }
             else {
                 expect(observation.source).toBe(pastedSource);
@@ -64,17 +65,17 @@ for (const bound of [false, true]) {
                 return { focus: selection?.focus.offset, column: selection?.focus.block.domNode?.closest('td')?.cellIndex };
             })).toEqual({ focus: 2, column: 2 });
             if (bound) {
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: coreSubsequentSource });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: corePastedSource });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
+                expect(await reopenCore(page)).toMatchObject({ source: coreSubsequentSource });
+                await coreHistory(page, 'undo');
+                expect(await reopenCore(page)).toMatchObject({ source: corePastedSource });
+                await coreHistory(page, 'undo');
+                expect(await reopenCore(page)).toMatchObject({ source });
                 expect(await page.evaluate(() => window.muya!.getSelection()?.focus.block.domNode?.closest('td')?.cellIndex)).toBe(2);
                 await page.evaluate(async () => {
                     await window.coreBoundary.history('redo');
                     await window.coreBoundary.history('redo');
                 });
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: coreSubsequentSource });
+                expect(await reopenCore(page)).toMatchObject({ source: coreSubsequentSource });
             }
             else {
                 // The native branch publishes its queued edits at the flush boundary.
@@ -86,17 +87,13 @@ for (const bound of [false, true]) {
         }
         finally {
             if (bound)
-                await page.evaluate(() => window.coreBoundary.dispose());
+                await disposeCore(page);
         }
     });
 }
 
 test('Core delayed plain paste retains the later implicit target and the intervening cell caret', async ({ page }) => {
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-    }, source);
+    await bootCore(page, source);
     try {
         await page.locator(editor.table).first().locator('tr').nth(1).locator('td').nth(2).click();
         await page.evaluate(() => {
@@ -110,7 +107,7 @@ test('Core delayed plain paste retains the later implicit target and the interve
         await page.keyboard.press('End');
         await page.keyboard.type('X');
         const beforeCompletion = '| a | b | c |\n| --- | --- | --- |\n| xX |\n';
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: beforeCompletion }, legacyCalls: [] });
+        expect(await readCore(page)).toMatchObject({ source: { source: beforeCompletion }, legacyCalls: [] });
         await page.evaluate(async () => {
             window.finishClipboardImage('y');
             await window.pendingClipboardImage;
@@ -118,7 +115,7 @@ test('Core delayed plain paste retains the later implicit target and the interve
             await window.coreBoundary.settle();
         });
         const completed = '| a | b | c |\n| --- | --- | --- |\n| xX | | y |\n';
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: completed });
+        expect(await reopenCore(page)).toMatchObject({ source: completed });
         expect((await page.locator(`${editor.table} td`).allTextContents()).map(text => text.trim())).toEqual(['a', 'b', 'c', 'xX', '', 'y']);
         expect(await page.evaluate(() => {
             const selection = window.muya!.getSelection();
@@ -126,27 +123,23 @@ test('Core delayed plain paste retains the later implicit target and the interve
         })).toEqual({ anchor: 2, focus: 2, column: 0 });
         await page.keyboard.type('Z');
         const subsequent = '| a | b | c |\n| --- | --- | --- |\n| xXZ | | y |\n';
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: subsequent });
+        expect(await reopenCore(page)).toMatchObject({ source: subsequent });
         for (const expected of [completed, beforeCompletion, source]) {
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+            await coreHistory(page, 'undo');
+            expect(await reopenCore(page)).toMatchObject({ source: expected });
         }
         for (const expected of [beforeCompletion, completed, subsequent]) {
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: expected });
         }
         expect(await page.evaluate(() => window.muya!.getSelection()?.focus.block.domNode?.closest('td')?.cellIndex)).toBe(0);
     }
-    finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    finally { await disposeCore(page); }
 });
 
 // Chromium CDP exercises composition ordering, not a native macOS IME panel.
 test('Core delayed paste waits for Chromium composition and captures its committed cell caret', async ({ page }) => {
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-    }, source);
+    await bootCore(page, source);
     const cdp = await page.context().newCDPSession(page);
     try {
         await page.locator(editor.table).first().locator('tr').nth(1).locator('td').nth(2).click();
@@ -170,7 +163,7 @@ test('Core delayed paste waits for Chromium composition and captures its committ
             await Promise.resolve();
         });
         expect(await page.evaluate(() => window.implicitPasteFinished)).toBe(false);
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, legacyCalls: [] });
+        expect(await readCore(page)).toMatchObject({ source: { source }, legacyCalls: [] });
         expect((await page.locator(`${editor.table} td`).allTextContents()).map(text => text.trim())).toEqual(['a', 'b', 'c', 'x日', '', '']);
         await cdp.send('Input.imeSetComposition', { text: '日本', selectionStart: 2, selectionEnd: 2 });
         await cdp.send('Input.insertText', { text: '日本' });
@@ -181,12 +174,12 @@ test('Core delayed paste waits for Chromium composition and captures its committ
         });
         const composed = '| a | b | c |\n| --- | --- | --- |\n| x日本 |\n';
         const completed = '| a | b | c |\n| --- | --- | --- |\n| x日本 | | y |\n';
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: completed });
+        expect(await reopenCore(page)).toMatchObject({ source: completed });
         expect(await page.evaluate(() => {
             const selection = window.muya!.getSelection();
             return { anchor: selection?.anchor.offset, focus: selection?.focus.offset, column: selection?.focus.block.domNode?.closest('td')?.cellIndex };
         })).toEqual({ anchor: 3, focus: 3, column: 0 });
-        const committed = await page.evaluate(() => window.coreBoundary.read());
+        const committed = await readCore(page);
         expect(committed.compositions).toEqual([{
             selection: { kind: 'table-cell', cell: { table: { start: 0, end: source.length - 1 }, row: 1, column: 0 }, anchor: 1, focus: 1 },
             range: { kind: 'table-cell', cell: { table: { start: 0, end: source.length - 1 }, row: 1, column: 0 }, anchor: 1, focus: 1 },
@@ -194,19 +187,19 @@ test('Core delayed paste waits for Chromium composition and captures its committ
         expect(committed.browserEvents.some(event => event.type === 'input' && event.trusted && event.composing)).toBe(true);
         await page.keyboard.type('Z');
         const subsequent = '| a | b | c |\n| --- | --- | --- |\n| x日本Z | | y |\n';
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: subsequent });
+        expect(await reopenCore(page)).toMatchObject({ source: subsequent });
         for (const expected of [completed, composed, source]) {
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+            await coreHistory(page, 'undo');
+            expect(await reopenCore(page)).toMatchObject({ source: expected });
         }
         for (const expected of [composed, completed, subsequent]) {
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: expected });
         }
     }
     finally {
         await cdp.detach();
-        await page.evaluate(() => window.coreBoundary.dispose());
+        await disposeCore(page);
     }
 });
 

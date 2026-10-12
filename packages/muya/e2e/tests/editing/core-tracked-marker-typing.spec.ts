@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { disposeCore, readCore } from '../helpers/coreBoundary';
 
 // Typing a quote or list marker and its space opens the container at once, as
 // upstream does; Track Changes records the same edit and must present it alike.
@@ -19,14 +20,14 @@ for (const tracked of [false, true]) {
             try {
                 await page.keyboard.type(example.marker);
                 const typed = `before\n\n${tracked ? `{++${example.marker}++}` : example.marker}\n\nafter\n`;
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
+                expect(await readCore(page)).toMatchObject({ source: { source: typed }, legacyCalls: [] });
                 expect(await page.evaluate(() => window.muya!.getState()[1]?.name)).toBe(example.container ?? 'paragraph');
                 await page.keyboard.type('x');
                 const then = example.then ?? `${example.marker}x`;
                 const next = `before\n\n${tracked ? `{++${then}++}` : then}\n\nafter\n`;
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: next }, legacyCalls: [] });
+                expect(await readCore(page)).toMatchObject({ source: { source: next }, legacyCalls: [] });
             }
-            finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+            finally { await disposeCore(page); }
         });
     }
 }

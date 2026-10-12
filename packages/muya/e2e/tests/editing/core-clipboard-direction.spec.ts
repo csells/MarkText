@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const bound of [false, true]) {
     test(`cut restores the actual backward selection before subsequent input (Core=${bound})`, async ({ page }) => {
@@ -69,12 +70,12 @@ for (const bound of [false, true]) {
             }, bound)).toBe(bound ? 'a{++X++}a\n' : 'aXa\n');
             if (bound) {
                 expect(await page.evaluate(() => window.coreBoundary.read().legacyCalls)).toEqual([]);
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: 'a{++X++}a\n' });
+                expect(await reopenCore(page)).toMatchObject({ source: 'a{++X++}a\n' });
             }
         }
         finally {
             if (bound)
-                await page.evaluate(() => window.coreBoundary.dispose());
+                await disposeCore(page);
         }
     });
 }
@@ -116,21 +117,21 @@ for (const image of [false, true]) {
                     await window.directedResourceCompletion;
                 await window.coreBoundary.settle();
             }, image);
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: completed }, anchor: 3, caret: 0, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: completed }, anchor: 3, caret: 0, legacyCalls: [] });
             await page.keyboard.press('Shift+ArrowRight');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ anchor: 3, caret: 1 });
+            expect(await readCore(page)).toMatchObject({ anchor: 3, caret: 1 });
             await page.keyboard.type('X');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: completed }, anchor: 3, caret: 1 });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 3, caret: 0 });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+            expect(await readCore(page)).toMatchObject({ source: { source: typed }, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source: completed }, anchor: 3, caret: 1 });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source }, anchor: 3, caret: 0 });
+            await coreHistory(page, 'redo');
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: typed });
         }
         finally {
-            await page.evaluate(() => window.coreBoundary.dispose());
+            await disposeCore(page);
         }
     });
 }

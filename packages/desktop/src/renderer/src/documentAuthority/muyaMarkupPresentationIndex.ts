@@ -1,8 +1,7 @@
 import type { MarkdownAstNode, SourceRange } from '@marktext/document-core'
-import type { IInlinePresentationContext } from '@muyajs/core'
+import { escapeHTML, type IInlinePresentationContext } from '@muyajs/core'
 import {
   caretReveals,
-  escapeHtml,
   isMuyaImageSyntax,
   renderMuyaMarkupBinding
 } from './muyaMarkupPresentation'
@@ -19,6 +18,7 @@ import type {
   MuyaMarkupPath,
   MuyaMarkupView
 } from './muyaMarkupView'
+import { isPositionKey } from '../documentConsumers/astAttributes'
 
 export interface MuyaMarkupPresentationIndex {
   /** Includes removed paths, which remain literal until their view is removed. */
@@ -113,7 +113,7 @@ const sameSyntax = (before: MarkdownAstNode, after: MarkdownAstNode): boolean =>
       if (
         typeof leftValue === 'number' &&
         typeof rightValue === 'number' &&
-        /(?:Start|End)$/u.test(key)
+        isPositionKey(key)
       ) {
         if (leftValue - beforeOrigin !== rightValue - afterOrigin) return false
       } else if (leftValue !== rightValue) return false
@@ -367,7 +367,7 @@ export function createMuyaMarkupPresentationIndex(
       // Mount and reconciliation can briefly expose a native placeholder
       // before its model path exists. Keep it literal: returning undefined
       // would delegate to Muya's independent inline parser.
-      if (entry === undefined) return escapeHtml(text)
+      if (entry === undefined) return escapeHTML(text)
       // Native widgets have mutable loading/cache/selection state. Consult the
       // widget renderer on every requested patch while other leaves stay cached.
       const highlights = context?.highlights ?? []
@@ -389,7 +389,7 @@ export function createMuyaMarkupPresentationIndex(
         return cached.html
       }
       const current = refreshed(entry, path)
-      if (current === undefined) return escapeHtml(text)
+      if (current === undefined) return escapeHTML(text)
       const revealRanges: SourceRange[] = []
       const html = renderer(
         current.binding,

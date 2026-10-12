@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore } from '../helpers/coreBoundary';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -45,12 +46,12 @@ for (const { label, payload, ending, tracked } of examples) {
             // an acknowledgement wait or a presentation-side selection repair.
             await page.keyboard.type('x');
             expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: `x${payload}`, anchor: 1, caret: 1, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
+            await coreHistory(page, 'undo');
             expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: wrapped }, body: payload, anchor: 0, caret: 0, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            await page.evaluate(() => window.coreBoundary.history('redo'));
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source }, legacyCalls: [] });
+            await coreHistory(page, 'redo');
+            await coreHistory(page, 'redo');
             expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), body: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: typed }, body: `x${payload}`, anchor: 1, caret: 1, legacyCalls: [] });
             const reopened = await page.evaluate(async () => {
                 const saved = window.coreBoundary.reopen();
@@ -67,6 +68,6 @@ for (const { label, payload, ending, tracked } of examples) {
                 outside: { name: 'paragraph', text: 'outside' },
                 legacyCalls: [],
             });
-        } finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        } finally { await disposeCore(page); }
     });
 }

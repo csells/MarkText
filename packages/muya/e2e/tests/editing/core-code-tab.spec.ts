@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -29,17 +30,17 @@ for (const example of [
             }, { source, tracked, before: example.before });
             try {
                 await page.keyboard.press('Tab');
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: wrap(example.tabbed) }, anchor: example.after, caret: example.focus, legacyCalls: [] });
+                expect(await readCore(page)).toMatchObject({ source: { source: wrap(example.tabbed) }, anchor: example.after, caret: example.focus, legacyCalls: [] });
                 await page.keyboard.type('x');
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: wrap(example.typed) }, anchor: example.after + 1, caret: example.after + 1, legacyCalls: [] });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: wrap(example.tabbed) } });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
-                await page.evaluate(() => window.coreBoundary.history('redo'));
-                await page.evaluate(() => window.coreBoundary.history('redo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: wrap(example.typed) });
-            } finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+                expect(await readCore(page)).toMatchObject({ source: { source: wrap(example.typed) }, anchor: example.after + 1, caret: example.after + 1, legacyCalls: [] });
+                await coreHistory(page, 'undo');
+                expect(await readCore(page)).toMatchObject({ source: { source: wrap(example.tabbed) } });
+                await coreHistory(page, 'undo');
+                expect(await reopenCore(page)).toMatchObject({ source });
+                await coreHistory(page, 'redo');
+                await coreHistory(page, 'redo');
+                expect(await reopenCore(page)).toMatchObject({ source: wrap(example.typed) });
+            } finally { await disposeCore(page); }
         });
     }
 }

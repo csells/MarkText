@@ -1,5 +1,6 @@
 import { documentActiveFormats } from '@marktext/document-core'
 import isEqual from 'lodash/isEqual'
+import { firstGraphemeLength } from '@muyajs/core'
 import type {
   DocumentClipboardInput,
   DocumentDOMPoint,
@@ -40,9 +41,7 @@ import {
   muyaViewLastBinding,
   muyaViewPreviousBinding
 } from './muyaMarkupViewLookup'
-
-const samePath = (left: readonly (string | number)[], right: readonly (string | number)[]) =>
-  left.length === right.length && left.every((part, index) => part === right[index])
+import { samePath } from './muyaMarkupPath'
 
 const sameCell = (left: MuyaMarkupBinding['tableCell'], right: MuyaMarkupBinding['tableCell']) =>
   left !== undefined &&
@@ -823,16 +822,6 @@ export function muyaInputToModel(
         options: input.options
       }
     }
-    if (input.command === 'createFootnote') {
-      return {
-        kind: input.kind,
-        command: input.command,
-        identifier: input.identifier,
-        selection,
-        options: input.options,
-        ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
-      }
-    }
     if (input.command === 'changeBlock') {
       const at = input.change.at === undefined ? undefined : domPointToModel(input.change.at)
       if (input.change.at !== undefined && at === undefined) {
@@ -860,78 +849,19 @@ export function muyaInputToModel(
       if (target === undefined) {
         throw new Error('The current model has no cell for the table command target')
       }
+      const { target: _nativeTarget, historyGroup, ...command } = input
       return {
-        kind: input.kind,
-        ...(input.command === 'alignTableColumn'
-          ? { command: input.command, alignment: input.alignment }
-          : input.command === 'moveTableColumn'
-            ? { command: input.command, column: input.column }
-            : { command: input.command, row: input.row }),
+        ...command,
         target,
         selection,
-        options: input.options,
-        ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
+        ...(historyGroup === undefined ? {} : { historyGroup })
       }
     }
-    if (input.command === 'createHtmlBlock') {
-      return {
-        kind: input.kind,
-        command: input.command,
-        replace: input.replace,
-        selectionMode: input.selectionMode,
-        selection,
-        options: input.options,
-        ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
-      }
-    }
+    const { historyGroup, ...command } = input
     return {
-      kind: input.kind,
-      ...(input.command === 'setCodeLanguage'
-        ? {
-          command: input.command,
-          language: input.language,
-          ...(input.infoOffset === undefined ? {} : { infoOffset: input.infoOffset })
-        }
-        : input.command === 'tab'
-          ? { command: input.command, shift: input.shift }
-          : input.command === 'setTaskChecked'
-            ? {
-              command: input.command,
-              checked: input.checked,
-              autoCheck: input.autoCheck,
-              autoMoveCheckedToEnd: input.autoMoveCheckedToEnd
-            }
-            : input.command === 'resetCodeBlock'
-              ? { command: input.command, selectionMode: input.selectionMode }
-              : input.command === 'createMathBlock' || input.command === 'createCodeBlock'
-                ? { command: input.command, replace: input.replace }
-                : input.command === 'changeThematicBreak'
-                  ? { command: input.command, change: Object.freeze({ ...input.change }) }
-                  : input.command === 'createFrontMatter'
-                    ? { command: input.command, replace: input.replace, style: input.style }
-                    : input.command === 'createTable'
-                      ? {
-                        command: input.command,
-                        rows: input.rows,
-                        columns: input.columns,
-                        replace: input.replace
-                      }
-                      : input.command === 'changeList'
-                        ? {
-                          command: input.command,
-                          change: Object.freeze({ ...input.change }),
-                          listOptions: Object.freeze({ ...input.listOptions })
-                        }
-                        : input.command === 'changeHeading'
-                          ? { command: input.command, change: Object.freeze({ ...input.change }) }
-                          : input.command === 'changeBlockquote'
-                            ? { command: input.command, change: Object.freeze({ ...input.change }) }
-                            : 'placement' in input
-                              ? { command: input.command, placement: input.placement }
-                              : { command: input.command }),
+      ...command,
       selection,
-      options: input.options,
-      ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
+      ...(historyGroup === undefined ? {} : { historyGroup })
     }
   }
   const range = domSelectionToTarget(input.range)
@@ -1237,8 +1167,6 @@ export function muyaClipboardSelection(
   return selection === null ? undefined : muyaTableSelectionToModel(muya, view, selection)
 }
 
-const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-
 /**
  * Upstream Muya's own Backspace (#113, #4926) removes the whole grapheme
  * before a caret that ends a top-level inline token of the line, or follows
@@ -1315,8 +1243,8 @@ export function muyaBackspaceRemovesGrapheme(
     const textStart = toText(node.range.start)
     const textEnd = toText(node.range.end)
     if (textStart === undefined || textEnd === undefined) return false
-    const [grapheme] = graphemes.segment(binding.text.slice(textStart, textEnd))
-    return grapheme !== undefined && caret === start + grapheme.segment.length
+    const grapheme = firstGraphemeLength(binding.text.slice(textStart, textEnd))
+    return grapheme > 0 && caret === start + grapheme
   })
 }
 

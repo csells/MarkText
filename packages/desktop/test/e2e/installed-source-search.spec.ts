@@ -1,97 +1,27 @@
-import { _electron, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
+  clickMenuByLabel as menu,
+  closeWithoutRendererErrors as close,
   enterSourceMode,
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
-  waitForEditor,
-  waitForMenuReady
+  launchInstalled
 } from './helpers'
-import {
-  defaultCoreLaunchEnvironment,
-  expectDefaultCoreAuthority,
-  expectInstalledArtifactCommit
-} from './installedArtifactProvenance'
+import { nativeKey } from './reviewGestures'
 
 async function launch(source: string) {
   const root = test.info().outputPath('fixture')
   fs.mkdirSync(root, { recursive: true })
   const file = path.join(root, 'search.md')
   fs.writeFileSync(file, source, { flag: 'wx' })
-  const executablePath = process.env.MARKTEXT_PACKAGED_APP
-  if (!executablePath) throw new Error('Installed Source search requires MARKTEXT_PACKAGED_APP')
-  const app = await _electron.launch({
-    executablePath,
-    args: ['--user-data-dir', path.join(root, 'profile'), file],
-    cwd: path.resolve(__dirname, '../..'),
-    env: defaultCoreLaunchEnvironment({
-      PERF_TESTING: 'true',
-      MARKTEXT_E2E_HIDDEN_WINDOW: '1',
-      MARKTEXT_ERROR_INTERACTION: '1'
-    })
-  })
-  await app.evaluate(({ ipcMain }) => {
-    const errors: unknown[] = []
-    ;(globalThis as unknown as { sourceSearchErrors: unknown[] }).sourceSearchErrors = errors
-    ipcMain.on('mt::handle-renderer-error', (_, error) => errors.push(error))
-  })
-  const page = await app.firstWindow()
-  await page.waitForLoadState('domcontentloaded')
-  await waitForEditor(page)
-  await waitForMenuReady(app)
-  await expectInstalledArtifactCommit(page)
-  await expectDefaultCoreAuthority(page)
+  const { app, page } = await launchInstalled([file], { userDataDir: path.join(root, 'profile') })
   await expectEditorWindowHidden(app)
   expectEditorNotFrontmost(app)
   await enterSourceMode(page, app)
   return { app, page, file }
-}
-
-async function close(app: ElectronApplication) {
-  const errors = await app.evaluate(
-    () => (globalThis as unknown as { sourceSearchErrors: unknown[] }).sourceSearchErrors
-  )
-  expectEditorNotFrontmost(app)
-  await app.close()
-  expect(errors).toEqual([])
-}
-
-async function nativeKey(
-  app: ElectronApplication,
-  keyCode: string,
-  modifiers: Array<'meta' | 'shift'> = []
-) {
-  await app.evaluate(
-    ({ BrowserWindow }, key) => {
-      const wc = BrowserWindow.getAllWindows().find((win) =>
-        win.webContents.getURL().includes('type=editor')
-      )?.webContents
-      if (!wc) throw new Error('Editor window is unavailable')
-      wc.sendInputEvent({ type: 'keyDown', keyCode: key.keyCode, modifiers: key.modifiers })
-      wc.sendInputEvent({ type: 'keyUp', keyCode: key.keyCode, modifiers: key.modifiers })
-    },
-    { keyCode, modifiers }
-  )
-}
-
-async function menu(app: ElectronApplication, section: string, label: string) {
-  await app.evaluate(
-    ({ Menu, BrowserWindow }, command) => {
-      const item = Menu.getApplicationMenu()
-        ?.items.find((item) => item.label === command.section)
-        ?.submenu?.items.find((item) => item.label.replace(/\u2026|\.\.\./g, '') === command.label)
-      const win = BrowserWindow.getAllWindows().find((win) =>
-        win.webContents.getURL().includes('type=editor')
-      )
-      if (!item?.enabled || !win) {
-        throw new Error(`Unavailable menu ${command.section}/${command.label}`)
-      }
-      item.click(item, win, { triggeredByAccelerator: false })
-    },
-    { section, label }
-  )
 }
 
 async function expectSource(page: Page, expected: string) {

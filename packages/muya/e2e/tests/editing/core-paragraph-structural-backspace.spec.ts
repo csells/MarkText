@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -31,17 +32,17 @@ for (const example of [
         try {
             if (example.name === 'diagram') await expect(page.locator('.mu-diagram-preview svg')).toBeVisible({ timeout: 15000 });
             await page.keyboard.press('Backspace');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: joined }, caret: example.caret, legacyCalls: [] });
+            expect(await readCore(page)).toMatchObject({ source: { source: joined }, caret: example.caret, legacyCalls: [] });
             await page.keyboard.type('x');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, caret: example.caret + 1, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: joined } });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source } });
+            expect(await readCore(page)).toMatchObject({ source: { source: typed }, caret: example.caret + 1, legacyCalls: [] });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source: joined } });
+            await coreHistory(page, 'undo');
+            expect(await readCore(page)).toMatchObject({ source: { source } });
             if (example.name === 'diagram') await expect(page.locator('.mu-diagram-preview svg')).toBeVisible({ timeout: 15000 });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
+            await coreHistory(page, 'redo');
+            await coreHistory(page, 'redo');
+            expect(await reopenCore(page)).toMatchObject({ source: typed });
             if (example.name === 'diagram') {
                 await page.evaluate(async (source) => {
                     window.coreBoundary.dispose();
@@ -52,6 +53,6 @@ for (const example of [
                 await expect(page.locator('.mu-diagram-preview svg')).toBeVisible({ timeout: 15000 });
             }
         }
-        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+        finally { await disposeCore(page); }
     });
 }

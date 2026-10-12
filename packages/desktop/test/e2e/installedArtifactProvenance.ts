@@ -44,10 +44,10 @@ export const expectInstalledArtifactCommit = async(page: Page): Promise<void> =>
 
 export const expectDefaultCoreAuthority = async(page: Page): Promise<void> => {
   const launch = await page.evaluate(() => ({
-    mode: window.__marktextDocumentCore?.mode,
+    bridged: window.__marktextDocumentCore !== undefined,
     controls: window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
   }))
-  if (launch.mode !== 'core' || launch.controls !== undefined) {
+  if (!launch.bridged || launch.controls !== undefined) {
     throw new Error('Expected default Core authority without mutation flags')
   }
 }

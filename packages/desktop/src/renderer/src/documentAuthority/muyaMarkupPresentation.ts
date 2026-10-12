@@ -1,6 +1,6 @@
 import { imageAltText } from '@marktext/document-core'
 import type { MarkdownAstNode, SourceRange } from '@marktext/document-core'
-import { htmlEscapeCharacters, type IInlinePresentationContext } from '@muyajs/core'
+import { escapeHTML, htmlEscapeCharacters, type IInlinePresentationContext } from '@muyajs/core'
 import { sanitize, PREVIEW_DOMPURIFY_CONFIG, EXPORT_DOMPURIFY_CONFIG } from '../util/dompurify'
 import type { MuyaMarkupBinding, MuyaMarkupComment, MuyaMarkupDecoration } from './muyaMarkupView'
 
@@ -32,14 +32,6 @@ interface PresentationMarker {
   readonly offset: number
   readonly html: string
 }
-
-export const escapeHtml = (value: string): string =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 
 type Caret = NonNullable<IInlinePresentationContext['cursor']>
 
@@ -222,7 +214,7 @@ const syntaxSpans = (
       if (range !== undefined) {
         spans.push({
           range,
-          open: `<sup id="noteref-${escapeHtml(String(node.attributes.label))}" class="mu-inline-footnote-identifier mu-inline-rule">`,
+          open: `<sup id="noteref-${escapeHTML(String(node.attributes.label))}" class="mu-inline-footnote-identifier mu-inline-rule">`,
           close: '</sup>',
           atomic: true
         })
@@ -307,7 +299,7 @@ const syntaxSpans = (
         const shown = revealed(range) ? 'mu-gray' : 'mu-hide'
         add(
           spelling.range,
-          `<span class="${shown} mu-html-escape"${character === undefined ? '' : ` data-character="${escapeHtml(character)}"`}><span class="mu-html-escape-marker">`,
+          `<span class="${shown} mu-html-escape"${character === undefined ? '' : ` data-character="${escapeHTML(character)}"`}><span class="mu-html-escape-marker">`,
           '</span></span>'
         )
       }
@@ -323,7 +315,7 @@ const syntaxSpans = (
         add({ start: node.range.start, end: node.range.start + 1 }, marker, '</span>')
         spans.push({
           range: emojiRange,
-          open: `<span class="${shown === 'mu-hide' ? 'mu-hide ' : ''}mu-inline-rule mu-emoji-marked-text" data-emoji="${escapeHtml(emoji)}">`,
+          open: `<span class="${shown === 'mu-hide' ? 'mu-hide ' : ''}mu-inline-rule mu-emoji-marked-text" data-emoji="${escapeHTML(emoji)}">`,
           close: '</span>',
           atomic: true
         })
@@ -362,9 +354,9 @@ const syntaxSpans = (
       const range = nativeRange(node.range)
       const target = nativeRange({ start: Number(node.attributes.targetStart), end: Number(node.attributes.targetEnd) })
       if (range !== undefined && target !== undefined) {
-        const destination = escapeHtml(String(node.attributes.semanticDestination ?? ''))
+        const destination = escapeHTML(String(node.attributes.semanticDestination ?? ''))
         const title = typeof node.attributes.semanticTitle === 'string'
-          ? ` title="${escapeHtml(node.attributes.semanticTitle)}"`
+          ? ` title="${escapeHTML(node.attributes.semanticTitle)}"`
           : ''
         addNative({ start: range.start, end: target.start }, '<span class="mu-gray mu-remove">')
         spans.push({
@@ -400,7 +392,7 @@ const syntaxSpans = (
       const destination =
         (node.kind === 'link' || node.kind === 'autolink') &&
         typeof node.attributes.semanticDestination === 'string'
-          ? ` href="${escapeHtml(node.attributes.semanticDestination)}"`
+          ? ` href="${escapeHTML(node.attributes.semanticDestination)}"`
           : ''
       const linkRange =
         node.kind === 'link' || node.kind === 'autolink' ? nativeRange(node.range) : undefined
@@ -415,7 +407,7 @@ const syntaxSpans = (
       const linkData =
         linkRange === undefined
           ? ''
-          : ` data-start="${linkRange.start}" data-end="${linkRange.end}" data-raw="${escapeHtml(binding.text.slice(linkRange.start, linkRange.end))}"`
+          : ` data-start="${linkRange.start}" data-end="${linkRange.end}" data-raw="${escapeHTML(binding.text.slice(linkRange.start, linkRange.end))}"`
       add(
         content,
         `<${tag} class="mu-inline-rule${linkRange === undefined ? '' : linkClass}"${destination}${linkData}>`,
@@ -532,7 +524,7 @@ const renderSpans = (
     output.push(...(markersAt.get(start) ?? []))
     for (let open = common; open < next.length; open += 1) output.push(next[open].open)
     // HTML parsing, including the sanitizer's, folds CRLF into LF.
-    output.push(escapeHtml(text.slice(start, end)).replaceAll('\r', '&#13;'))
+    output.push(escapeHTML(text.slice(start, end)).replaceAll('\r', '&#13;'))
     active = next
   }
   for (let close = active.length - 1; close >= 0; close -= 1) output.push(active[close].close)
@@ -546,7 +538,7 @@ const COMMENT_NAME_LIMIT = 200
  * A comment marker has no visible text, so its accessible name carries the
  * comment itself; long comments are shortened for announcement.
  */
-export function commentMarkerName(label: string, text: string | undefined): string {
+function commentMarkerName(label: string, text: string | undefined): string {
   const words = text?.replace(/\s+/gu, ' ').trim() ?? ''
   if (words === '') return label
   const characters = Array.from(words)
@@ -629,7 +621,7 @@ export function renderMuyaMarkupBinding(
     // character to Muya's editable text. Core remains the annotation owner.
     markers.push({
       offset: location.start,
-      html: `<span class="mu-critic-comment-marker mu-remove" contenteditable="false" role="button" tabindex="0" aria-label="${escapeHtml(commentMarkerName(commentLabel, comment.text))}" data-critic-kind="comment" data-critic-start="${comment.annotationRange.start - binding.sourceRange.start}" data-critic-end="${comment.annotationRange.end - binding.sourceRange.start}"></span>`
+      html: `<span class="mu-critic-comment-marker mu-remove" contenteditable="false" role="button" tabindex="0" aria-label="${escapeHTML(commentMarkerName(commentLabel, comment.text))}" data-critic-kind="comment" data-critic-start="${comment.annotationRange.start - binding.sourceRange.start}" data-critic-end="${comment.annotationRange.end - binding.sourceRange.start}"></span>`
     })
   }
   for (const decoration of decorations) {
@@ -643,21 +635,21 @@ export function renderMuyaMarkupBinding(
     if (range === undefined) continue
     const { mark } = decoration
     if (range.start === range.end && decoration.sourcePosition !== undefined) {
-      const arm = mark.kind === 'substitution' ? ` data-critic-arm="${escapeHtml(mark.arm)}"` : ''
+      const arm = mark.kind === 'substitution' ? ` data-critic-arm="${escapeHTML(mark.arm)}"` : ''
       markers.push({
         offset: range.start,
-        html: `<span data-critic-kind="${escapeHtml(mark.kind)}" data-critic-start="${mark.annotationRange.start - binding.sourceRange.start}" data-critic-end="${mark.annotationRange.end - binding.sourceRange.start}" data-critic-position="${decoration.sourcePosition - binding.sourceRange.start}"${arm}></span>`
+        html: `<span data-critic-kind="${escapeHTML(mark.kind)}" data-critic-start="${mark.annotationRange.start - binding.sourceRange.start}" data-critic-end="${mark.annotationRange.end - binding.sourceRange.start}" data-critic-position="${decoration.sourcePosition - binding.sourceRange.start}"${arm}></span>`
       })
       continue
     }
     if (range.end <= range.start) continue
     // Leaf-relative locations survive cached sibling rendering when an earlier
     // edit uniformly shifts the Core source coordinates.
-    const arm = mark.kind === 'substitution' ? ` data-critic-arm="${escapeHtml(mark.arm)}"` : ''
+    const arm = mark.kind === 'substitution' ? ` data-critic-arm="${escapeHTML(mark.arm)}"` : ''
     const role = criticRole(mark)
     spans.push({
       range,
-      open: `<span data-critic-kind="${escapeHtml(mark.kind)}" data-critic-start="${mark.annotationRange.start - binding.sourceRange.start}" data-critic-end="${mark.annotationRange.end - binding.sourceRange.start}"${arm}${role === undefined ? '' : ` role="${role}"`}>`,
+      open: `<span data-critic-kind="${escapeHTML(mark.kind)}" data-critic-start="${mark.annotationRange.start - binding.sourceRange.start}" data-critic-end="${mark.annotationRange.end - binding.sourceRange.start}"${arm}${role === undefined ? '' : ` role="${role}"`}>`,
       close: '</span>'
     })
   }

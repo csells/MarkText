@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya'
+import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary'
 import { floats, quickInsertItem } from '../helpers/selectors'
 
 for (const { bound, tracked, comment } of [
@@ -35,7 +36,7 @@ for (const { bound, tracked, comment } of [
         await page.keyboard.type('d')
         await expect(page.locator(floats.quickInsert)).toBeVisible()
         if (bound) {
-          expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: querySource }, legacyCalls: [] })
+          expect(await readCore(page)).toMatchObject({ source: { source: querySource }, legacyCalls: [] })
         } else {
           expect(await page.evaluate(() => { window.muya!.flush(); return window.muya!.getMarkdown() })).toBe(querySource)
         }
@@ -48,20 +49,20 @@ for (const { bound, tracked, comment } of [
           await page.keyboard.press('Enter')
         }
         if (bound) {
-          expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: heading }, anchor: 3, caret: 3, legacyCalls: [] })
+          expect(await readCore(page)).toMatchObject({ source: { source: heading }, anchor: 3, caret: 3, legacyCalls: [] })
         } else {
           expect(await page.evaluate(() => { window.muya!.flush(); return window.muya!.getMarkdown() })).toBe(heading)
         }
         await expect(page.locator('h2.mu-atx-heading')).toHaveCount(1)
         await page.keyboard.type('X')
         if (bound) {
-          expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] })
+          expect(await readCore(page)).toMatchObject({ source: { source: typed }, legacyCalls: [] })
           // Upstream History groups the query, the heading and the next key
           // typed within its one-second window into one step.
-          await page.evaluate(() => window.coreBoundary.history('undo'))
-          expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source } })
-          await page.evaluate(() => window.coreBoundary.history('redo'))
-          expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed })
+          await coreHistory(page, 'undo')
+          expect(await readCore(page)).toMatchObject({ source: { source } })
+          await coreHistory(page, 'redo')
+          expect(await reopenCore(page)).toMatchObject({ source: typed })
         } else {
           expect(await page.evaluate(() => { window.muya!.flush(); return window.muya!.getMarkdown() })).toBe(typed)
           // Upstream History groups the query, the heading and the next key
@@ -75,7 +76,7 @@ for (const { bound, tracked, comment } of [
         failed = true
         throw error
       } finally {
-        if (bound && !failed) { await page.evaluate(() => window.coreBoundary.dispose()) }
+        if (bound && !failed) { await disposeCore(page) }
       }
     })
   }

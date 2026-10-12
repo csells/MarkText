@@ -115,7 +115,7 @@ test('Core mode applies Source input typed after actor undo to the restored text
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await enterSourceMode(page, app)
-    await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
+    await page.waitForFunction(() => window.__marktextDocumentCore !== undefined)
     await page.evaluate(() => {
       const host = document.querySelector('.source-code .CodeMirror') as
         | (Element & {
@@ -187,7 +187,7 @@ test('Core mode accepts one actor-owned Addition then undoes, redoes, and saves 
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await enterSourceMode(page, app)
-    await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
+    await page.waitForFunction(() => window.__marktextDocumentCore !== undefined)
 
     await page.evaluate(() => {
       const bridge = window.__marktextDocumentCore as typeof window.__marktextDocumentCore & {
@@ -252,7 +252,7 @@ test('Core mode saves a native Source edit from the Core authority', async() => 
     await enterSourceMode(page, app)
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core', null, {
+    await page.waitForFunction(() => window.__marktextDocumentCore !== undefined, null, {
       timeout: 10_000
     })
     await page.evaluate(() => {
@@ -284,8 +284,6 @@ test('Core mode saves a native Source edit from the Core authority', async() => 
       return bridge.latest()
     })
     expect(acknowledged).toMatchObject({
-      mode: 'core',
-      worker: 'dedicated',
       revision: 2,
       sourceLength: source.length,
       change: {
