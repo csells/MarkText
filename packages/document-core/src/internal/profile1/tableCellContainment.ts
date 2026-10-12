@@ -1,5 +1,5 @@
 import { isSpaceOrTab } from './markdownLexical.js'
-import { CRITIC_MARKER_ALTERNATION } from './sourceTape.js'
+import { CRITIC_MARKER_ALTERNATION } from '../../criticMarkers.js'
 
 /**
  * Profile rule R3b: inside a GFM table an unescaped `|` keeps delimiting

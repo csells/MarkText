@@ -20,7 +20,7 @@ import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, tracked
 import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, memoizedPreview, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, withoutDocumentSearchBudget, documentSearchExhausted, spelledAsSource, recordedExactly, trackedStructure, type TrackedStructure, type TrackedPart, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
-import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
+import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './criticMarkers.js'
 import {
   admitProfile1PlainParagraphRegion,
   createProfile1DocumentReuseCache,

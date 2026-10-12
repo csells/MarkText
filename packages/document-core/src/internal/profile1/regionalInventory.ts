@@ -27,7 +27,7 @@ import {
   CRITIC_FORM_BY_OPENER,
   CRITIC_FORM_SPELLING,
   CRITIC_MARKER_ALTERNATION
-} from './sourceTape.js'
+} from '../../criticMarkers.js'
 import { FENCED_LITERAL_BLOCKS, SPLITTABLE_LITERAL_BLOCKS, isLiteralBlock } from '../../literalBlock.js'
 import { lineStartBefore } from '../../sourceLines.js'
 import { isPositionalMarkdownAttribute } from '../../markdownPositions.js'

@@ -9,7 +9,7 @@ import { FENCED_LITERAL_BLOCKS, LITERAL_DELIMITER_LINE, SPLITTABLE_LITERAL_BLOCK
 import { isPositionalMarkdownAttribute } from './markdownPositions.js'
 import { commonAffixes } from './textAffixes.js'
 import { firstLineEnding } from './sourceLines.js'
-import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
+import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './criticMarkers.js'
 
 type Preview = (edits: readonly DocumentSourceEdit[]) => DocumentRevision
 
