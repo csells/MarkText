@@ -12,6 +12,18 @@ export const markupAnnotations = (roots: readonly CriticMarkupAnnotation[]): Cri
   return result
 }
 
+/** Every annotation of the trees `roots`, nested ones included, in no particular order. */
+export function allAnnotations(roots: readonly CriticMarkupAnnotation[]): readonly CriticMarkupAnnotation[] {
+  const all: CriticMarkupAnnotation[] = []
+  const pending = [...roots]
+  while (pending.length > 0) {
+    const annotation = pending.pop()!
+    all.push(annotation)
+    for (const arm of annotation.arms) pending.push(...arm.annotations)
+  }
+  return all
+}
+
 /** Shared ownership of consumed visible source and annotation wrappers. */
 export function markupEditOwnership(
   core: DocumentCore,

@@ -13,7 +13,7 @@ import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSo
 import type { DocumentInputAction, DocumentSourceInputPlan } from './inputPlanning.js'
 import { resolveTableCell } from './tableSelection.js'
 import { positionAfter } from './sourcePosition.js'
-import { firstLineEnding, lineEndAt, lineStartAt, lineStartBefore, physicalLineAt } from './sourceLines.js'
+import { firstLineEnding, lineEndAt, lineStartAt, lineStartInText, physicalLineAt } from './sourceLines.js'
 import { materializeTableCellEdit, tableRowCompletion } from './tableCellEditing.js'
 import { paragraphPrefixPosition, paragraphImageRange } from './paragraphBoundary.js'
 import { literalJoinParagraphText, tableJoinParagraphText, emptyParagraphJoinContainer, paragraphJoinBlock, paragraphJoinAdjacent, paragraphJoinTrailingEdits, paragraphLeadingLineJoin } from './paragraphJoinPlanning.js'
@@ -22,7 +22,8 @@ import { annotationsAround, annotationsOverlapping } from './internal/annotation
 import { planEmptiedSetextReset } from './setextTrailingLine.js'
 import { mergeAdjacentEdits, planEmptiedParagraph } from './emptiedParagraphPlanning.js'
 import { blockCommandTarget, planBlockCommand } from './blockCommandPlanning.js'
-import { CARET_TARGET_BLOCKS, isLiteralBlock, literalParagraphSpelling } from './literalBlock.js'
+import { CARET_TARGET_BLOCKS } from './blockKinds.js'
+import { isLiteralBlock, literalParagraphSpelling } from './literalBlock.js'
 
 /** Shared sparse removal for native table commands and rectangular selections. */
 export function planTableRemoval(
@@ -1124,7 +1125,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     }
     // The policy reads the code's own line, after its container prefix.
     const offset = start - from
-    const lineStart = lineStartBefore(body, offset)
+    const lineStart = lineStartInText(body, offset)
     const lineEnd = body.slice(lineStart).search(/\r|\n/u)
     const sourceLine = body.slice(lineStart, lineEnd === -1 ? body.length : lineStart + lineEnd)
     const strip = prefix !== '' && sourceLine.startsWith(prefix) && offset - lineStart >= prefix.length ? prefix.length : 0

@@ -99,7 +99,7 @@ const excerptsOf = (entry: CoreReviewOverviewEntry) => ({
   replacement: entry.replacementExcerpt && renderMarkupPassageExcerpt(entry.replacementExcerpt)
 })
 
-const CRITIC_TOKENS = /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/u
+const CRITIC_MARKER = /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/u
 const ins = (text: string) => `<span class="core-critic-mark core-critic-addition" role="insertion">${text}</span>`
 const del = (text: string) => `<span class="core-critic-mark core-critic-deletion" role="deletion">${text}</span>`
 const mark = (text: string) => `<span class="core-critic-mark core-critic-highlight" role="mark">${text}</span>`
@@ -162,7 +162,7 @@ describe('sidebar excerpts', () => {
       replacement: { html: newArm(`z ${del('w')}`), text: 'z w' }
     })
     for (const entry of overview.map(excerptsOf)) {
-      expect(`${entry.excerpt?.html ?? ''}${entry.replacement?.html ?? ''}`).not.toMatch(CRITIC_TOKENS)
+      expect(`${entry.excerpt?.html ?? ''}${entry.replacement?.html ?? ''}`).not.toMatch(CRITIC_MARKER)
     }
   })
 
