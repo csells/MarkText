@@ -1,4 +1,4 @@
-import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
+import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import { annotationsAround } from './internal/annotationsAround.js'
 import { isAnnotationDelimiter } from './annotationDelimiter.js'
 import { commonAffixes } from './textAffixes.js'
