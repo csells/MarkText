@@ -9,7 +9,7 @@ import { FENCED_LITERAL_BLOCKS, LITERAL_DELIMITER_LINE, SPLITTABLE_LITERAL_BLOCK
 import { isPositionalMarkdownAttribute } from './markdownPositions.js'
 import { commonAffixes } from './textAffixes.js'
 import { firstLineEnding } from './sourceLines.js'
-import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
+import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, containsCriticMarker, spellSuggestion, spellSuggestionPair } from './criticMarkers.js'
 
 type Preview = (edits: readonly DocumentSourceEdit[]) => DocumentRevision
 
@@ -598,7 +598,6 @@ function resolvedText(source: string, annotation: CriticMarkupAnnotation, decisi
 }
 
 const MARKER_TOKEN = new RegExp(`^(?:${CRITIC_MARKER_ALTERNATION})`, 'u')
-const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'u')
 /**
  * Offsets in `typed` before which `accepted` adds a backslash escaping a
  * marker spelling, where the two texts differ only so far; the texts are
@@ -1480,9 +1479,9 @@ export function splitTrackedHistoryEdit(
     ? source(owner.arms.find(arm => arm.name === 'new')?.range ?? { start: owner.range.end, end: owner.range.end })
     : ''
   for (const edit of [
-    { start: owner.range.start, end: owner.range.end, insert: `{~~${kept}~>${text}${proposal}~~}` },
-    { start: owner.range.start, end: owner.range.start, insert: `{++${text}++}` },
-    { start: owner.range.end, end: owner.range.end, insert: `{++${text}++}` }
+    { start: owner.range.start, end: owner.range.end, insert: spellSuggestion('substitution', kept, text + proposal) },
+    { start: owner.range.start, end: owner.range.start, insert: spellSuggestion('addition', text) },
+    { start: owner.range.end, end: owner.range.end, insert: spellSuggestion('addition', text) }
   ]) {
     const from = Math.min(edit.start, offset)
     const to = Math.max(edit.end, offset)
@@ -1613,7 +1612,7 @@ export function draftTrackedSourceEdit(
     ? !RAW_HTML_OPENER.test(opener) && !typedLines.some(line => line.trim() === '')
     : literal === 'code-block' && indented
       // Lines that keep their indentation stay its text; markers there read as markers.
-      ? typedLines.every(line => line.trim() === '' || /^(?: {4}|\t)/u.test(line)) && !CRITIC_MARKER.test(edit.insert)
+      ? typedLines.every(line => line.trim() === '' || /^(?: {4}|\t)/u.test(line)) && !containsCriticMarker(edit.insert)
       : literal !== undefined && delimiterLine(opener) && !onDelimiterLine
   if (onDelimiterLine || joinsFenceLine || inArmLiteral) {
     const extended = preview([edit])

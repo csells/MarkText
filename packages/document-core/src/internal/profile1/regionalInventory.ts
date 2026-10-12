@@ -26,10 +26,11 @@ import {
   CRITIC_FORM_BY_CLOSER,
   CRITIC_FORM_BY_OPENER,
   CRITIC_FORM_SPELLING,
+  CRITIC_MARKER,
   CRITIC_MARKER_ALTERNATION
-} from './sourceTape.js'
+} from '../../criticMarkers.js'
 import { FENCED_LITERAL_BLOCKS, SPLITTABLE_LITERAL_BLOCKS, isLiteralBlock } from '../../literalBlock.js'
-import { lineStartBefore } from '../../sourceLines.js'
+import { lineStartInText } from '../../sourceLines.js'
 import { isPositionalMarkdownAttribute } from '../../markdownPositions.js'
 import {
   createPlainParagraphRetainedIndex,
@@ -2447,7 +2448,6 @@ function strayMarkersUnchanged(previousWindow: string, nextWindow: string): bool
 }
 
 const MARKER_SPELLING = new RegExp(`(?=(${CRITIC_MARKER_ALTERNATION}))`, 'gu')
-const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'gu')
 
 /** The marker spellings of `text` in order, overlapping spellings each read. */
 function markerSpellingSequence(text: string): string {
@@ -3791,7 +3791,7 @@ export function displayMathReachesPast(products: Profile1DocumentProducts, text:
  * errs toward reading a run as an opener.
  */
 function opensDisplayMath(text: string, at: number): boolean {
-  const lineStart = lineStartBefore(text, at)
+  const lineStart = lineStartInText(text, at)
   const lineEnd = text.slice(at).search(/[\r\n]/u)
   const line = text.slice(lineStart, lineEnd === -1 ? text.length : at + lineEnd)
   return line.replace(/^\uFEFF?(?:[ \t]*(?:>|[-+*]|\d{1,9}[.)]))*/u, '').trim() === '$$'

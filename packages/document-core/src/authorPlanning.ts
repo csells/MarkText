@@ -1,7 +1,8 @@
 import { CRITIC_TOKENS, commentPayloadCandidates } from './commentSpelling.js'
 import { highlightCommentLayout, type HighlightCommentLayout, type HighlightCommentPair } from './commentedSpans.js'
 import { protectNativeCriticText } from './trackedAuthoring.js'
-import { spellSuggestion } from './internal/profile1/sourceTape.js'
+import { spellSuggestion } from './criticMarkers.js'
+import { allAnnotations } from './markupEditOwnership.js'
 import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, SourceRange } from './documentCore.js'
 
 export type DocumentAuthorForm = 'addition' | 'comment' | 'highlight' | 'substitution'
@@ -316,16 +317,4 @@ function planHighlightComment(
     return Object.freeze({ edit, selection: Object.freeze({ ...content }), escaped: payload !== text })
   }
   return undefined
-}
-
-/** Every annotation of the trees `roots`, nested ones included. */
-export function allAnnotations(roots: readonly CriticMarkupAnnotation[]): readonly CriticMarkupAnnotation[] {
-  const all: CriticMarkupAnnotation[] = []
-  const pending = [...roots]
-  while (pending.length > 0) {
-    const annotation = pending.pop()!
-    all.push(annotation)
-    for (const arm of annotation.arms) pending.push(...arm.annotations)
-  }
-  return all
 }

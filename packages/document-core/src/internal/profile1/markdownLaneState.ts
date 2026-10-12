@@ -24,7 +24,7 @@ import {
 import type {
   Profile1PhysicalTraversalRecorderV1
 } from './physicalTraversalAccounting.js'
-import { CRITIC_MARKERS } from './sourceTape.js'
+import { CRITIC_MARKERS } from '../../criticMarkers.js'
 
 interface MarkdownLinePath {
   readonly parent: MarkdownLinePath | undefined
