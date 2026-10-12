@@ -3,7 +3,7 @@ import type { DocumentInputSelection, DocumentInputTarget } from './inputPlannin
 import { copyDocumentSelection, type DocumentModelTextSelection, type DocumentTextSelection } from './sourceInputPlanning.js'
 import { positionAfter } from './sourcePosition.js'
 import { isLiteralBlock } from './literalBlock.js'
-import { allAnnotations } from './authorPlanning.js'
+import { allAnnotations } from './markupEditOwnership.js'
 import { formatDelimiters } from '@marktext/input-policy'
 import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import { inlineHtmlFormatPairs } from './documentFormatContext.js'
