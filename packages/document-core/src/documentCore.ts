@@ -8,7 +8,6 @@ import { paragraphEnterConversion } from './internal/profile1/markdownParser.js'
 import { planClipboard, type DocumentClipboardAction, type DocumentClipboardPlan } from './clipboardPlanning.js'
 import { planFormat, type DocumentFormatAction, type DocumentFormatPlan } from './formatPlanning.js'
 import { planInput, positionBefore, reconcileInput, inputSourceRange, type DocumentInputAction, type DocumentInputPlan, type DocumentInputResult, type RegionalBlockContext } from './inputPlanning.js'
-import { editingReconciliation } from './editingReconciliation.js'
 import { normalizeEdits, normalizeInputPlan, selectionAfterNormalization, type EditNormalizationOptions, type EditNormalizationReaders } from './editNormalization.js'
 import { paragraphBackwardStructuralTarget } from './paragraphJoinPlanning.js'
 import { isLiteralBlock } from './literalBlock.js'
@@ -696,8 +695,6 @@ export interface DocumentCore {
   inputEdits(previous: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, tracked: boolean): readonly DocumentSourceEdit[] | undefined
   /** Locate a planned input selection in its admitted canonical source. */
   reconcileInput(previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction): DocumentInputResult
-  /** Maps the exact edited payload into admitted syntax, including review arms and escapes. */
-  editingReconciliation(previous: DocumentRevision, input: DocumentSourceEdit, commit: DocumentCommit): readonly DocumentSourceEdit[] | undefined
   /**
    * Plans ordinary editing across a source envelope selected in Markup. Hidden
    * comments and surviving annotation wrappers remain intact. Undefined refuses
@@ -8848,15 +8845,6 @@ function createDocumentCoreWithExecutionBudget(
     reconcileInput(previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction) {
       if (!stateByRevision.has(previous) || commit !== null && !stateByRevision.has(commit.revision)) throw new Error('Document revision belongs to another core')
       return reconcileInput(core, previous, policy, commit, commentedSpanSafeInput(previous, action, at => rootsAround(previous, at)))
-    },
-    editingReconciliation(previous: DocumentRevision, input: DocumentSourceEdit, commit: DocumentCommit) {
-      const previousState = stateByRevision.get(previous)
-      if (previousState === undefined || !stateByRevision.has(commit.revision)) throw new Error('Document revision belongs to another core')
-      const edits = stableSourceEdits([input])
-      preflightSourceEdits(previousState.source.length, edits)
-      const edit = edits[0]
-      if (edit === undefined) throw new Error('Editing reconciliation input is missing')
-      return editingReconciliation(core, previous, edit, commit, 'visible')
     },
     markupEdits(previous: DocumentRevision, edits: readonly DocumentSourceEdit[]) {
       return planNativeEdits(previous, edits, false)
