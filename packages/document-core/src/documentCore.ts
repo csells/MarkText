@@ -735,6 +735,8 @@ export interface DocumentCore {
   ): DocumentCommit
   /** Reads one bounded canonical-source range without materializing a revision. */
   sourceSlice(revision: DocumentRevision, range: SourceRange): string
+  /** The Markdown options the revision is read with. */
+  markdownOptions(revision: DocumentRevision): MarkdownOptions
   project(
     revision: DocumentRevision,
     projection: MarkdownProjectionName
@@ -8847,6 +8849,14 @@ function createDocumentCoreWithExecutionBudget(
       const edit = resolutionEdit(previousState, annotation, decision)
       return core.apply(previous, commentPairPreservingResolution(previous.annotations, [edit],
         range => previousState.source.slice(range.start, range.end)), options)
+    },
+
+    markdownOptions(revision: DocumentRevision): MarkdownOptions {
+      const state = stateByRevision.get(revision)
+      if (state === undefined) {
+        throw new Error('Document revision belongs to another core')
+      }
+      return state.markdownOptions
     },
 
     sourceSlice(revision: DocumentRevision, range: SourceRange): string {

@@ -234,6 +234,10 @@ export function planInlineUpdate(
   if (!INLINE_UPDATE_REG.test(joined)) return undefined
   const layout = inlineUpdateLayout(joined, textOffset(selection.start), textOffset(selection.end))
   if (layout === undefined || heading && layout.kind !== 'blockquote') return undefined
+  // While `>>>` fences are read, a line of only `>` may be a fence being typed;
+  // upstream holds it as text until Enter (#954).
+  if (layout.kind === 'blockquote' && core.markdownOptions(revision).multilineBlockquote &&
+      /^ {0,3}>+[ \t]*$/u.test(texts[layout.line] ?? '')) return undefined
   let rows = layout.lines
   const item = containers.at(-1)
   const list = containers.at(-2)

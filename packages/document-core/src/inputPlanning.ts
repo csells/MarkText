@@ -1,3 +1,4 @@
+import { lineStartAt } from './sourceLines.js'
 import { constrainLiteralDeletion, isEmptyFencedPayloadPoint, resolveModelTextSelection, planModelTextInput } from './modelText.js'
 import { annotationsAround } from './internal/annotationsAround.js'
 import type { MarkdownLineIndex } from './revision.js'
@@ -512,7 +513,11 @@ function planSourceInput(core: DocumentCore, revision: DocumentRevision, action:
     const quoteSpace = inputType === 'insertText' && selection.start === selection.end && block.kind === 'paragraph' &&
       block.range.start === block.range.end && (data ?? '') !== '' && !/^\s/u.test(data ?? '') &&
       syntaxPathAt(syntax.ast.root, block.range.start).at(-2)?.kind === 'blockquote' &&
-      keyAt > 0 && core.sourceSlice(revision, { start: keyAt - 1, end: keyAt }) === '>'
+      keyAt > 0 && core.sourceSlice(revision, { start: keyAt - 1, end: keyAt }) === '>' &&
+      // A `>` typed after markers alone may be spelling a `>>>` fence, which
+      // upstream holds as text while that preference is on (#954).
+      !(data === '>' && core.markdownOptions(revision).multilineBlockquote &&
+        /^ {0,3}>+$/u.test(core.sourceSlice(revision, { start: lineStartAt(core, revision, keyAt), end: keyAt })))
       ? [{ start: keyAt, end: keyAt, insert: ' ' }]
       : []
     for (const extra of [...(emptied ?? []), ...quoteSpace]) {

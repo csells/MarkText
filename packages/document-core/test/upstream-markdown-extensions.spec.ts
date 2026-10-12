@@ -250,6 +250,29 @@ describe('Enter on a >>> line', () => {
     })
   })
 
+  it('holds a typed run of > as text while on, so >>> can be completed', () => {
+    const core = createDocumentCore()
+    let revision = core.open('Start\n\n', { multilineBlockquote: true })
+    let at = 7
+    for (const key of '>>>') {
+      const action = { selection: { ranges: [{ anchor: at, focus: at }], primary: 0 }, range: { start: at, end: at }, inputType: 'insertText', data: key, options } as const
+      const plan = core.planInput(revision, action)
+      const edits = core.inputEdits(revision, action, plan, false)
+      if (edits === undefined) throw new Error('Expected untracked edits')
+      const commit = core.apply(revision, edits)
+      const selection = core.reconcileInput(revision, plan, commit, action).selection
+      revision = commit.revision
+      at = selection !== undefined && 'ranges' in selection ? selection.ranges[selection.primary]!.anchor : -1
+    }
+    expect(revision.source).toBe('Start\n\n>>>')
+    expect(at).toBe(10)
+    expect(enter(revision.source, at, { multilineBlockquote: true })).toEqual({
+      source: 'Start\n\n>>>\n\n>>>',
+      caret: 11,
+      blocks: ['paragraph[text]', 'blockquote[paragraph]']
+    })
+  })
+
   it('keeps CommonMark\'s Enter while off', () => {
     expect(enter('>>>\n', 3, {}).source).not.toBe('>>>\n\n>>>\n')
   })
