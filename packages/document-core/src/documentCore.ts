@@ -3049,7 +3049,6 @@ function createDocumentCoreWithExecutionBudget(
         executionBudget,
         resolvedOptions,
         false,
-        undefined,
         // The general-compile reference reads every source whole.
         plansFromGeneralCompile(core) ? createProfile1DocumentReuseCache() : reuseCache,
         physicalRecorder,
@@ -3082,7 +3081,6 @@ function createDocumentCoreWithExecutionBudget(
       executionBudget,
       resolvedOptions,
       false,
-      undefined,
       createProfile1DocumentReuseCache(),
       physicalRecorder,
       previousPass
@@ -9162,7 +9160,7 @@ function createDocumentCoreWithExecutionBudget(
     inspection.documentParses += 1
     inspection.documentParseSourceUnits += source.length
     inspection.documentProjectionPreparationUnits += source.length
-    const products = parseProfile1Document(source, executionBudget, markdownOptions(), false, undefined,
+    const products = parseProfile1Document(source, executionBudget, markdownOptions(), false,
       createProfile1DocumentReuseCache(), physicalRecorder, undefined, true, true)
     if (products.kind !== 'complete') throw documentCoreError(products.fatalDiagnostic)
     return Object.freeze({

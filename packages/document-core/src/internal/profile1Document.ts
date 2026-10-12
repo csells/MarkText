@@ -119,7 +119,6 @@ import {
 import {
   createParseExecutionTracker,
   PARSE_SOURCE_CHECKPOINT_INTERVAL,
-  type ParseExecutionControl,
   type ParseExecutionTracker
 } from '../parseExecutionControl.js'
 
@@ -4787,7 +4786,7 @@ export function parseProfile1Window(
     sameMarkdownOptions(parse.markdownOptions, markdownOptions))
   if (retained !== undefined) return retained.result
   const result = parseProfile1Document(
-    source, executionBudget, markdownOptions, captureAccountingTrace, undefined,
+    source, executionBudget, markdownOptions, captureAccountingTrace,
     createProfile1DocumentReuseCache(), physicalRecorder, undefined, endsAtDocumentEnd,
     documentHasAnnotations
   )
@@ -4834,7 +4833,6 @@ export function parseProfile1Document(
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
   captureAccountingTrace: boolean = false,
-  executionControl?: ParseExecutionControl,
   reuseCache?: Profile1DocumentReuseCache,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
   createPhysicalTraversalRecorderV1(),
@@ -4844,7 +4842,7 @@ export function parseProfile1Document(
   // that document does, whether or not the window holds an annotation.
   documentHasAnnotations = false
 ): Profile1DocumentResult {
-  const execution = createParseExecutionTracker(executionControl)
+  const execution = createParseExecutionTracker()
   try {
     const result = parseProfile1DocumentWithExecution(
       source,
@@ -4897,7 +4895,7 @@ export function parseProfile1ReaderViews(
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 = createPhysicalTraversalRecorderV1(),
   previousPass?: PreviousIntrinsicPass
 ): Profile1ReaderViews | Profile1SourceOnlyProducts {
-  const execution = createParseExecutionTracker(undefined)
+  const execution = createParseExecutionTracker()
   try {
     const result = parseProfile1DocumentWithExecution(source, executionBudget, markdownOptions, false,
       execution, createProfile1DocumentReuseCache(), physicalRecorder, previousPass, true, false, true)
@@ -5076,7 +5074,7 @@ export function profile1CriticMarkupRootCount(
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 = createPhysicalTraversalRecorderV1(),
   previousPass?: PreviousIntrinsicPass
 ): number | undefined {
-  const execution = createParseExecutionTracker(undefined)
+  const execution = createParseExecutionTracker()
   try {
     const stage = parseIntrinsicStage(source, executionBudget, markdownOptions, false, execution,
       physicalRecorder, previousPass)
