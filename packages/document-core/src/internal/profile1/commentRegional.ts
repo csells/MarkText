@@ -346,7 +346,6 @@ function touchesNestedMarker(
 
 function evolveIndex(
   index: CommentRegionalIndex,
-  _edit: RetainedPassSourceEdit,
   delta: number
 ): CommentRegionalIndex {
   return Object.freeze({
@@ -382,7 +381,7 @@ export function admitCommentRegionalChange(
     return undefined
   }
   const delta = nextSource.length - previousSource.length
-  let nextIndex = evolveIndex(index, edit, delta)
+  let nextIndex = evolveIndex(index, delta)
   const previousWindow = previousSource.slice(index.source.start, index.source.end)
   const nextWindow = nextSource.slice(
     index.source.start,

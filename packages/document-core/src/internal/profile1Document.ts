@@ -1121,8 +1121,6 @@ function structuralRecoverySuppressionRanges(
 function parseIntrinsicProfile1(
   source: string,
   syntaxIdentity: Profile1SyntaxIdentityRegistry,
-  // Accepted-node depth is enforced after the pass (collectOverDepthNodes).
-  _cmDepthLimit: number = Number.POSITIVE_INFINITY,
   markdownDepthLimit: number = Number.POSITIVE_INFINITY,
   markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
   execution?: ParseExecutionTracker,
@@ -4298,7 +4296,6 @@ function prepareProjection(
 }
 
 function materializePreparedProjection(
-  _graph: Profile1SyntaxGraphCore,
   prepared: PreparedProfile1Projection,
   markdownParse: Profile1MarkdownParse,
   semanticMarkdownParse?: Profile1MarkdownParse
@@ -4466,7 +4463,6 @@ const CRITIC_MARKER_TOKEN = /\{(?:\+\+|--|~~|==|>>)|(?:\+\+|--|~~|==|<<)\}/
 function tryIncrementalIntrinsicParse(
   source: string,
   previousPass: PreviousIntrinsicPass,
-  cmDepthLimit: number,
   markdownDepthLimit: number,
   markdownOptions: MarkdownOptionsV1,
   execution: ParseExecutionTracker,
@@ -4487,7 +4483,6 @@ function tryIncrementalIntrinsicParse(
   const mini = parseIntrinsicProfile1(
     window,
     createProfile1SyntaxIdentityRegistry(window.length, accounting),
-    cmDepthLimit,
     markdownDepthLimit,
     bracket.start === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false }),
     execution,
@@ -5012,7 +5007,6 @@ function parseIntrinsicStage(
     parsed = tryIncrementalIntrinsicParse(
       source,
       previousPass,
-      cmDepthLimit,
       markdownDepthLimit,
       markdownOptions,
       execution,
@@ -5025,7 +5019,6 @@ function parseIntrinsicStage(
     parsed = parseIntrinsicProfile1(
       source,
       syntaxIdentity,
-      cmDepthLimit,
       markdownDepthLimit,
       markdownOptions,
       execution,
@@ -5056,7 +5049,6 @@ function parseIntrinsicStage(
     parsed = parseIntrinsicProfile1(
       source,
       syntaxIdentity,
-      cmDepthLimit,
       markdownDepthLimit,
       markdownOptions,
       execution,
@@ -5382,7 +5374,6 @@ function parseProfile1DocumentWithExecution(
   }
   const forkAst = forkParser.emitAst(Object.freeze([...requestByKey.values()]))
   const original = materializePreparedProjection(
-    graphCore,
     originalPrepared,
     forkAst.read(rootOriginalKey),
     originalPrepared.semanticMarkdownLane === undefined
@@ -5392,7 +5383,6 @@ function parseProfile1DocumentWithExecution(
   const revised = rootRevisedKey === rootOriginalKey
     ? original
     : materializePreparedProjection(
-      graphCore,
       revisedPrepared,
       forkAst.read(rootRevisedKey),
       revisedPrepared.semanticMarkdownLane === undefined
@@ -5403,7 +5393,6 @@ function parseProfile1DocumentWithExecution(
     Object.freeze(preparedCommentDisplays.map((comment) => Object.freeze({
       nodeId: comment.nodeId,
       projection: materializePreparedProjection(
-        graphCore,
         comment.projection,
         forkAst.read(comment.key),
         comment.projection.semanticMarkdownLane === undefined
@@ -5450,7 +5439,7 @@ function parseProfile1DocumentWithExecution(
     if (prepared === undefined) throw new RangeError('Comment identity is outside this revision')
     const projection = prepared.editingKey === prepared.key
       ? commentDisplay(comment)
-      : materializePreparedProjection(graphCore, prepared.editing, forkAst.read(prepared.editingKey),
+      : materializePreparedProjection(prepared.editing, forkAst.read(prepared.editingKey),
         prepared.editing.semanticMarkdownLane === undefined ? undefined : forkAst.read(`${prepared.editingKey}:semantic`))
     commentEditingCache.set(comment, projection)
     return projection
@@ -5464,7 +5453,6 @@ function parseProfile1DocumentWithExecution(
   const editing = (): Profile1ProjectedMarkdown => {
     if (editingPrepared === undefined) throw new Error('The editing projection was not prepared')
     editingCache ??= materializePreparedProjection(
-      graphCore,
       editingPrepared,
       forkAst.read(rootEditingKey),
       editingPrepared.semanticMarkdownLane === undefined
