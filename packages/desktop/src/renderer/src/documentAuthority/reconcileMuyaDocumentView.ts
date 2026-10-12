@@ -244,7 +244,7 @@ export function restoreMuyaDocumentSelection(
     cellSelection !== undefined ||
     modelTextSelection !== undefined
   ) {
-    const { modelPointToDOM, modelPointToText, modelCellPointToDOM, modelCellPointToText, projectSourcePoint } =
+    const { modelPointToDOM, modelPointToText, modelCellPointToDOM, modelCellPointToText, projectSourcePoint, domPointToModel } =
       createMuyaModelSelection(muya, view)
     const collapsed =
       cellSelection !== undefined
@@ -341,12 +341,9 @@ export function restoreMuyaDocumentSelection(
         ...view.decorations.map((item) => item.mark.annotationRange),
         ...view.comments.map((item) => item.annotationRange)
       ].find((range) => range.end === caretSource + 1)
-      const armEnd = closing === undefined
-        ? undefined
-        : Math.max(...view.decorations
-          .filter((item) => item.mark.annotationRange.end === closing.end)
-          .map((item) => item.range.end))
-      const projected = armEnd !== undefined && Number.isFinite(armEnd) && modelPointToDOM(armEnd, undefined, true) !== undefined
+      // Every closer (`++}`, `--}`, `==}`, `<<}`, `~~}`) is three characters.
+      const armEnd = closing === undefined ? undefined : caretSource - 2
+      const projected = armEnd !== undefined && modelPointToDOM(armEnd, undefined, true) !== undefined
         ? armEnd
         : projectSourcePoint(caretSource)
       const shown = modelPointToText(projected)
@@ -354,7 +351,12 @@ export function restoreMuyaDocumentSelection(
         ? modelPointToDOM(projected, undefined, true)
         : (muya.editor.selection.getDOMPoint(shown) ?? undefined)
       if (closing !== undefined && anchor !== undefined) {
-        rememberHiddenCloserCaret(muya, { shown: projected, source: caretSource })
+        // Typing reads the caret back from where it shows.
+        const readBack = domPointToModel(anchor, true)
+        rememberHiddenCloserCaret(muya, {
+          shown: typeof readBack === 'number' ? readBack : projected,
+          source: caretSource
+        })
       }
     }
     if (anchor === undefined || focus === undefined) {
