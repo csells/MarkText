@@ -45,7 +45,7 @@ import {
   type MarkdownPendingLineBlockFact
 } from './profile1/markdownLaneState.js'
 import {
-  createPhysicalTraversalRecorderV1,
+  createPhysicalTraversalRecorder,
   type Profile1PhysicalTraversalRecorderV1
 } from './profile1/physicalTraversalAccounting.js'
 import {
@@ -109,10 +109,10 @@ import type {
 } from './profile1/plainParagraphRetainedIndex.js'
 import type { CanonicalSourceView } from './persistentCanonicalSource.js'
 import {
-  createProfile1SyntaxAccountingRecorderV1,
+  createProfile1SyntaxAccountingRecorder,
   Profile1LogicalNodeLimitError,
-  type Profile1SyntaxAccountingRecorderV1,
-  type Profile1SyntaxAccountingTraceV1
+  type Profile1SyntaxAccountingRecorder,
+  type Profile1SyntaxAccountingTrace
 } from './profile1/syntaxAccounting.js'
 import {
   createParseExecutionTracker,
@@ -284,7 +284,7 @@ export interface RetainedIntrinsicPass {
 export type Profile1DocumentProducts = Profile1SyntaxGraph & Readonly<{
   readonly simpleTextIdentity: boolean
   readonly accountingCounts: readonly number[]
-  readonly accountingTrace?: Profile1SyntaxAccountingTraceV1
+  readonly accountingTrace?: Profile1SyntaxAccountingTrace
   readonly retainedIntrinsic?: RetainedIntrinsicPass
 }>
 
@@ -678,7 +678,7 @@ function compareNodes(left: CriticMarkupNode, right: CriticMarkupNode): number {
 }
 
 function emitTapeAccounting(
-  accounting: Profile1SyntaxAccountingRecorderV1,
+  accounting: Profile1SyntaxAccountingRecorder,
   tape: readonly TapeRun[]
 ): void {
   for (let ordinal = 0; ordinal < tape.length; ordinal += 1) {
@@ -694,7 +694,7 @@ function emitTapeAccounting(
 }
 
 function emitProjectionAccounting(
-  accounting: Profile1SyntaxAccountingRecorderV1,
+  accounting: Profile1SyntaxAccountingRecorder,
   key: string,
   projection: PreparedProfile1Projection
 ): void {
@@ -1106,7 +1106,7 @@ function parseIntrinsicProfile1(
     end: number
   }>[],
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
-  createPhysicalTraversalRecorderV1()
+  createPhysicalTraversalRecorder()
 ): ParseOutcome {
   const sourceProgression = createIntrinsicProfile1SourceProgression(
     source,
@@ -4425,7 +4425,7 @@ function tryIncrementalIntrinsicParse(
   markdownDepthLimit: number,
   markdownOptions: MarkdownOptions,
   execution: ParseExecutionTracker,
-  accounting: Profile1SyntaxAccountingRecorderV1,
+  accounting: Profile1SyntaxAccountingRecorder,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
   syntaxIdentity: Profile1SyntaxIdentityRegistry
 ): ParseResult | undefined {
@@ -4602,7 +4602,7 @@ export function admitProfile1PlainParagraphRegion(
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptions,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
-  createPhysicalTraversalRecorderV1()
+  createPhysicalTraversalRecorder()
 ): Profile1RegionalAdmissionResult | undefined {
   const edit = edits.length === 1
     ? edits[0]
@@ -4823,7 +4823,7 @@ export function parseProfile1Document(
   captureAccountingTrace: boolean = false,
   reuseCache?: Profile1DocumentReuseCache,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
-  createPhysicalTraversalRecorderV1(),
+  createPhysicalTraversalRecorder(),
   previousPass?: PreviousIntrinsicPass,
   endsAtDocumentEnd = true,
   // A window of a document holding annotations reads its stray markers as
@@ -4880,7 +4880,7 @@ export function parseProfile1ReaderViews(
   source: string,
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1 = createPhysicalTraversalRecorderV1(),
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1 = createPhysicalTraversalRecorder(),
   previousPass?: PreviousIntrinsicPass
 ): Profile1ReaderViews | Profile1SourceOnlyProducts {
   const execution = createParseExecutionTracker()
@@ -4920,13 +4920,13 @@ function parseIntrinsicStage(
 ): Profile1SourceOnlyProducts | Readonly<{
   kind: 'complete'
   parsed: ParseResult
-  accounting: ReturnType<typeof createProfile1SyntaxAccountingRecorderV1>
+  accounting: ReturnType<typeof createProfile1SyntaxAccountingRecorder>
   syntaxIdentity: ReturnType<typeof createProfile1SyntaxIdentityRegistry>
   usesDesktopLimits: boolean
   markdownDepthLimit: number
 }> {
   const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
-  let accounting = createProfile1SyntaxAccountingRecorderV1(
+  let accounting = createProfile1SyntaxAccountingRecorder(
     usesDesktopLimits,
     captureAccountingTrace,
     execution,
@@ -4993,7 +4993,7 @@ function parseIntrinsicStage(
     // Structural recovery has already removed every unfinished blocker that
     // can be crossed without invalidating one of those pairs, so exactly one
     // fresh pass publishes the accepted products and identities.
-    accounting = createProfile1SyntaxAccountingRecorderV1(
+    accounting = createProfile1SyntaxAccountingRecorder(
       usesDesktopLimits,
       captureAccountingTrace,
       execution,
@@ -5059,7 +5059,7 @@ export function profile1CriticMarkupRootCount(
   source: string,
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1 = createPhysicalTraversalRecorderV1(),
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1 = createPhysicalTraversalRecorder(),
   previousPass?: PreviousIntrinsicPass
 ): number | undefined {
   const execution = createParseExecutionTracker()

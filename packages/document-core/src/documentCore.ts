@@ -29,7 +29,7 @@ import {
   type Profile1DocumentProducts,
   type Profile1DocumentReuseCache
 } from './internal/profile1Document.js'
-import { createPhysicalTraversalRecorderV1 } from './internal/profile1/physicalTraversalAccounting.js'
+import { createPhysicalTraversalRecorder } from './internal/profile1/physicalTraversalAccounting.js'
 import {
   admitCriticMarkupRegionalChange,
   createCriticMarkupRegionalIndex,
@@ -2617,8 +2617,8 @@ function createDocumentCoreWithExecutionBudget(
     state.kind === 'regional' && state.regionalInventory !== undefined && dollarsKept(state.source, edits)
   const dollarsKept = (source: CanonicalSourceView, edits: readonly DocumentSourceEdit[]): boolean =>
     edits.every(edit => !/[$\\]/u.test(edit.insert + source.slice(edit.start, edit.end)))
-  const physicalRecorder = createPhysicalTraversalRecorderV1()
-  const regionalPhysicalRecorder = createPhysicalTraversalRecorderV1()
+  const physicalRecorder = createPhysicalTraversalRecorder()
+  const regionalPhysicalRecorder = createPhysicalTraversalRecorder()
   const inspection: MutableDocumentCoreInspection = {
     documentParses: 0,
     documentParseSourceUnits: 0,
