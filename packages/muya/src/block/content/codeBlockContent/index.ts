@@ -1,3 +1,4 @@
+import type { IHighlight } from '../../../inlineRenderer/types';
 import type { Muya } from '../../../muya';
 import type { IRenderCursor } from '../../../selection/types';
 import type {
@@ -360,6 +361,8 @@ class CodeBlockContent extends Content {
      * Drawing a long block again from the same text redraws nothing.
      */
     private _drawn: { text: string; grammar: string | undefined } | null = null;
+    /** Search highlights last drawn, with the text they mark. */
+    private _highlighted: { text: string; highlights: IHighlight[] } | null = null;
 
     /**
      * The children the last highlight drew from `_drawn`, and whether a
@@ -421,8 +424,19 @@ class CodeBlockContent extends Content {
         return !same || trailing !== drawn.trailing;
     }
 
-    override update(_cursor?: IRenderCursor, highlights = []) {
+    /**
+     * Draws the block again for its grammar or gutter, keeping the search
+     * highlights already drawn on the same text: those redraws follow a full
+     * render after its highlights are painted (upstream #5651).
+     */
+    redraw() {
+        const { text } = this;
+        this.update(undefined, this._highlighted?.text === text ? this._highlighted.highlights : []);
+    }
+
+    override update(_cursor?: IRenderCursor, highlights: IHighlight[] = []) {
         const { _lang: lang, text } = this;
+        this._highlighted = highlights.length === 0 ? null : { text, highlights };
         // transform alias to original language
         const fullLengthLang = transformAliasToOrigin([lang])[0];
         const grammar = fullLengthLang && loadedLanguages.has(fullLengthLang) ? fullLengthLang : undefined;

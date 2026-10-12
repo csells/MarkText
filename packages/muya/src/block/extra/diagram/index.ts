@@ -1,5 +1,6 @@
 import type { Muya } from '../../../muya';
 import type { IDiagramMeta, IDiagramState } from '../../../state/types';
+import type CodeBlockContent from '../../content/codeBlockContent';
 import type { TBlockPath } from '../../types';
 import logger from '../../../utils/logger';
 import { loadLanguage } from '../../../utils/prism';
@@ -38,7 +39,7 @@ class DiagramBlock extends Parent {
                     ({ status }) => status === 'loaded' || status === 'cached',
                 );
                 if (needRender)
-                    diagramBlock.lastContentInDescendant()?.update();
+                    (diagramBlock.lastContentInDescendant() as CodeBlockContent | null)?.redraw();
             })
             .catch((err) => {
                 // if no parameter provided, will cause error.

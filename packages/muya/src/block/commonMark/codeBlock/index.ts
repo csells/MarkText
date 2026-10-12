@@ -1,5 +1,6 @@
 import type { Muya } from '../../../muya';
 import type { ICodeBlockState } from '../../../state/types';
+import type CodeBlockContent from '../../content/codeBlockContent';
 import type { TBlockPath } from '../../types';
 import diff from 'fast-diff';
 import { diffToTextOp, firstWordOfInfo } from '../../../utils';
@@ -61,7 +62,7 @@ class CodeBlock extends Parent {
             // language-less / unknown-language / indented blocks never load one —
             // seed them here so first render fills the gutter regardless of language.
             requestAnimationFrame(() => {
-                codeBlock.lastContentInDescendant()?.update();
+                (codeBlock.lastContentInDescendant() as CodeBlockContent | null)?.redraw();
             });
         }
 
@@ -116,7 +117,7 @@ class CodeBlock extends Parent {
                 return;
 
             this._renderedGrammar = grammar;
-            this.lastContentInDescendant()?.update();
+            (this.lastContentInDescendant() as CodeBlockContent | null)?.redraw();
         };
 
         // `value` is the full info string; load Prism for its first word only.

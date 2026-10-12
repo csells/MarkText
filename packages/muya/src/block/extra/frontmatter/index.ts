@@ -1,5 +1,6 @@
 import type { Muya } from '../../../muya';
 import type { IFrontmatterMeta, IFrontmatterState } from '../../../state/types';
+import type CodeBlockContent from '../../content/codeBlockContent';
 // import { operateClassName } from '../../../utils/dom'
 import type { TBlockPath } from '../../types';
 import { frontMatterPolicy } from '@marktext/input-policy';
@@ -48,7 +49,7 @@ class Frontmatter extends Parent {
                     ({ status }) => status === 'loaded' || status === 'cached',
                 );
                 if (needRender)
-                    this.lastContentInDescendant()?.update();
+                    (this.lastContentInDescendant() as CodeBlockContent | null)?.redraw();
             })
             .catch((err) => {
                 // if no parameter provided, will cause error.
