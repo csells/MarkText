@@ -1639,6 +1639,16 @@ const reconcileCoreHistoryView = (outcome: CoreAppliedReply): MuyaPlainTextBindi
   return view
 }
 
+/** Reconciles a preparation's outcome only while `lease` still owns this view. */
+const reconcileWhileLeased =
+  (lease: typeof props.coreLease, preparation: string) =>
+    (outcome: CoreAppliedReply): MuyaPlainTextBindings => {
+      if (props.coreLease !== lease) {
+        throw new Error(`${preparation} view lease changed during preparation`)
+      }
+      return reconcileCoreHistoryView(outcome)
+    }
+
 const showCoreProjection = async (mode: 'markup' | 'original' | 'revised'): Promise<void> => {
   if (coreDisplayLoading.value || props.coreLease === undefined) return
   if (mode === 'markup') {
@@ -3729,12 +3739,7 @@ onMounted(() => {
         const preparation = adapter.prepareImage(
           action,
           payload,
-          (outcome) => {
-            if (props.coreLease !== lease) {
-              throw new Error('Image view lease changed during preparation')
-            }
-            return reconcileCoreHistoryView(outcome)
-          },
+          reconcileWhileLeased(lease, 'Image'),
           operation.historyGroup
         )
         const presentImage = presentPendingClipboardImage(
@@ -3809,12 +3814,7 @@ onMounted(() => {
                 })
           },
           payload,
-          (outcome) => {
-            if (props.coreLease !== lease) {
-              throw new Error('Clipboard view lease changed during preparation')
-            }
-            return reconcileCoreHistoryView(outcome)
-          },
+          reconcileWhileLeased(lease, 'Clipboard'),
           historyGroup
         )
         const presentImage = presentPendingClipboardImage(
