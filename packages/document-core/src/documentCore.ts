@@ -816,8 +816,7 @@ const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
 const typedInputTypes: ReadonlySet<string> = new Set(['insertText', 'insertCompositionText', 'insertReplacementText'])
 
 const EXECUTION_BUDGET: ExecutionBudgetId = Object.freeze({
-  limitsProfile: 'desktop-v1',
-  accountingSchema: 'syntax-accounting-1'
+  limitsProfile: 'desktop-v1'
 })
 
 function markdownOptions(
@@ -851,10 +850,7 @@ function markdownOptions(
     }
   }
 
-  return Object.freeze({
-    schema: 'markdown-options-1',
-    ...resolved
-  })
+  return resolved
 }
 
 interface MaterializedAnnotations {
@@ -2115,8 +2111,7 @@ export function createDocumentCore(): DocumentCore {
 /** Package-private seam for structural tests outside production admission. */
 export function createUnboundedDocumentCoreForInspection(): DocumentCore {
   return createDocumentCoreWithExecutionBudget(Object.freeze({
-    limitsProfile: 'inspection-unbounded',
-    accountingSchema: 'syntax-accounting-1'
+    limitsProfile: 'inspection-unbounded'
   }))
 }
 
@@ -6381,7 +6376,7 @@ function createDocumentCoreWithExecutionBudget(
     const shortCore = createDocumentCoreWithExecutionBudget(executionBudget)
     windowCores.add(shortCore)
     if (equivalenceDeferred(core)) deferEquivalence(shortCore)
-    const { schema: _schema, ...options } = state.markdownOptions
+    const options = state.markdownOptions
     const opened = shortCore.open(short, blockStart === 0 ? options : { ...options, frontMatter: false })
     const shortPreview = sourceEditPreviews.get(shortCore)
     if (opened.annotations.length !== 0 || opened.diagnostics.length !== 0 || shortPreview === undefined) return undefined
@@ -7323,7 +7318,7 @@ function createDocumentCoreWithExecutionBudget(
     windowCores.add(windowCore)
     markWindowCompileCore(windowCore, { startsDocument: sourceStart === 0, endsDocument: windowEnd === state.source.length })
     if (equivalenceDeferred(core)) deferEquivalence(windowCore)
-    const { schema: _schema, ...options } = state.markdownOptions
+    const options = state.markdownOptions
     const opened = windowCore.open(windowSource, sourceStart === 0 ? options : { ...options, frontMatter: false })
     const within = <T extends { range: SourceRange }>(items: readonly T[], start: number, end: number): T[] =>
       items.filter(item => item.range.start >= start && item.range.end <= end)
@@ -7998,8 +7993,7 @@ function createDocumentCoreWithExecutionBudget(
   const resolvedSource = (source: string, decision: 'accept' | 'reject', options: MarkdownOptionsV1): string => {
     const resolver = createDocumentCoreWithExecutionBudget(executionBudget)
     windowCores.add(resolver)
-    const { schema: _schema, ...open } = options
-    let revision = resolver.open(source, open)
+    let revision = resolver.open(source, options)
     for (let pass = 0; pass < 64 && revision.annotations.length > 0; pass += 1) {
       const current = revision
       revision = resolver.apply(current, current.annotations.map(annotation => {
@@ -8317,7 +8311,7 @@ function createDocumentCoreWithExecutionBudget(
     const candidateCore = createDocumentCoreWithExecutionBudget(executionBudget)
     if (tracked) deferEquivalence(candidateCore)
     if (plansFromGeneralCompile(core)) planFromGeneralCompile(candidateCore)
-    const { schema: _schema, ...options } = state.markdownOptions
+    const options = state.markdownOptions
     let candidate = candidateCore.open(previous.source, options)
     const result: DocumentSourceEdit[] = []
     const authored: Array<{ edit: DocumentSourceEdit, annotation: CriticMarkupAnnotation }> = []
@@ -8436,7 +8430,7 @@ function createDocumentCoreWithExecutionBudget(
       parseWindow: (source, atDocumentStart) => {
         const windowCore = createDocumentCoreWithExecutionBudget(executionBudget)
         windowCores.add(windowCore)
-        const { schema: _schema, ...options } = state.markdownOptions
+        const options = state.markdownOptions
         return windowCore.project(windowCore.open(source, atDocumentStart ? options : { ...options, frontMatter: false }), 'markup').syntax
       },
       // Only a revision already read by regions has an inventory; otherwise
@@ -8453,7 +8447,7 @@ function createDocumentCoreWithExecutionBudget(
 
   // A Comment payload is its own subdocument under the document's options (R5).
   const payloadDiagnostics = (previous: DocumentRevision) => {
-    const { schema: _schema, ...options } = currentStateOf(previous).markdownOptions
+    const options = currentStateOf(previous).markdownOptions
     return (payload: string) => createDocumentCore().open(payload, options).diagnostics
   }
 

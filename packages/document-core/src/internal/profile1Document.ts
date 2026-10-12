@@ -362,7 +362,6 @@ const FORM_LABEL: Readonly<Record<ImplementedKind, string>> = Object.freeze({
 const DESKTOP_MARKDOWN_DEPTH_LIMIT = 128
 const DESKTOP_CM_DEPTH_LIMIT = 16_384
 const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptionsV1 = Object.freeze({
-  schema: 'markdown-options-1',
   gfm: true,
   gfmAutolinks: true,
   gfmTagFilter: true,

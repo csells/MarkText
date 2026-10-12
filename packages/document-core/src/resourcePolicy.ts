@@ -5,7 +5,6 @@
  * that protect the canonical source and durable session boundary.
  */
 export const DOCUMENT_RESOURCE_POLICY_V1 = Object.freeze({
-  schema: 'document-resource-policy-1' as const,
   maximumSourceUnits: 32_000_000,
   // Recoverable desktop ceiling that admits every document the renderer can
   // hold. From the 2 GiB V8 heap an Electron renderer gets on an 8 GB Mac

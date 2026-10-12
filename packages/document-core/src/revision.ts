@@ -422,7 +422,6 @@ export interface SourceOwnershipIndex {
 }
 
 export interface MarkdownOptionsV1 {
-  readonly schema: 'markdown-options-1'
   readonly gfm: boolean
   readonly gfmAutolinks: boolean
   readonly gfmTagFilter: boolean
@@ -437,7 +436,6 @@ export interface MarkdownOptionsV1 {
 
 export interface ExecutionBudgetId {
   readonly limitsProfile: string
-  readonly accountingSchema: string
 }
 
 export type ResourceDiagnosticCode =
