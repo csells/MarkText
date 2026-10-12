@@ -59,8 +59,12 @@ export function rebaseDocumentInputSelection(
     return mapped({ kind: 'table', table: first.table, anchor: { row: anchor.row, column: anchor.column }, focus: { row: focus.row, column: focus.column } })
   }
   const range = inputSourceRange(core, previous, selection)
-  core.sourceSlice(previous, range)
+  // Both revisions must be this core's, and the range within the previous source.
+  core.sourceSlice(previous, { start: 0, end: 0 })
   core.sourceSlice(commit.revision, { start: 0, end: 0 })
+  if (!Number.isInteger(range.start) || !Number.isInteger(range.end) || range.start < 0 || range.end < range.start || range.end > previous.sourceLength) {
+    throw new RangeError('Document source slice range is invalid')
+  }
   const overlaps = (range: SourceRange): boolean => edits.some(edit =>
     edit.start < range.end && range.start < edit.end || edit.start === edit.end && range.start < edit.start && edit.start < range.end)
   const shifted = (range: SourceRange): SourceRange => ({
