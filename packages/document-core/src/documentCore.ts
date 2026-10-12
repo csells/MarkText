@@ -18,7 +18,7 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit, withinHistory } from './trackedHistoryEditing.js'
-import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, withoutDocumentSearchBudget, documentSearchExhausted, spelledAsSource, recordedExactly, trackedStructure, type TrackedStructure, type TrackedPart, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
+import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, memoizedPreview, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, withoutDocumentSearchBudget, documentSearchExhausted, spelledAsSource, recordedExactly, trackedStructure, type TrackedStructure, type TrackedPart, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
@@ -7971,7 +7971,7 @@ function createDocumentCoreWithExecutionBudget(
       }
       return undefined
     }
-    const oracle = createTrackedOracle(core, previous, untracked, preview)
+    const oracle = createTrackedOracle(core, previous, untracked, memoizedPreview(preview))
     if (oracle !== undefined && markup === undefined) spelledAsSource.add(oracle)
     if (oracle !== undefined && splitting) {
       recordedExactly.add(oracle)
@@ -8103,7 +8103,8 @@ function createDocumentCoreWithExecutionBudget(
    */
   const trackedFallback = (
     previous: DocumentRevision,
-    untracked: readonly DocumentSourceEdit[]
+    untracked: readonly DocumentSourceEdit[],
+    untrackedRead?: DocumentRevision
   ): readonly DocumentSourceEdit[] | undefined => {
     const first = untracked[0]
     const last = untracked.at(-1)
@@ -8113,10 +8114,9 @@ function createDocumentCoreWithExecutionBudget(
     for (const edit of [...untracked].reverse()) next = next.slice(0, edit.start) + edit.insert + next.slice(edit.end)
     const delta = next.length - source.length
     const preview = (candidate: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, candidate)
-    const untrackedNext = preview(untracked)
+    const untrackedNext = untrackedRead ?? preview(untracked)
     const allowed = Math.max(previous.diagnostics.length, untrackedNext.diagnostics.length)
     const options = currentStateOf(previous).markdownOptions
-    const accepted = resolvedSource(next, 'accept', options)
     const rejected = resolvedSource(source, 'reject', options)
     const authors = (annotations: readonly CriticMarkupAnnotation[], at: number): boolean =>
       annotations.some(({ range, arms }) => range.start === at || arms.some(arm => authors(arm.annotations, at)))
@@ -8186,6 +8186,7 @@ function createDocumentCoreWithExecutionBudget(
       }
       return undefined
     }
+    const accepted = resolvedSource(next, 'accept', options)
     // The edit itself is tried first, then each suggestion holding it from
     // the innermost out, then the blocks around it, parted at blank lines.
     const edited = widen(first.start, last.end)
@@ -8283,17 +8284,16 @@ function createDocumentCoreWithExecutionBudget(
       input.some(edit => /[`$~]/u.test(edit.insert + source.slice(edit.start, edit.end)))
     if (planned !== undefined && planned.length > 0 && !wide) return planned
     if (planned !== undefined && planned.length === 0) return planned
-    const preview = (candidate: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, candidate)
-    if (planned !== undefined && preview(planned).diagnostics.length <= previous.diagnostics.length) return planned
+    const plannedDiagnostics = planned === undefined ? undefined : previewSourceEdits(previous, planned).diagnostics.length
+    if (plannedDiagnostics !== undefined && plannedDiagnostics <= previous.diagnostics.length) return planned
     const untracked = planNativeEditsCompiled(previous, input, false, typed)
-    if (untracked === undefined || untracked.length === 0) {
-      // An edit the untracked compiler refuses is refused tracked too where
-      // its spelling would leave a marker unpaired.
-      return planned !== undefined && preview(planned).diagnostics.length <= previous.diagnostics.length ? planned : undefined
-    }
-    if (planned !== undefined &&
-        preview(planned).diagnostics.length <= Math.max(previous.diagnostics.length, preview(untracked).diagnostics.length)) return planned
-    return trackedFallback(previous, untracked) ?? planned
+    // An edit the untracked compiler refuses is refused tracked too: its
+    // spelling, if any, leaves a marker unpaired.
+    if (untracked === undefined || untracked.length === 0) return undefined
+    const untrackedRead = previewSourceEdits(previous, untracked)
+    if (plannedDiagnostics !== undefined &&
+        plannedDiagnostics <= Math.max(previous.diagnostics.length, untrackedRead.diagnostics.length)) return planned
+    return trackedFallback(previous, untracked, untrackedRead) ?? planned
   }
 
   const planNativeEditsCompiled = (
@@ -8699,13 +8699,15 @@ function createDocumentCoreWithExecutionBudget(
         const cutting = (edits: readonly DocumentSourceEdit[]): boolean => edits.some(edit =>
           cutsMarker(rootsOverlapping(previous, { start: Math.max(0, edit.start - 3), end: Math.min(previous.sourceLength, edit.end + 3) }), edit))
         const splitting = tracked && keystroke && cutting(plan.edits)
+        let previousRejected: string | undefined
         const rejectsExactly = (edits: readonly DocumentSourceEdit[]): boolean => {
           const holds = edits.some(edit => edit.start < edit.end &&
             rootsOverlapping(previous, edit).some(root => edit.start <= root.range.start && root.range.end <= edit.end))
           if (!holds && !cutting(edits)) return true
           const candidate = previewSourceEdits(previous, edits, false, true)
-          return resolvedSuggestions(candidate.source, candidate.annotations, 'reject') ===
-            resolvedSuggestions(previous.source, previous.annotations, 'reject')
+          const rejected = resolvedSuggestions(candidate.source, candidate.annotations, 'reject')
+          previousRejected ??= resolvedSuggestions(previous.source, previous.annotations, 'reject')
+          return rejected === previousRejected
         }
         const searched = tryPlan()
         const planned = splitting && searched !== undefined && searched.length > 0 && !rejectsExactly(searched) ? undefined : searched
