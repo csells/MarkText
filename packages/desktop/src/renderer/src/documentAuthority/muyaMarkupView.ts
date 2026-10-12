@@ -1334,44 +1334,47 @@ export function createMuyaMarkupView(
     return /^ +$/u.test(padding) ? { tableCellPadding: padding.length } : {}
   }
   const unsnappedBindings = builders.map(
-    (builder, index): MuyaMarkupBinding => ({
-      path: builder.path,
-      text: builder.text,
-      segments: builder.segments,
-      syntax: builder.syntax,
-      ...(tableCells.has(JSON.stringify(builder.path))
-        ? {
-          tableCell: tableCells.get(JSON.stringify(builder.path)),
-          tableCellContent: tableCellContentRange(projection.syntax, builder.syntax),
-          ...cellPadding(builder.syntax)
+    (builder, index): MuyaMarkupBinding => {
+      const pathKey = JSON.stringify(builder.path)
+      return {
+        path: builder.path,
+        text: builder.text,
+        segments: builder.segments,
+        syntax: builder.syntax,
+        ...(tableCells.has(pathKey)
+          ? {
+            tableCell: tableCells.get(pathKey),
+            tableCellContent: tableCellContentRange(projection.syntax, builder.syntax),
+            ...cellPadding(builder.syntax)
+          }
+          : {}),
+        ...(builder.emptyLiteralLineEnding === undefined
+          ? {}
+          : { emptyLiteralLineEnding: builder.emptyLiteralLineEnding }),
+        ...(continuations.has(pathKey)
+          ? { listContinuation: continuations.get(pathKey) }
+          : {}),
+        ...blankLineText(builder),
+        ...(markerLines.has(pathKey)
+          ? { markerLine: markerLines.get(pathKey) }
+          : {}),
+        ...(trailingLines[index] === undefined ? {} : { trailingLinePosition: trailingLines[index] }),
+        ...(leadingLines[index] === undefined
+          ? {}
+          : {
+            leadingLinePosition: leadingLines[index],
+            ...leadingLineText(builder, leadingLines[index])
+          }),
+        sourceRange: {
+          start:
+            builder.segments[0]?.source.start ??
+            projection.syntax.coordinates.toSource(builder.range.start, 'next'),
+          end:
+            builder.segments.at(-1)?.source.end ??
+            projection.syntax.coordinates.toSource(builder.range.end, 'next')
         }
-        : {}),
-      ...(builder.emptyLiteralLineEnding === undefined
-        ? {}
-        : { emptyLiteralLineEnding: builder.emptyLiteralLineEnding }),
-      ...(continuations.has(JSON.stringify(builder.path))
-        ? { listContinuation: continuations.get(JSON.stringify(builder.path)) }
-        : {}),
-      ...blankLineText(builder),
-      ...(markerLines.has(JSON.stringify(builder.path))
-        ? { markerLine: markerLines.get(JSON.stringify(builder.path)) }
-        : {}),
-      ...(trailingLines[index] === undefined ? {} : { trailingLinePosition: trailingLines[index] }),
-      ...(leadingLines[index] === undefined
-        ? {}
-        : {
-          leadingLinePosition: leadingLines[index],
-          ...leadingLineText(builder, leadingLines[index])
-        }),
-      sourceRange: {
-        start:
-          builder.segments[0]?.source.start ??
-          projection.syntax.coordinates.toSource(builder.range.start, 'next'),
-        end:
-          builder.segments.at(-1)?.source.end ??
-          projection.syntax.coordinates.toSource(builder.range.end, 'next')
       }
-    })
+    }
   )
   const leavesOf = new Map<MarkdownAstNode, readonly MarkdownAstNode[]>()
   const bindings = unsnappedBindings.map((binding): MuyaMarkupBinding => {
