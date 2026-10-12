@@ -16,7 +16,6 @@ export interface Profile1SyntaxAccountingEventV1 {
 }
 
 export interface Profile1SyntaxAccountingTraceV1 {
-  readonly schema: 'syntax-accounting-1'
   readonly events: readonly Profile1SyntaxAccountingEventV1[]
 }
 
@@ -168,10 +167,7 @@ export function createProfile1SyntaxAccountingRecorderV1(
       }
       for (const event of bucket.events) events.push(event)
     }
-    return Object.freeze({
-      schema: 'syntax-accounting-1',
-      events: Object.freeze(events)
-    })
+    return Object.freeze({ events: Object.freeze(events) })
   }
 
   return Object.freeze({

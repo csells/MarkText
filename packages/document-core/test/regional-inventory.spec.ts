@@ -13,12 +13,10 @@ import {
 import type { ExecutionBudgetId } from '../src/revision.js'
 
 const executionBudget: ExecutionBudgetId = Object.freeze({
-  limitsProfile: 'desktop-v1',
-  accountingSchema: 'syntax-accounting-1'
+  limitsProfile: 'desktop-v1'
 })
 
 const markdownOptions = Object.freeze({
-  schema: 'markdown-options-1' as const,
   gfm: true,
   gfmAutolinks: true,
   gfmTagFilter: true,

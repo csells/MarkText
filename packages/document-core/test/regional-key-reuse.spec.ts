@@ -10,12 +10,10 @@ import type { ExecutionBudgetId } from '../src/revision.js'
 // (the Review overview's Comment projections) share one fact table.
 
 const budget: ExecutionBudgetId = Object.freeze({
-  limitsProfile: 'desktop-v1',
-  accountingSchema: 'syntax-accounting-1'
+  limitsProfile: 'desktop-v1'
 })
 
 const options = Object.freeze({
-  schema: 'markdown-options-1' as const,
   gfm: true,
   gfmAutolinks: true,
   gfmTagFilter: true,

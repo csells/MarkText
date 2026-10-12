@@ -8,7 +8,7 @@ it.each([
   { source: 'x\n\n\n', tape: 4, markdown: 6 }
 ])('accounts shared projection storage once and distinct editing nodes individually: $source', ({ source, tape, markdown }) => {
   const parsed = parseProfile1Document(source, {
-    limitsProfile: 'desktop-v1', accountingSchema: 'syntax-accounting-1'
+    limitsProfile: 'desktop-v1'
   }, undefined, true)
   if (parsed.kind !== 'complete') throw new Error('Expected complete small-document parse')
   // Plain text owns its canonical root, projected root, paragraph and text.
