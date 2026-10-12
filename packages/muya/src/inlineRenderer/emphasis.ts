@@ -1,10 +1,9 @@
 import type { InlineRules } from './rules';
 import type { ITokenizerFacOptions, Labels } from './types';
-import { codePointBefore } from '../utils';
+import { codePointBefore, codePointCharAt } from '../utils';
 import { BACKSLASH_MATH_RULES, linkValidateRules } from './rules';
 import {
     CJK_REG,
-    codePointCharAt,
     matchAt,
     matchBracketed,
     matchExtendedAutoLink,
