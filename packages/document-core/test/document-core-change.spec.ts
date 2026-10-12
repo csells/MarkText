@@ -87,7 +87,6 @@ interface ChangeInspection {
   readonly sourceFallbackMaterializations: number
   readonly sourceRebaseMaterializations: number
   readonly sourceProjectionMaterializations: number
-  readonly sourceReopenMaterializations: number
   readonly sourceRopeRootsAttempted: number
   readonly sourceRopeRootsCommitted: number
   readonly sourceRebases: number

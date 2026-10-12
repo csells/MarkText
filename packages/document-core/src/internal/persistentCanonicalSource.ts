@@ -5,7 +5,6 @@ export type CanonicalSourceMaterializationReason =
   | 'fallback'
   | 'projection'
   | 'rebase'
-  | 'reopen'
 
 export interface PersistentCanonicalSourceRecorder {
   readonly recordNodeVisit: (depth: number) => void

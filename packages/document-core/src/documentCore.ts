@@ -660,8 +660,8 @@ export class DocumentSourceEditError extends RangeError {
 }
 
 /**
- * One document lineage. Successful open and reopen calls advance its current
- * revision. Older revisions remain projectable but cannot be reopened.
+ * One document lineage. Successful open and apply calls advance its current
+ * revision. Older revisions remain projectable but cannot be edited.
  */
 export interface DocumentCore {
   /** Source highlighting from this revision’s shared Markdown and CriticMarkup syntax. */
@@ -743,16 +743,6 @@ export interface DocumentCore {
   ): DocumentCommit
   /** Reads one bounded canonical-source range without materializing a revision. */
   sourceSlice(revision: DocumentRevision, range: SourceRange): string
-  /**
-   * Transitional compatibility entry point. Core-mode consumers should use
-   * `apply`, which does not accept a separately reconstructed candidate.
-   */
-  reopen(
-    previous: DocumentRevision,
-    source: string,
-    edits: readonly DocumentSourceEdit[],
-    options?: Readonly<Partial<MarkdownOptions>>
-  ): DocumentRevision
   project(
     revision: DocumentRevision,
     projection: MarkdownProjectionName
@@ -2193,9 +2183,6 @@ interface MutableDocumentCoreInspection {
   sourceRebaseMaterializationOutputUnits: number
   sourceProjectionMaterializations: number
   sourceProjectionMaterializationOutputUnits: number
-  sourceReopenMaterializations: number
-  sourceReopenMaterializationOutputUnits: number
-  sourceReopenComparisonUnits: number
   sourceRopeRootsAttempted: number
   sourceRopeRootsCommitted: number
   sourceRebases: number
@@ -2811,9 +2798,6 @@ function createDocumentCoreWithExecutionBudget(
     sourceRebaseMaterializationOutputUnits: 0,
     sourceProjectionMaterializations: 0,
     sourceProjectionMaterializationOutputUnits: 0,
-    sourceReopenMaterializations: 0,
-    sourceReopenMaterializationOutputUnits: 0,
-    sourceReopenComparisonUnits: 0,
     sourceRopeRootsAttempted: 0,
     sourceRopeRootsCommitted: 0,
     sourceRebases: 0,
@@ -2869,12 +2853,9 @@ function createDocumentCoreWithExecutionBudget(
       } else if (reason === 'projection') {
         inspection.sourceProjectionMaterializations += 1
         inspection.sourceProjectionMaterializationOutputUnits += units
-      } else if (reason === 'rebase') {
+      } else {
         inspection.sourceRebaseMaterializations += 1
         inspection.sourceRebaseMaterializationOutputUnits += units
-      } else {
-        inspection.sourceReopenMaterializations += 1
-        inspection.sourceReopenMaterializationOutputUnits += units
       }
     },
     recordGetterHit: (): void => {
@@ -3226,7 +3207,7 @@ function createDocumentCoreWithExecutionBudget(
       productStore?.releaseStrong()
       // Parsing updates provenance state before facade materialization. If
       // publication fails, discard that candidate state so the current head
-      // can still be reopened safely.
+      // can still be edited safely.
       reuseCache = createProfile1DocumentReuseCache()
       throw error
     }
@@ -9022,48 +9003,6 @@ function createDocumentCoreWithExecutionBudget(
         throw new RangeError('Document source slice range is invalid')
       }
       return state.source.slice(range.start, range.end)
-    },
-
-    reopen(
-      previous: DocumentRevision,
-      source: string,
-      edits: readonly DocumentSourceEdit[],
-      options?: Readonly<Partial<MarkdownOptions>>
-    ): DocumentRevision {
-      const previousState = currentStateOf(previous)
-      if (typeof source !== 'string') {
-        throw new TypeError('Document source must be a string')
-      }
-
-      const stableEdits = stableSourceEdits(edits)
-      preflightSourceEdits(previousState.source.length, stableEdits)
-      rejectSurrogateSplits(previousState.source, stableEdits)
-      let candidate: PersistentCanonicalSource
-      try {
-        candidate = previousState.source.applyExact(
-          stableEdits,
-          'Document core source edit'
-        )
-      } catch (error) {
-        if (error instanceof RangeError) {
-          throw new DocumentSourceEditError(error.message)
-        }
-        throw error
-      }
-      const reproduced = candidate.materialize('reopen')
-      inspection.sourceReopenComparisonUnits += reproduced.length
-      if (reproduced !== source) {
-        throw new Error(
-          'Document core reopen source does not match its exact edits'
-        )
-      }
-      return applyCandidate(
-        previousState,
-        candidate,
-        stableEdits,
-        options,
-        'reopen'
-      )
     },
 
     sourceSyntax(revision: DocumentRevision) {
