@@ -119,7 +119,7 @@ export function createDocumentTextDraft(
     const backwards = anchorRange.compareBoundaryPoints(Range.START_TO_START, focusRange) > 0;
     const start = backwards ? focus : anchor;
     const end = backwards ? anchor : focus;
-    const state = structuredClone(muya.getState());
+    const state = muya.getState();
     return () => {
         const replacement = replaceViewRange(state, start, end, text);
         muya.setContent(replacement.state, false, { preserveInputGrouping: true });
@@ -303,7 +303,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
             throw new Error('Native composition has no starting selection');
         const forward = selection.direction !== SelectionDirection.BACKWARD;
         composition = {
-            state: structuredClone(muya.getState()),
+            state: muya.getState(),
             start: point(forward ? selection.anchor : selection.focus),
             end: point(forward ? selection.focus : selection.anchor),
             candidate: '',
