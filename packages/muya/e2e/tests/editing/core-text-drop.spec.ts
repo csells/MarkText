@@ -1,6 +1,6 @@
 import process from 'node:process';
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -8,27 +8,27 @@ test.beforeEach(async ({ page }) => separateUndoSteps(page));
 for (const payload of ['external same', 'https://example.test/same%20same#view']) {
 test(`trusted external drop ${payload} submits its browser target before native mutation`, async ({ page }) => {
     const source = 'same {++same++}{>>keep<<}\n\ntarget\n';
-    await page.evaluate(async ({ source, payload }) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-        const drag = document.createElement('div');
-        drag.id = 'external-text-drag';
-        drag.textContent = 'external same';
-        drag.draggable = true;
-        drag.style.cssText = 'position:fixed;left:50px;top:200px;padding:10px;background:white;color:black;z-index:10000';
-        drag.addEventListener('dragstart', event => {
-            event.dataTransfer!.setData('text/plain', payload);
-            event.dataTransfer!.effectAllowed = 'copy';
-        });
-        document.body.appendChild(drag);
-        window.muya!.domNode.addEventListener('beforeinput', event => {
-            if (!(event instanceof InputEvent)) return;
-            window.muya!.domNode.dataset.dropType = event.inputType;
-            window.muya!.domNode.dataset.dropTrusted = String(event.isTrusted);
-            window.muya!.domNode.dataset.dropRangeCount = String(event.getTargetRanges().length);
-        }, { capture: true, once: true });
-    }, { source, payload });
+    await bootCore(page, source, {
+        arg: payload,
+        setup: (payload) => {
+            const drag = document.createElement('div');
+            drag.id = 'external-text-drag';
+            drag.textContent = 'external same';
+            drag.draggable = true;
+            drag.style.cssText = 'position:fixed;left:50px;top:200px;padding:10px;background:white;color:black;z-index:10000';
+            drag.addEventListener('dragstart', event => {
+                event.dataTransfer!.setData('text/plain', payload);
+                event.dataTransfer!.effectAllowed = 'copy';
+            });
+            document.body.appendChild(drag);
+            window.muya!.domNode.addEventListener('beforeinput', event => {
+                if (!(event instanceof InputEvent)) return;
+                window.muya!.domNode.dataset.dropType = event.inputType;
+                window.muya!.domNode.dataset.dropTrusted = String(event.isTrusted);
+                window.muya!.domNode.dataset.dropRangeCount = String(event.getTargetRanges().length);
+            }, { capture: true, once: true });
+        },
+    });
     try {
         const target = page.locator('.mu-paragraph').last();
         const point = await page.evaluate(() => {

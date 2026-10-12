@@ -348,12 +348,14 @@ export const clickMenuById = async(app: ElectronApplication, id: string): Promis
   }, id)
 }
 
-const clickMenuItem = (
+type MenuItemAction = 'click' | 'click-if-enabled' | 'read-enabled'
+
+const menuItemByLabel = (
   app: ElectronApplication,
   labels: readonly string[],
-  onlyIfEnabled: boolean
+  action: MenuItemAction
 ): Promise<boolean> =>
-  app.evaluate(({ BrowserWindow, Menu }, { labels, onlyIfEnabled }) => {
+  app.evaluate(({ BrowserWindow, Menu }, { labels, action }) => {
     const clean = (label: string) => label.replace(/…|\.\.\./g, '')
     let items = Menu.getApplicationMenu()?.items ?? []
     let item: Electron.MenuItem | undefined
@@ -361,8 +363,9 @@ const clickMenuItem = (
       item = items.find(candidate => clean(candidate.label) === clean(label))
       items = item?.submenu?.items ?? []
     }
+    if (action === 'read-enabled') return item?.enabled === true
     const win = BrowserWindow.getAllWindows().find(win => win.webContents.getURL().includes('type=editor'))
-    if (!item || !win || (!item.enabled && !onlyIfEnabled)) {
+    if (!item || !win || (!item.enabled && action === 'click')) {
       throw new Error(`Unavailable menu command: ${labels.join(' → ')}`)
     }
     if (!item.enabled) return false
@@ -373,7 +376,7 @@ const clickMenuItem = (
     if (role === 'cut' || role === 'copy' || role === 'paste') win.webContents[role]()
     else item.click(undefined, win, win.webContents)
     return true
-  }, { labels, onlyIfEnabled })
+  }, { labels, action })
 
 /**
  * Clicks an enabled application menu item, found by its label path, the way a
@@ -381,25 +384,16 @@ const clickMenuItem = (
  * window. Labels match without their trailing ellipsis.
  */
 export const clickMenuByLabel = async(app: ElectronApplication, ...labels: string[]): Promise<void> => {
-  await clickMenuItem(app, labels, false)
+  await menuItemByLabel(app, labels, 'click')
 }
 
 /** Like clickMenuByLabel, but leaves a disabled item unclicked; returns whether it was enabled. */
 export const clickMenuByLabelIfEnabled = (app: ElectronApplication, ...labels: string[]): Promise<boolean> =>
-  clickMenuItem(app, labels, true)
+  menuItemByLabel(app, labels, 'click-if-enabled')
 
 /** Whether the application menu item at this label path is enabled. */
 export const menuEnabledByLabel = (app: ElectronApplication, ...labels: string[]): Promise<boolean> =>
-  app.evaluate(({ Menu }, labels) => {
-    const clean = (label: string) => label.replace(/…|\.\.\./g, '')
-    let items = Menu.getApplicationMenu()?.items ?? []
-    let item: Electron.MenuItem | undefined
-    for (const label of labels) {
-      item = items.find(candidate => clean(candidate.label) === clean(label))
-      items = item?.submenu?.items ?? []
-    }
-    return item?.enabled === true
-  }, labels)
+  menuItemByLabel(app, labels, 'read-enabled')
 
 export const waitForEditor = async(page: Page, timeout = 15000): Promise<void> => {
   await page.waitForSelector('.editor-component', { state: 'attached', timeout })

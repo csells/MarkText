@@ -33,7 +33,7 @@ describe('review command availability', () => {
     expect(reviewCommandEnabled('accept-all', { ...markup, targeted: false })).toBe(true)
     expect(reviewCommandEnabled('next', { ...markup, targeted: false })).toBe(true)
   })
-  it('enables only the authoring forms available now (plan 0012 G16)', () => {
+  it('enables only the authoring forms available now', () => {
     const caretInHighlight = { ...markup, authorForms: ['comment'] as const }
     expect(reviewCommandEnabled('add-comment', caretInHighlight)).toBe(true)
     for (const command of ['mark-highlight', 'mark-addition', 'suggest-replacement'] as const) {

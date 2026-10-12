@@ -188,7 +188,7 @@ for (const example of [
     text: 'seed{++raw++}',
     // Marker spellings inside a closed fence read as its text, which the
     // fence's own regional parse proves: every projection, the annotations
-    // and the Markup events match a fresh open (plan 0012 G35).
+    // and the Markup events match a fresh open.
     scope: 'regions'
   },
   {
@@ -199,7 +199,7 @@ for (const example of [
     inserted: '**bold**',
     text: 'seed**bold**',
     // Inline structure inside plain paragraphs is re-proven by its own
-    // paragraphs' regional parse (plan 0012 G35).
+    // paragraphs' regional parse.
     scope: 'regions'
   }
 ]) {

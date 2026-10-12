@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const example of [
     { name: 'code', source: '```js\nbody\n```\n', changed: 'body\n', typed: 'xbody\n' },
@@ -12,12 +12,11 @@ for (const example of [
 ]) {
     test(`actual ${example.name} boundary Backspace resets once before next key`, async ({ page }) => {
         const prefix = example.prefix ?? 'before\n\n';
-        await page.evaluate(async (source) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-            window.muya!.editor.scrollPage!.lastContentInDescendant()!.setCursor(0, 0, true);
-        }, prefix + example.source);
+        await bootCore(page, prefix + example.source, {
+            setup: () => {
+                window.muya!.editor.scrollPage!.lastContentInDescendant()!.setCursor(0, 0, true);
+            },
+        });
         try {
             await page.keyboard.press('Backspace');
             expect(await readCore(page)).toMatchObject({ source: { source: prefix + example.changed }, anchor: 0, caret: 0, legacyCalls: [] });

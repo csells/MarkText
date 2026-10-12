@@ -165,17 +165,15 @@ const FINAL_NEWLINE_TAIL = 4096
  * A file save writes the document's final line breaks in the file's
  * "Trailing newline" mode, as upstream does, by changing the document first
  * through its live view, so the saved file and the document stay the same
- * bytes. Only the final run of line breaks changes; a conforming document
- * saves untouched.
+ * bytes. `source` is the document as the save barrier read it. Only the final
+ * run of line breaks changes; a conforming document saves untouched.
  */
 const conformFinalNewline = (
   session: Session,
   mode: number | undefined,
-  current: ReturnType<Session['binding']['sourceAtBarrier']>
+  source: string
 ): Promise<void> | undefined => {
   if ((mode !== 0 && mode !== 1) || session.viewChange === undefined) return undefined
-  if (current.type !== 'source') throw new Error('Core document save barrier is stale')
-  const { source } = current
   let tailStart = Math.max(0, source.length - FINAL_NEWLINE_TAIL)
   while (tailStart > 0 && /^(?:\r\n|\r|\n)*$/u.test(source.slice(tailStart))) {
     tailStart = Math.max(0, tailStart - FINAL_NEWLINE_TAIL)
@@ -1338,8 +1336,12 @@ export function createCoreDocumentSessionManager(
 
         if (session.barrierFailure !== undefined) throw session.barrierFailure
         let result = session.binding.sourceAtBarrier()
-        // Only a save that changes the end waits, and then reads afresh.
-        const conforming = conformFinalNewline(session, options?.trailingNewlineMode, result)
+        // Only a save that changes the end waits, and then reads afresh. A
+        // stale read fails below.
+        const conforming =
+          result.type === 'source'
+            ? conformFinalNewline(session, options?.trailingNewlineMode, result.source)
+            : undefined
         if (conforming !== undefined) {
           await conforming
           if (sessions.get(documentId) !== session) return manager.saveBarrier(documentId, options)

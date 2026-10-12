@@ -14,7 +14,7 @@ import {
   nativeKey
 } from './reviewGestures'
 
-// Plan 0012 G44: Review resolution across blocks and in bulk, undone and
+// Review resolution across blocks and in bulk, undone and
 // redone with the real ⌘Z and ⇧⌘Z keys. Accept/Reject follow Profile 1 §10
 // (the Revised and Original columns); Accept All and Reject All resolve every
 // suggestion, including nested and cross-block ones, and leave Highlights and

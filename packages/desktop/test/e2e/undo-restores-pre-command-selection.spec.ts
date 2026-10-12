@@ -9,7 +9,7 @@ import {
   sendIpcToRenderer
 } from './helpers'
 
-// Owner decision (plan 0012): Undo returns the caret to where it was when the
+// Owner decision: Undo returns the caret to where it was when the
 // undone command ran, for Markdown and CriticMarkup commands alike. This
 // deliberately differs from upstream MarkText, whose History restores the
 // caret saved after the previous change (here, just after the first `x`).

@@ -6,7 +6,7 @@ import {
 } from '@/documentConsumers/pandocExportProjection'
 import type { PandocJsonNode } from '@shared/types/files'
 
-// Plan 0012 G40: Pandoc receives what Core makes of the document. Every
+// Pandoc receives what Core makes of the document. Every
 // format but .docx reads the Revised projection; .docx carries suggestions
 // as Word tracked changes and comments as Word comments.
 
@@ -31,7 +31,7 @@ const commentEnd = (id: string): PandocJsonNode => ({
 const docxBlocks = (source: string, options = {}): PandocJsonNode[] =>
   projectPandocExport(source, options, 'docx').blocks
 
-describe('Pandoc export input from Core (G40)', () => {
+describe('Pandoc export input from Core', () => {
   it('uses pandoc\'s default author for every change and comment', () => {
     expect(PANDOC_NEUTRAL_AUTHOR).toBe('unknown')
   })

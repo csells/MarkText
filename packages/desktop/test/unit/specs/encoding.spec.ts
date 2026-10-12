@@ -35,7 +35,7 @@ describe('guessEncoding — prefer UTF-8 over a ced misdetection (#3151)', () =>
   })
 })
 
-// Plan 0012 G41: only bytes that are not valid UTF-8 reach `ced`, so reading
+// Only bytes that are not valid UTF-8 reach `ced`, so reading
 // its answer as UTF-8 replaced every byte it had recognized.
 describe('guessEncoding — a legacy guess is decoded as that encoding', () => {
   const notUtf8 = Buffer.from([0x68, 0x69, 0xc2, 0x20, 0x6f, 0x6b])

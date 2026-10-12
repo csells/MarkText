@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Plan 0012 G41: an edited save of a file whose bytes did not survive decoding
+// An edited save of a file whose bytes did not survive decoding
 // asks before replacing them, through the real save IPC and the real writer.
 
 const { listeners, emit, fromWebContents, showMessageBox, showSaveDialog, send } = vi.hoisted(

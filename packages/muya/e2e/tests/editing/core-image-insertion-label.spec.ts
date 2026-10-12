@@ -1,19 +1,17 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const example of [
     { source: 'a]b\n', changed: '![a\\]b](cat.png)\n', typed: '![a\\]b](cat.png)X\n' },
     { source: 'a{++]++}b{>>keep<<}\n', changed: '![a{++\\]++}b](cat.png){>>keep<<}\n', typed: '![a{++\\]++}b](cat.png)X{>>keep<<}\n' },
 ]) {
     test(`Insert Image retains selected bracket text and annotations: ${example.source}`, async ({ page }) => {
-        await page.evaluate(async source => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-            const leaf = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-            leaf.setCursor(0, 3, true);
-            window.muya!.insertImage({ src: 'cat.png' });
-        }, example.source);
+        await bootCore(page, example.source, {
+            cursor: [0, 3, true],
+            setup: () => {
+                window.muya!.insertImage({ src: 'cat.png' });
+            },
+        });
         try {
             const widget = page.locator('[data-core-image]');
             await expect(widget).toHaveCount(1);

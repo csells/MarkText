@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { holdUndoSteps, separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -12,16 +12,16 @@ for (const text of ['plain', 'plain\nsecond']) {
             const lines = text.replaceAll('\n', '\n> ');
             const quoted = tracked ? `{++> ${lines}++}\n` : `> {++${lines}++}\n`;
             const typed = tracked ? `{++> ${lines}!++}\n` : `> {++${lines}!++}\n`;
-            await page.evaluate(async ({ source, tracked }) => {
-                const muya = window.muya!;
-                const modulePath = '/coreBoundaryControl.ts';
-                const control = await import(/* @vite-ignore */ modulePath);
-                window.coreBoundary = control.bootCoreBoundary(muya, source, tracked);
-                const content = muya.editor.scrollPage!.firstContentInDescendant()!;
-                content.setCursor(content.text.length, content.text.length, true);
-                muya.editor.activeContentBlock = content;
-                muya.updateParagraph('blockquote');
-            }, { source, tracked });
+            await bootCore(page, source, {
+                tracked,
+                setup: () => {
+                    const muya = window.muya!;
+                    const content = muya.editor.scrollPage!.firstContentInDescendant()!;
+                    content.setCursor(content.text.length, content.text.length, true);
+                    muya.editor.activeContentBlock = content;
+                    muya.updateParagraph('blockquote');
+                },
+            });
             try {
                 expect(await readCore(page)).toMatchObject({ source: { source: quoted }, caret: text.length, legacyCalls: [] });
                 await expect(page.locator('.mu-block-quote')).toHaveCount(1);
@@ -56,16 +56,15 @@ for (const example of [
         const source = example.source + '\n';
         const quoted = '> ' + source;
         const typed = '> ' + example.typed + '\n';
-        await page.evaluate(async ({ source }) => {
-            const muya = window.muya!;
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(muya, source);
-            const content = muya.editor.scrollPage!.firstContentInDescendant()!;
-            content.setCursor(content.text.length, content.text.length, true);
-            muya.editor.activeContentBlock = content;
-            muya.updateParagraph('blockquote');
-        }, { source });
+        await bootCore(page, source, {
+            setup: () => {
+                const muya = window.muya!;
+                const content = muya.editor.scrollPage!.firstContentInDescendant()!;
+                content.setCursor(content.text.length, content.text.length, true);
+                muya.editor.activeContentBlock = content;
+                muya.updateParagraph('blockquote');
+            },
+        });
         try {
             expect(await readCore(page)).toMatchObject({ source: { source: quoted }, anchor: example.text.length, caret: example.text.length, legacyCalls: [] });
             expect(await page.evaluate(() => window.muya!.getState())).toMatchObject([{ name: 'block-quote', children: [{ name: 'paragraph', text: example.text }] }]);

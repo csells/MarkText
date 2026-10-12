@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { floats } from '../helpers/selectors';
 import { pauseUndoWindow } from '../helpers/undoWindow';
 
@@ -11,20 +11,20 @@ for (const example of [
     { name: 'active list toggle', command: 'ul-bullet', source: '- a{++l++}pha{>>keep<<}\n- alpha\n', expected: 'a{++l++}pha{>>keep<<}\n\nalpha\n' },
 ]) {
     test(`${example.name} retains the second identical item for the next key`, async ({ page }) => {
-        await page.evaluate(async ({ source, command }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            const muya = window.muya!;
-            window.coreBoundary = control.bootCoreBoundary(muya, source);
-            const first = muya.editor.scrollPage!.firstContentInDescendant()!;
-            const second = first.nextContentInContext()!;
-            second.setCursor(1, 1, true);
-            muya.focus();
-            if (command === 'front') {
-                muya.eventCenter.emit('muya-front-menu', { reference: first.domNode, block: first.outMostBlock });
-            }
-            else muya.updateParagraph(command);
-        }, example);
+        await bootCore(page, example.source, {
+            arg: example.command,
+            setup: (command) => {
+                const muya = window.muya!;
+                const first = muya.editor.scrollPage!.firstContentInDescendant()!;
+                const second = first.nextContentInContext()!;
+                second.setCursor(1, 1, true);
+                muya.focus();
+                if (command === 'front') {
+                    muya.eventCenter.emit('muya-front-menu', { reference: first.domNode, block: first.outMostBlock });
+                }
+                else muya.updateParagraph(command);
+            },
+        });
         try {
             if (example.command === 'front') await page.locator(`${floats.paragraphFrontMenu} .turn-into-item.order-list`).click();
             expect(await readCore(page)).toMatchObject({ source: { source: example.expected }, legacyCalls: [] });

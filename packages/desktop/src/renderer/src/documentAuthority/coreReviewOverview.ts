@@ -1,3 +1,4 @@
+import { isPositionalMarkdownAttribute } from '@marktext/document-core'
 import type {
   CommentMarkupProjection,
   CriticMarkupAnnotation,
@@ -13,7 +14,6 @@ import type { CoreReviewItemLocator, CoreReviewOverviewEntry } from './coreProto
 import { commentPassage, documentArmPassage } from '../documentConsumers/markupPassage'
 import { literalChildText, markupRegionCoordinates } from './muyaMarkupChanges'
 import type { MarkupPassage } from '../documentConsumers/markupPassage'
-import { isPositionKey } from '../documentConsumers/astAttributes'
 
 /**
  * What the Review overview reads of a revision: its whole document, or the
@@ -260,7 +260,7 @@ const shiftedNode = (node: MarkdownAstNode, at: number, delta: number): Markdown
   let attributes: Record<string, MarkdownAstNode['attributes'][string]> | undefined
   for (const key in node.attributes) {
     const value = node.attributes[key]
-    if (typeof value !== 'number' || !isPositionKey(key) || moved(value) === value) continue
+    if (typeof value !== 'number' || !isPositionalMarkdownAttribute(key) || moved(value) === value) continue
     attributes ??= { ...node.attributes }
     attributes[key] = moved(value)
   }

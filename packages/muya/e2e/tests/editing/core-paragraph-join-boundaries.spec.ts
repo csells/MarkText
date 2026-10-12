@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -15,15 +15,15 @@ for (const example of [
     { style: 'image next paragraph', key: 'Delete', source: 'a\n\n<img src="x">\n', joined: 'a<img src="x">\n', typed: 'ax<img src="x">\n', offset: 1, target: 0 },
 ]) {
     test(`${example.key} joins the ${example.style}`, async ({ page }) => {
-        await page.evaluate(async ({ source, target, key }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, false);
-            let block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-            for (let index = 0; index < target; index++) block = block.nextContentInContext()!;
-            const offset = key === 'Backspace' ? 0 : block.text.length;
-            block.setCursor(offset, offset, true);
-        }, { source: example.source, target: example.target, key: example.key });
+        await bootCore(page, example.source, {
+            arg: { target: example.target, key: example.key },
+            setup: ({ target, key }) => {
+                let block = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                for (let index = 0; index < target; index++) block = block.nextContentInContext()!;
+                const offset = key === 'Backspace' ? 0 : block.text.length;
+                block.setCursor(offset, offset, true);
+            },
+        });
         try {
             await page.keyboard.press(example.key);
             expect(await readCore(page)).toMatchObject({ source: { source: example.joined }, anchor: example.offset, caret: example.offset, legacyCalls: [] });

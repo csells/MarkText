@@ -55,8 +55,8 @@ export const coreReviewComposerEscapes = (
  * a draft card at `draftStart`. Edits made while it is open, such as in
  * Source, move the entry, so the card is the entry of the same kind, length
  * and Comment nearest to where the entry was. When no such entry remains, the
- * composer stands as a draft card there, so unsubmitted input never vanishes
- * (G1); submitting it then reports that the document changed.
+ * composer stands as a draft card there, so unsubmitted input never vanishes;
+ * submitting it then reports that the document changed.
  */
 export const coreReviewComposerPlacement = (
   target: CoreReviewComposerState['target'],

@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 
 for (const example of [
     { name: 'inline annotation', source: 'same\n\ns{++a++}me{>>keep<<}\n\nlast\n', moved: 'same\n\nlast\n\ns{++a++}me{>>keep<<}\n', typed: 'same\n\nlast\n\ns{++a++}X{>>keep<<}\n' },
@@ -7,18 +7,17 @@ for (const example of [
 ]) {
 test(`native drag moves ${example.name} before trusted replacement and history`, async ({ page }) => {
     const { source, moved, typed } = example;
-    await page.evaluate(async source => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-        const leaf = window.muya!.editor.scrollPage!.queryBlock([1, 'text']);
-        if (!leaf?.isContent()) throw new Error('Expected actual drag block');
-        const walker = document.createTreeWalker(leaf.domNode!, NodeFilter.SHOW_TEXT);
-        let last = walker.nextNode();
-        while (last && last.textContent !== 'me') last = walker.nextNode();
-        if (!last) throw new Error('Expected annotation-adjacent source text');
-        window.muya!.editor.selection.setDOMSelection({ node: last, offset: 2 }, { node: last, offset: 0 });
-    }, source);
+    await bootCore(page, source, {
+        setup: () => {
+            const leaf = window.muya!.editor.scrollPage!.queryBlock([1, 'text']);
+            if (!leaf?.isContent()) throw new Error('Expected actual drag block');
+            const walker = document.createTreeWalker(leaf.domNode!, NodeFilter.SHOW_TEXT);
+            let last = walker.nextNode();
+            while (last && last.textContent !== 'me') last = walker.nextNode();
+            if (!last) throw new Error('Expected annotation-adjacent source text');
+            window.muya!.editor.selection.setDOMSelection({ node: last, offset: 2 }, { node: last, offset: 0 });
+        },
+    });
     try {
         const paragraphs = page.locator('.mu-paragraph');
         await paragraphs.nth(1).hover();

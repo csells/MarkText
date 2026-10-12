@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -20,15 +20,15 @@ for (const example of [
         const source = example.source + suffix;
         const joined = example.joined + suffix;
         const typed = example.typed + suffix;
-        await page.evaluate(async ({ source, donor }) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-            let paragraph = window.muya!.editor.scrollPage!.firstContentInDescendant();
-            while (paragraph && paragraph.text !== donor) paragraph = paragraph.nextContentInContext() ?? null;
-            if (!paragraph) throw new Error('Missing donor paragraph');
-            paragraph.setCursor(0, 0, true);
-        }, { source, donor: example.donor ?? 'bcd' });
+        await bootCore(page, source, {
+            arg: example.donor ?? 'bcd',
+            setup: (donor) => {
+                let paragraph = window.muya!.editor.scrollPage!.firstContentInDescendant();
+                while (paragraph && paragraph.text !== donor) paragraph = paragraph.nextContentInContext() ?? null;
+                if (!paragraph) throw new Error('Missing donor paragraph');
+                paragraph.setCursor(0, 0, true);
+            },
+        });
         try {
             if (example.name === 'diagram') await expect(page.locator('.mu-diagram-preview svg')).toBeVisible({ timeout: 15000 });
             await page.keyboard.press('Backspace');

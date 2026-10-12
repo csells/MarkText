@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/muya';
-import { coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
+import { bootCore, coreHistory, disposeCore, readCore, reopenCore } from '../helpers/coreBoundary';
 import { holdUndoSteps, separateUndoSteps } from '../helpers/undoWindow';
 
 test.beforeEach(async ({ page }) => separateUndoSteps(page));
@@ -54,14 +54,15 @@ for (const example of [
     { name: 'last-row ArrowDown', source: '| a{++a++} | bb |\n| --- | --- |\n| cc | dd |\n', cell: 2, key: 'ArrowDown', expected: '| a{++a++} | bb |\n| --- | --- |\n| cc | dd |\n\n\n', next: '| a{++a++} | bb |\n| --- | --- |\n| cc | dd |\n\nX\n' },
 ]) {
     test(`Core ${example.name} uses the model before the next key`, async ({ page }, testInfo) => {
-        await page.evaluate(async (example) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, example.source, 'tracked' in example && example.tracked === true);
-            let cell = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-            for (let index = 0; index < example.cell; index++) cell = cell.nextContentInContext()!;
-            cell.setCursor(0, 0, true);
-        }, example);
+        await bootCore(page, example.source, {
+            tracked: 'tracked' in example && example.tracked === true,
+            arg: example.cell,
+            setup: (leaf) => {
+                let cell = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                for (let index = 0; index < leaf; index++) cell = cell.nextContentInContext()!;
+                cell.setCursor(0, 0, true);
+            },
+        });
         try {
             await page.keyboard.press(example.key);
             expect(await readCore(page)).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });
@@ -86,14 +87,13 @@ for (const example of [
 
 test('Core Backspace between tables preserves both and selects the previous implicit cell', async ({ page }) => {
     const source = '| a | b | c |\n| --- | --- | --- |\n| x |\n\n| |\n| --- |\n';
-    await page.evaluate(async (source) => {
-        const modulePath = '/coreBoundaryControl.ts';
-        const control = await import(/* @vite-ignore */ modulePath);
-        window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
-        let cell = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-        for (let index = 0; index < 6; index++) cell = cell.nextContentInContext()!;
-        cell.setCursor(0, 0, true);
-    }, source);
+    await bootCore(page, source, {
+        setup: () => {
+            let cell = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+            for (let index = 0; index < 6; index++) cell = cell.nextContentInContext()!;
+            cell.setCursor(0, 0, true);
+        },
+    });
     try {
         await page.keyboard.press('Backspace');
         await expect(page.locator('table')).toHaveCount(2);
@@ -120,14 +120,14 @@ for (const example of [
     { name: 'previous implicit cell', source: '| a | b | c |\n| --- | --- | --- |\n| x |\n', cell: 5, target: 4, next: '| a | b | c |\n| --- | --- | --- |\n| x | X |\n' },
 ]) {
     test(`Core boundary Backspace preserves the ${example.name}`, async ({ page }) => {
-        await page.evaluate(async (example) => {
-            const modulePath = '/coreBoundaryControl.ts';
-            const control = await import(/* @vite-ignore */ modulePath);
-            window.coreBoundary = control.bootCoreBoundary(window.muya!, example.source);
-            let cell = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
-            for (let index = 0; index < example.cell; index++) cell = cell.nextContentInContext()!;
-            cell.setCursor(0, 0, true);
-        }, example);
+        await bootCore(page, example.source, {
+            arg: example.cell,
+            setup: (leaf) => {
+                let cell = window.muya!.editor.scrollPage!.firstContentInDescendant()!;
+                for (let index = 0; index < leaf; index++) cell = cell.nextContentInContext()!;
+                cell.setCursor(0, 0, true);
+            },
+        });
         try {
             await page.keyboard.press('Backspace');
             expect(await page.evaluate((target) => {

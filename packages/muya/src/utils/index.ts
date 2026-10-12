@@ -421,6 +421,20 @@ export function codePointBefore(s: string, i: number): string {
     return s.charAt(i - 1);
 }
 
+// Same idea forwards: the code point starting at `i`, or undefined past the
+// end of the string.
+export function codePointCharAt(s: string, i: number): string | undefined {
+    if (i >= s.length)
+        return undefined;
+    const unit = s.charCodeAt(i);
+    if (unit >= 0xD800 && unit <= 0xDBFF && i + 1 < s.length) {
+        const next = s.charCodeAt(i + 1);
+        if (next >= 0xDC00 && next <= 0xDFFF)
+            return s.slice(i, i + 2);
+    }
+    return s.charAt(i);
+}
+
 /**
  * Length in UTF-16 code units of what Chromium's Backspace removes before the
  * end of `text`: Blink's BackspaceStateMachine. Unlike a grapheme cluster, it

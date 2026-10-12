@@ -7,7 +7,7 @@ import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarku
 import { createMuyaMarkupView, type MuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 import { asMuyaStates } from '../helpers/muyaTypes'
 
-// Plan 0012 G35: a key in a long document presents only the roots its
+// A key in a long document presents only the roots its
 // regional reply replaced. Every other root keeps its block and rendering,
 // and the result reads exactly as presenting the whole new view does.
 

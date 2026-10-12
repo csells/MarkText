@@ -1,3 +1,4 @@
+import { isPositionalMarkdownAttribute } from '@marktext/document-core'
 import type {
   CommentMarkupProjection,
   CriticMarkupAnnotation,
@@ -8,7 +9,6 @@ import type {
   ProjectionCoordinateMap,
   SourceRange
 } from '@marktext/document-core'
-import { isPositionKey } from './astAttributes'
 
 /** One CriticMarkup arm, located in its Markup syntax's projected coordinates. */
 export type MarkupPassageMark = Readonly<{
@@ -95,7 +95,7 @@ const localized = (
   let attributes: Record<string, MarkdownAstNode['attributes'][string]> | undefined
   for (const key in node.attributes) {
     const value = node.attributes[key]
-    if (typeof value !== 'number' || !isPositionKey(key)) continue
+    if (typeof value !== 'number' || !isPositionalMarkdownAttribute(key)) continue
     attributes ??= { ...node.attributes }
     if (value - base < 0 || value - base > end) delete attributes[key]
     else attributes[key] = value - base

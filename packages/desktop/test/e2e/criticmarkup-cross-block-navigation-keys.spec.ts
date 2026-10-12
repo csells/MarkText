@@ -9,7 +9,7 @@ import {
 } from './helpers'
 import { expectDefaultCoreAuthority } from './installedArtifactProvenance'
 
-// A documented deviation from upstream (plan 0012 G26): upstream removed a
+// A documented deviation from upstream: upstream removed a
 // selection spanning paragraphs on any key but an arrow or modifier, so
 // Shift+Down, Shift+Down, then End or Escape deleted two paragraphs.
 

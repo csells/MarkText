@@ -13,7 +13,7 @@ import {
 import { reviewCommands, type ReviewCommandState } from '../../../src/common/commands/review'
 import type Keybindings from '../../../src/main/keyboard/shortcutHandler'
 
-// Plan 0012 G15: macOS answers a key equivalent whose command is unavailable
+// macOS answers a key equivalent whose command is unavailable
 // with a beep. A disabled Review command's shortcut gives the same feedback.
 
 const input = (overrides: Partial<Input>): Input => ({

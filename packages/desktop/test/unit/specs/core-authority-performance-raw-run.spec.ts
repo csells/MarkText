@@ -960,7 +960,7 @@ describe('Core authority raw performance producer', () => {
     })).toThrow(/provenance/i)
   })
 
-  // Owner decision 2026-10-06 (plan 0012): the calibration probe is
+  // Owner decision 2026-10-06: the calibration probe is
   // information; a slow loop never invalidates, reruns or drops an observation.
   describe('calibration as information', () => {
     const schedule = scheduleFor(1, 2)

@@ -44,7 +44,7 @@ const lastTextEnd = (app: BoundMuya) => {
 const lineEndStep = (app: BoundMuya) =>
   createMuyaModelSelection(app.muya, app.view()).lineEndStep(lastTextEnd(app))
 
-// Owner decision (plan 0012 G38): the visible line end is after the closers of
+// Owner decision: the visible line end is after the closers of
 // annotations that end the line, as its start is before leading openers.
 describe('visible line-end caret after a trailing annotation', () => {
   it.each([

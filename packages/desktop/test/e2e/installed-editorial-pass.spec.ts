@@ -38,7 +38,7 @@ import {
   type AuthoringForm
 } from './reviewGestures'
 
-// Plan 0012 V2: the vision's complete editorial pass (specs/vision/
+// The vision's complete editorial pass (specs/vision/
 // criticmarkup-vision.md, "What native integration means") in the installed
 // app, through real selection gestures, menus, keyboard, the Comments and
 // Suggestions sidebar tab and the same production paths for ordinary Markdown

@@ -14,7 +14,7 @@ import {
   nativeKey
 } from './reviewGestures'
 
-// Plan 0012 G44: text inside annotations is ordinary document text. Caret
+// Text inside annotations is ordinary document text. Caret
 // movement, selection, Delete, Review authoring and resolution never split a
 // user-perceived character (grapheme cluster). Backspace inside a line removes
 // what Chromium's Backspace removes, as in upstream MarkText: a whole emoji,

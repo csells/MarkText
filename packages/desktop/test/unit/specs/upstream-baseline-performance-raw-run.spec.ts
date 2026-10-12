@@ -399,7 +399,7 @@ describe('upstream baseline raw performance producer', () => {
     }
   })
 
-  // Owner decision 2026-10-06 (plan 0012): upstream records the calibration
+  // Owner decision 2026-10-06: upstream records the calibration
   // probe as information exactly as MarkText does, and keeps every observation.
   it('records upstream loop times as information and keeps every observation', () => {
     const base = input('smoke-non-ratifying', 1, 2)

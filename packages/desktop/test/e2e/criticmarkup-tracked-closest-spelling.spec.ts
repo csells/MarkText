@@ -16,7 +16,7 @@ import { clickText, expectSaved, hiddenCoreEnv as env, nativeKey, nextFrame } fr
 // Owner decision, 6 October: typing is never refused and never interrupted.
 // An edit no tracked spelling holds exactly is recorded with the closest one:
 // Accept All and Reject All give the operation, and resolving one suggestion
-// alone is what the CriticMarkup syntax allows (Profile 2, plan 0012 G47).
+// alone is what the CriticMarkup syntax allows (Profile 2).
 // Every step uses the real keyboard and mouse; the saved file is the oracle.
 
 const undo = (app: ElectronApplication) => nativeKey(app, 'Z', ['meta'])

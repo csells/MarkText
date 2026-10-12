@@ -8,7 +8,7 @@ import {
   sendIpcToRenderer
 } from './helpers'
 
-// Owner decision (plan 0012 G24): typing in a cell pads the table as upstream
+// Owner decision: typing in a cell pads the table as upstream
 // does, but a row's text beyond the header's columns stays where upstream
 // drops it.
 test('typing in a header cell changes only the typed bytes, keeping extra cells, and undo restores them', async() => {
