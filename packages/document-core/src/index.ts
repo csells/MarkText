@@ -87,6 +87,7 @@ export { paragraphPrefixPosition, paragraphImageRange } from './paragraphBoundar
 export { isLiteralBlock } from './literalBlock.js'
 export { isPositionalMarkdownAttribute, shiftMarkdownAstNode } from './markdownPositions.js'
 export { commonAffixes } from './textAffixes.js'
+export { applyExactSourceEdits, type ExactSourceEdit } from './exactSourceEdits.js'
 export { setextUnderlineStart, setextUnderlineLeadingLine } from './setextTrailingLine.js'
 
 export type { DocumentModelTextPoint, DocumentModelTextSelection } from './sourceInputPlanning.js'
