@@ -27,17 +27,13 @@ export type SemanticProjection = Readonly<{
   readonly segments: readonly SemanticSegment[]
 }>
 
-const defaultInlineCodeText = (node: MarkdownAstNode): string =>
-  stringAttribute(node, 'semanticContent') ?? stringAttribute(node, 'content') ?? ''
-
 /**
  * A node's rendered semantic text, with the runs of it that `markdown` spells
  * directly at the node's own projected range.
  */
 export const semanticProjectionOf = (
   node: MarkdownAstNode,
-  markdown?: string,
-  inlineCodeText: (node: MarkdownAstNode) => string = defaultInlineCodeText
+  markdown?: string
 ): SemanticProjection => {
   const leaf = (text: string): SemanticProjection => {
     const raw = markdown?.slice(node.range.start, node.range.end)
@@ -65,7 +61,7 @@ export const semanticProjectionOf = (
     case 'hard-break':
       return leaf('\n')
     case 'inline-code':
-      return leaf(inlineCodeText(node))
+      return leaf(stringAttribute(node, 'semanticContent') ?? stringAttribute(node, 'content') ?? '')
     case 'code-block':
     case 'html-block':
     case 'front-matter':
@@ -78,7 +74,7 @@ export const semanticProjectionOf = (
       let text = ''
       const segments: SemanticSegment[] = []
       for (const child of node.children) {
-        const projected = semanticProjectionOf(child, markdown, inlineCodeText)
+        const projected = semanticProjectionOf(child, markdown)
         const offset = text.length
         text += projected.text
         segments.push(
