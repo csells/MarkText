@@ -15,6 +15,7 @@ import {
   windowsEndingAtBlockStart,
   windowsNotAfterOneEmptyLine,
   type Profile1DocumentProducts,
+  type RetainedIntrinsicPass,
   type RetainedPassSourceEdit
 } from '../profile1Document.js'
 import type { CanonicalSourceView } from '../persistentCanonicalSource.js'
@@ -3766,9 +3767,12 @@ function unpairedRunsStayInWindow(
  * then pairs it otherwise than the window does (see
  * `unpairedRunsStayInWindow`).
  */
-export function displayMathReachesPast(products: Profile1DocumentProducts, text: string): boolean {
-  const literals = products.retainedIntrinsic?.markdownLiterals ?? []
-  const roots = products.retainedIntrinsic?.roots ?? []
+export function displayMathReachesPast(
+  intrinsic: Pick<RetainedIntrinsicPass, 'markdownLiterals' | 'roots'> | undefined,
+  text: string
+): boolean {
+  const literals = intrinsic?.markdownLiterals ?? []
+  const roots = intrinsic?.roots ?? []
   let open: number | undefined
   for (const run of text.matchAll(/\$+/gu)) {
     const start = run.index
