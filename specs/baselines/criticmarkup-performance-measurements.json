@@ -8,7 +8,7 @@
   },
   "representativeDocuments": {
     "path": "specs/baselines/criticmarkup-representative-documents.json",
-    "sha256": "4d4d16f5e94a201e2dccfb508dde0b001064eab5862e36c5aee8914335baccd1"
+    "sha256": "6be8579458e4ae9d7b2f32d52d4be0de9c1481077951228aa3bf0cdcd7ed29e7"
   },
   "requiredMetrics": {
     "upstream-baseline": ["t_echo", "t_present", "open", "first_viewport"],
