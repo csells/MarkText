@@ -72,7 +72,7 @@ evidence, and it never gates a run. Its status remains `proposed-unratified` unt
 upstream shell and Core candidates have been measured under that protocol and the owner approves
 the targets; numeric proposals are not evidence that either implementation meets them.
 
-Its `calibration` record follows the owner decision of 2026-10-06 (plan 0012), which replaced
+Its `calibration` record follows the owner decision of 2026-10-06, which replaced
 the validity rule of 2026-10-04: performance gates measure the machine's natural idle state. Every
 warm session, ours and upstream's, times a fixed loop after each measured key and records the
 loop's p50 and p90 beside its results. Installed-core and upstream raw runs open a fresh

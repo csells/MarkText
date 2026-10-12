@@ -9,5 +9,4 @@ Accepted commands publish a new revision atomically. Durable recovery data may
 record enough source and transition information to restore that revision, but
 it is not a second semantic model. The concrete revision types, hashes,
 journaling, rematerialization protocol, and worker-loss behavior are
-implementation decisions governed by plan 0011's observable recovery and
-latency requirements.
+implementation decisions.

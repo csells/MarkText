@@ -1,6 +1,6 @@
 # MarkText Markdown Profile 1 — Language Specification
 
-- **Status:** Draft 2 semantic record (2026-08-10), carried forward by plan 0012; accepted rulings and unresolved proposals retain their individual status.
+- **Status:** Draft 2 semantic record (2026-08-10); accepted rulings and unresolved proposals retain their individual status.
 - **Image-layout extension:** [Markdown Profile 2](marktext-markdown-profile-2.md) adds
   image sizing while retaining this CriticMarkup profile. Profile 1 remains the
   base semantic record; its existing text is not silently redefined.
@@ -15,11 +15,10 @@
   2026-07-24.
 - **Audience:** the document-core parser, its test corpus, adapters, and any future
   reimplementation (including a port). This document defines the candidate _language_;
-  [native integration architecture](../architecture/criticmarkup-native-integration.md) owns integration boundaries;
-  plan 0012 owns migration, performance, and acceptance. Where implementation status lags this document,
-  established rulings remain the language target. Plan 0011 supersedes blanket packet
-  ratification as an implementation prerequisite; genuinely disputed semantics require
-  a focused decision and are not silently accepted from current parser behavior.
+  [native integration architecture](../architecture/criticmarkup-native-integration.md) owns integration boundaries.
+  Where implementation status lags this document, established rulings remain the language
+  target. Genuinely disputed semantics require a focused decision and are not silently accepted
+  from current parser behavior.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are to be interpreted as in RFC 2119.
 
@@ -43,7 +42,7 @@ Principles every rule below serves:
   The parse product accounts for every decoded code unit exactly once, including line-ending
   spellings, blank lines, marker spellings, escapes, trailing-space trivia, and a leading U+FEFF.
   Normalization is only ever an explicit transform. File bytes, encoding, BOM policy, and
-  byte-exact no-op save behavior belong to the file layer and plan 0012's retained compatibility contract.
+  byte-exact no-op save behavior belong to the file layer ([ADR-0007](../../docs/adr/0007-canonical-source-is-lossless.md)).
 - **P3 — One language decision per source run.** Literal ownership and CriticMarkup delimiter
   activity have one deterministic meaning. No projection, materializer, adapter, or consumer may
   revise a recognition decision (§7).
@@ -507,7 +506,7 @@ compatibility documentation:
 ## 13. Implementation boundary
 
 Performance targets, resource limits, incremental equivalence, accounting, parser APIs, and
-failure publication are engine requirements retained by plan 0012 and implementation baselines.
+failure publication are engine requirements.
 They do not change Profile 1 language meaning.
 
 ## 14. Versioning
@@ -553,8 +552,7 @@ A conforming implementation MUST pass:
 
 ## 16. References
 
-Plan 0010 defines the active integration and acceptance work. Archived plan 0009 records
-historical candidate decisions but is not authority. Architecture evidence records the
+Architecture evidence records the
 host-parser facts behind some rulings and is non-normative. CommonMark 0.31.2; GFM spec;
 CriticMarkup toolkit README (canonical prose spec); `fletcher/MultiMarkdown-6`
 `src/critic_markup.c` (projection evidence);
