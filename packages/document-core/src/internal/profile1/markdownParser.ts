@@ -5189,16 +5189,6 @@ interface RetainedFragmentBudget {
 
 const retainedFragmentBudgets = new WeakMap<object, RetainedFragmentBudget>()
 
-export interface Profile1MarkdownReuseRetentionV1 {
-  readonly entries: number
-  readonly keyBytes: number
-  readonly valueBytes: number
-  readonly overheadBytes: number
-  readonly retainedBytes: number
-  readonly maximumRetainedBytes: number
-  readonly maximumRetainedEntryBytes: number
-}
-
 function retainedStringBytes(value: string): number {
   return RETAINED_STRING_HEADER_BYTES + value.length * 2
 }
@@ -5302,20 +5292,6 @@ function retainedValueBytes(value: unknown, seen: Set<object>): number {
     }
   }
   return bytes
-}
-
-function fragmentMapRetention(cache: ReadonlyMap<string, unknown>): Readonly<{
-  readonly entries: number
-  readonly keyBytes: number
-  readonly valueBytes: number
-}> {
-  let keyBytes = 0
-  let valueBytes = 0
-  for (const [key, value] of cache) {
-    keyBytes += retainedStringBytes(key)
-    valueBytes += retainedValueBytes(value, new Set())
-  }
-  return Object.freeze({ entries: cache.size, keyBytes, valueBytes })
 }
 
 function createRetainedFragmentBudget(): RetainedFragmentBudget {
@@ -8716,29 +8692,6 @@ Profile1MarkdownReuseCache {
   registerRetainedFragmentCache(astRegions, budget)
   registerRetainedFragmentCache(admittedRegionFacts, budget)
   return { astRegions, admittedRegionFacts }
-}
-
-export function profile1MarkdownReuseRetentionV1(
-  reuseCache: Profile1MarkdownReuseCache
-): Profile1MarkdownReuseRetentionV1 {
-  const ast = fragmentMapRetention(
-    astRegionCaches.get(reuseCache.astRegions) ?? new Map()
-  )
-  const admitted = fragmentMapRetention(reuseCache.admittedRegionFacts)
-  const entries = ast.entries + admitted.entries
-  const keyBytes = ast.keyBytes + admitted.keyBytes
-  const valueBytes = ast.valueBytes + admitted.valueBytes
-  const overheadBytes = entries * RETAINED_CACHE_ENTRY_BYTES
-  return Object.freeze({
-    entries,
-    keyBytes,
-    valueBytes,
-    overheadBytes,
-    retainedBytes: keyBytes + valueBytes + overheadBytes,
-    maximumRetainedBytes: PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_BYTES_V1,
-    maximumRetainedEntryBytes:
-      PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1
-  })
 }
 
 export interface ForkAstSpliceProvenance {

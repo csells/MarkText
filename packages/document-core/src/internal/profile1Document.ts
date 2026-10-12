@@ -85,13 +85,11 @@ import {
   createIntrinsicProfile1SourceProgression,
   createProfile1MarkdownReuseCache,
   createProfile1MarkdownForkParser,
-  profile1MarkdownReuseRetentionV1,
   type MappedMarkdownLane,
   type Profile1MarkdownForkAstRequest,
   type Profile1MarkdownParse,
   type Profile1MarkdownForkParser,
   type Profile1MarkdownReuseCache,
-  type Profile1MarkdownReuseRetentionV1,
   type MarkdownArmBoundaryProjectionEdit,
   type MappedMarkdownCanonicalIdentityRun,
   type MappedMarkdownMatchingScope
@@ -343,14 +341,6 @@ Profile1DocumentReuseCache {
   return Object.freeze({
     markdown: createProfile1MarkdownReuseCache()
   })
-}
-
-export type Profile1DocumentReuseRetentionV1 = Profile1MarkdownReuseRetentionV1
-
-export function profile1DocumentReuseRetentionV1(
-  cache: Profile1DocumentReuseCache
-): Profile1DocumentReuseRetentionV1 {
-  return profile1MarkdownReuseRetentionV1(cache.markdown)
 }
 
 const DIAGNOSTIC_ORDER: Readonly<Record<SyntaxDiagnostic['code'], number>> = Object.freeze({

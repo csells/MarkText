@@ -52,29 +52,6 @@ export interface Profile1PhysicalTraversalRecorderV1 {
   readonly counts: () => Profile1PhysicalTraversalCountsV1
 }
 
-export function zeroPhysicalTraversalCountsV1():
-Profile1PhysicalTraversalCountsV1 {
-  return Object.freeze({
-    intrinsicSource: 0,
-    total: 0,
-    intrinsicSourceUnits: 0,
-    markerBearingIntrinsicSource: 0,
-    plainMarkdownLaneUnits: 0,
-    forkAstRegionEmissions: 0,
-    forkAstRegionUnits: 0,
-    forkAstRegionReuses: 0,
-    forkAstRegionProvenanceReuses: 0,
-    commentProjectionPreparations: 0,
-    commentProjectionPreparationUnits: 0,
-    astCacheTemplateConstructions: 0,
-    lineMaterializationChunkWalks: 0,
-    longLineMaterializationRetained: 0,
-    longLineMaterializationEvicted: 0,
-    retainedFactInputStructuralUnits: 0,
-    retainedFactOutputStructuralUnits: 0
-  })
-}
-
 export function createPhysicalTraversalRecorderV1():
 Profile1PhysicalTraversalRecorderV1 {
   let intrinsicSourceTraversals = 0
