@@ -1188,6 +1188,20 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     return moveAfter(table)
   }
   const conversion = block?.kind === 'paragraph' && inputType === 'insertParagraph' ? enterConversion(block.range) : undefined
+  // Enter on a `>>>` line opens a fenced quote whose empty middle line holds the
+  // caret; the line reads as three empty quotes, so the line itself is asked.
+  if (inputType === 'insertParagraph' && start === end && conversion === undefined) {
+    const lineStart = lineStartAt(core, revision, start)
+    const lineEnd = lineEndAt(core, revision, start)
+    const fence = enterConversion({
+      start: projection.coordinates.toProjected(lineStart, 'next'),
+      end: projection.coordinates.toProjected(lineEnd, 'previous')
+    })
+    if (fence?.kind === 'multiline-blockquote') {
+      return result([{ start: lineEnd, end: lineEnd, insert: lineEnding + lineEnding + '>>>' }],
+        { start: lineEnd + lineEnding.length, end: lineEnd + lineEnding.length })
+    }
+  }
   if (conversion?.kind === 'math' && block !== undefined) {
     const at = projection.coordinates.toSource(block.range.end, 'previous')
     return result([{ start: at, end: at, insert: lineEnding + lineEnding + '$$' }], { start: at + lineEnding.length, end: at + lineEnding.length })

@@ -136,7 +136,7 @@ export function planClipboard(
     let literal = false
     const visit = (node: typeof syntax.ast.root): void => {
       if (node.range.start <= point && point <= node.range.end) {
-        if (['code-block', 'math-block', 'diagram', 'inline-code', 'inline-math'].includes(node.kind)) literal = true
+        if (['code-block', 'math-block', 'diagram', 'inline-code', 'inline-diff', 'inline-math'].includes(node.kind)) literal = true
         for (const child of node.children) visit(child)
       }
     }

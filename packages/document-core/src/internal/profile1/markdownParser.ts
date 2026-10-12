@@ -313,6 +313,9 @@ export interface MappedMarkdownLane {
   readonly texMathDoubleBackslashEnabled?: boolean
   readonly footnotesEnabled?: boolean
   readonly subscriptAndSuperscriptEnabled?: boolean
+  readonly highlightEnabled?: boolean
+  readonly inlineDiffEnabled?: boolean
+  readonly multilineBlockquoteEnabled?: boolean
   /** Parser-owned view selection for this intrinsic fork continuation. */
   readonly forkView?: 'original' | 'revised' | 'editing'
   /**
@@ -448,6 +451,9 @@ let activeMarkdownGfmAutolinksEnabled = true
 let activeMarkdownGfmTagFilterEnabled = true
 let activeMarkdownFootnotesEnabled = true
 let activeMarkdownSubscriptAndSuperscriptEnabled = false
+let activeMarkdownHighlightEnabled = false
+let activeMarkdownInlineDiffEnabled = false
+let activeMarkdownMultilineBlockquoteEnabled = false
 let activeMarkdownLines: readonly PlainMarkdownLine[] = Object.freeze([])
 let activeMarkdownLineCursor = 0
 
@@ -1296,11 +1302,13 @@ function delimiterRunAt(
       markerCodeUnit === 94 &&
       !activeMarkdownSubscriptAndSuperscriptEnabled
     ) ||
+    (markerCodeUnit === 61 && !activeMarkdownHighlightEnabled) ||
     (
       markerCodeUnit !== 42 &&
       markerCodeUnit !== 95 &&
       markerCodeUnit !== 126 &&
-      markerCodeUnit !== 94
+      markerCodeUnit !== 94 &&
+      markerCodeUnit !== 61
     ) ||
     (
       source.charCodeAt(offset - 1) === markerCodeUnit &&
@@ -1330,7 +1338,9 @@ function delimiterRunAt(
       length === 2 &&
       !activeMarkdownGfmEnabled
     ) ||
-    (markerCodeUnit === 94 && length !== 1)
+    (markerCodeUnit === 94 && length !== 1) ||
+    // A highlight is exactly `==`, so `====` and an escaped closer stay text.
+    (markerCodeUnit === 61 && length !== 2)
   ) {
     return undefined
   }
@@ -1348,12 +1358,18 @@ function delimiterRunAt(
   const rightFlanking =
     !previousIsWhitespace &&
     (!previousIsPunctuation || nextIsWhitespace || nextIsPunctuation)
+  // MarkText reads `==` by whitespace alone: a highlight opens before a
+  // non-space and closes after one, whatever punctuation surrounds it.
   const canOpen = markerCodeUnit === 95
     ? leftFlanking && (!rightFlanking || previousIsPunctuation)
-    : leftFlanking
+    : markerCodeUnit === 61
+      ? !nextIsWhitespace
+      : leftFlanking
   const canClose = markerCodeUnit === 95
     ? rightFlanking && (!leftFlanking || nextIsPunctuation)
-    : rightFlanking
+    : markerCodeUnit === 61
+      ? !previousIsWhitespace
+      : rightFlanking
   return Object.freeze({
     markerCodeUnit,
     start: offset,
@@ -1465,6 +1481,9 @@ function delimiterPairIsAllowed(
       opener.end < closer.start &&
       !/\s/u.test(source.slice(opener.end, closer.start))
   }
+  if (opener.markerCodeUnit === 61) {
+    return opener.length === 2 && closer.length === 2
+  }
   if (opener.markerCodeUnit === 126) {
     // GFM strikethrough pairs tilde runs of one length only.
     return activeMarkdownGfmEnabled && opener.length === closer.length
@@ -1502,15 +1521,17 @@ function wrapInlineDelimiterPair(
   closer.start += useCount
   closer.length -= useCount
   const nodeKind: MarkdownNodeKind =
-    opener.markerCodeUnit === 94
-      ? 'superscript'
-      : opener.markerCodeUnit === 126
-        ? activeMarkdownSubscriptAndSuperscriptEnabled && useCount === 1
-          ? 'subscript'
-          : 'strikethrough'
-        : useCount === 2
-          ? 'strong'
-          : 'emphasis'
+    opener.markerCodeUnit === 61
+      ? 'mark'
+      : opener.markerCodeUnit === 94
+        ? 'superscript'
+        : opener.markerCodeUnit === 126
+          ? activeMarkdownSubscriptAndSuperscriptEnabled && useCount === 1
+            ? 'subscript'
+            : 'strikethrough'
+          : useCount === 2
+            ? 'strong'
+            : 'emphasis'
   const attributes = activeMarkdownGfmEnabled &&
     nodeKind === 'strong' &&
     children.some(child => child.kind === 'strong')
@@ -1639,10 +1660,12 @@ function resolveInlineDelimiterItems(
           openerBottoms.set(closer.markerCodeUnit, bottoms)
         }
         const closerClass =
-          closer.markerCodeUnit === 126 &&
+          closer.markerCodeUnit === 61
+            ? 'highlight'
+            : closer.markerCodeUnit === 126 &&
           !activeMarkdownSubscriptAndSuperscriptEnabled
-            ? 'tilde'
-            : `${closer.originalLength % 3}:${closer.canOpen ? 1 : 0}`
+              ? 'tilde'
+              : `${closer.originalLength % 3}:${closer.canOpen ? 1 : 0}`
         const lowerBound = Math.min(
           bottoms.get(closerClass) ?? 0,
           openers.length
@@ -1959,6 +1982,22 @@ function appendInlineRange(
       if (close < end && source.charCodeAt(close) === 62) {
         extendedAutolinkSuppressedUntil = close + 1
       }
+    }
+    const inlineDiff = activeMarkdownInlineDiffEnabled && (codeUnit === 123 || codeUnit === 91)
+      ? inlineDiffAt(
+        source,
+        offset,
+        Math.min(end, matchingScopeAt(boundaryPolicy, offset)?.end ?? end)
+      )
+      : undefined
+    if (inlineDiff !== undefined) {
+      if (textStart < offset) {
+        appendNode(createTextNode(source, textStart, offset))
+      }
+      appendNode(createNode('inline-diff', offset, inlineDiff.end, [], inlineDiff.attributes))
+      offset = inlineDiff.end
+      textStart = offset
+      continue
     }
     if (codeUnit === 91 || codeUnit === 93) {
       boundaryPolicy?.bracketOffsets.add(offset)
@@ -2619,6 +2658,44 @@ function inlineMathAttributes(
     marker,
     closeMarker: source.slice(contentEnd, literal.end)
   })
+}
+
+// GitLab's inline diff pairs `{+`/`[+`/`{-`/`[-` only with its own closer,
+// on one line, around a body that is not empty or blank. The body is text.
+const INLINE_DIFF_RULES: readonly RegExp[] = [
+  /^\{\+(?!\s*\+\})([^\n\r]+?)\+\}/,
+  /^\[\+(?!\s*\+\])([^\n\r]+?)\+\]/,
+  /^\{-(?!\s*-\})([^\n\r]+?)-\}/,
+  /^\[-(?!\s*-\])([^\n\r]+?)-\]/
+]
+
+function inlineDiffAt(
+  source: string,
+  start: number,
+  limit: number
+): Readonly<{ end: number, attributes: Readonly<Record<string, string | number>> }> | undefined {
+  const second = source.charCodeAt(start + 1)
+  if (second !== 43 && second !== 45) return undefined
+  if (hasOddBackslashRunBefore(source, start, 0)) return undefined
+  const text = source.slice(start, limit)
+  for (const rule of INLINE_DIFF_RULES) {
+    const match = rule.exec(text)
+    if (match === null) continue
+    const contentStart = start + 2
+    const end = start + match[0].length
+    return Object.freeze({
+      end,
+      attributes: Object.freeze({
+        marker: source.slice(start, contentStart),
+        closeMarker: source.slice(end - 2, end),
+        diff: second === 43 ? 'addition' : 'deletion',
+        content: match[1] ?? '',
+        contentStart,
+        contentEnd: end - 2
+      })
+    })
+  }
+  return undefined
 }
 
 function inlineCodeAttributes(
@@ -3837,6 +3914,9 @@ function parseOrderedContainerSequence(
           activeMarkdownGfmEnabled,
           activeMarkdownFootnotesEnabled,
           activeMarkdownSubscriptAndSuperscriptEnabled,
+          activeMarkdownHighlightEnabled,
+          activeMarkdownInlineDiffEnabled,
+          activeMarkdownMultilineBlockquoteEnabled,
           referenceDefinitionsKeyDigest(referenceDefinitions.cacheKey),
           windowSource,
           linesKey,
@@ -3942,6 +4022,9 @@ function parseOrderedContainerSequence(
           activeMarkdownGfmEnabled,
           activeMarkdownFootnotesEnabled,
           activeMarkdownSubscriptAndSuperscriptEnabled,
+          activeMarkdownHighlightEnabled,
+          activeMarkdownInlineDiffEnabled,
+          activeMarkdownMultilineBlockquoteEnabled,
           referenceDefinitionsKeyDigest(referenceDefinitions.cacheKey),
           windowSource,
           linesKey,
@@ -4498,10 +4581,12 @@ function tableHeaderColumnCount(source: string, start: number, end: number): num
   return separators >= 3 ? cells.length : undefined
 }
 
-export type ParagraphEnterConversion = { readonly kind: 'math' } | { readonly kind: 'table', readonly columns: number }
+export type ParagraphEnterConversion = { readonly kind: 'math' } | { readonly kind: 'table', readonly columns: number } | { readonly kind: 'multiline-blockquote' }
 
 /** An Enter operation queries the retained parser domain, not a native text projection. */
-export function paragraphEnterConversion(source: string, start: number, end: number, texMathDollars = true): ParagraphEnterConversion | undefined {
+export function paragraphEnterConversion(source: string, start: number, end: number, texMathDollars = true, multilineBlockquote = false): ParagraphEnterConversion | undefined {
+  // A line of exactly `>>>` opens GitLab's fenced quote while it is read (#954).
+  if (multilineBlockquote && MULTILINE_BLOCKQUOTE_FENCE.test(source.slice(start, end))) return { kind: 'multiline-blockquote' }
   // Exactly `$$` (trailing blanks aside) opens a math block, and only while the
   // dollar syntax is read at all; `$$x` stays a paragraph (#5364, #5446).
   if (texMathDollars && /^\$\$[ \t]*$/.test(source.slice(start, end))) return { kind: 'math' }
@@ -4875,6 +4960,96 @@ function parseTable(
   })
 }
 
+const MULTILINE_BLOCKQUOTE_FENCE = /^>>>[ \t]*$/
+
+function physicalLineText(source: string, line: PlainMarkdownLine): string {
+  return source.slice(line.start, line.end).replace(/(?:\r\n|\r|\n)$/u, '')
+}
+
+function literalOwnsLine(
+  literals: readonly MappedMarkdownLiteral[],
+  line: PlainMarkdownLine
+): boolean {
+  return literals.some((literal) => literal.start < line.start && literal.end > line.start)
+}
+
+/**
+ * GitLab's `>>>` fence: a `>>>` line that opens no container of an earlier
+ * line, closed by the next `>>>` line. MarkText reads the fence whether or
+ * not its preference is on, keeping it one literal paragraph while off.
+ */
+export function multilineBlockquoteFenceAt(
+  source: string,
+  lines: readonly PlainMarkdownLine[],
+  lineIndex: number,
+  literals: readonly MappedMarkdownLiteral[] = []
+): number | undefined {
+  const opener = lines[lineIndex]
+  if (
+    opener === undefined ||
+    source.charCodeAt(opener.start) !== 62 ||
+    opener.containers.some((container) => container.continued) ||
+    !MULTILINE_BLOCKQUOTE_FENCE.test(physicalLineText(source, opener)) ||
+    literalOwnsLine(literals, opener)
+  ) {
+    return undefined
+  }
+  for (let index = lineIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (line === undefined) return undefined
+    if (
+      MULTILINE_BLOCKQUOTE_FENCE.test(physicalLineText(source, line)) &&
+      !literalOwnsLine(literals, line)
+    ) {
+      return index
+    }
+  }
+  return undefined
+}
+
+function multilineBlockquoteNode(
+  source: string,
+  literals: readonly MappedMarkdownLiteral[],
+  lines: readonly PlainMarkdownLine[],
+  openerIndex: number,
+  closerIndex: number,
+  constructs: ReadonlyMap<number, MappedMarkdownLiteral>,
+  referenceDefinitions: MarkdownReferenceDefinitionLookup,
+  boundaryPolicy?: InlineBoundaryPolicy,
+  itemCache?: Map<string, MarkdownAstRegionTemplate>,
+  physicalRecorder?: Profile1PhysicalTraversalRecorder
+): MarkdownNode {
+  const opener = lines[openerIndex]!
+  const closer = lines[closerIndex]!
+  const start = opener.start
+  const end = closer.start + physicalLineText(source, closer).length
+  if (!activeMarkdownMultilineBlockquoteEnabled) {
+    return createNode(
+      'paragraph',
+      start,
+      end,
+      parseInlineNodes(source, start, end, constructs, referenceDefinitions, boundaryPolicy),
+      EMPTY_ATTRIBUTES
+    )
+  }
+  const openerEnd = opener.start + physicalLineText(source, opener).length
+  return createNode(
+    'blockquote',
+    start,
+    end,
+    parseBlocksRegion(
+      source,
+      literals.filter((literal) => literal.end > openerEnd && literal.start < closer.start),
+      lines.slice(openerIndex + 1, closerIndex),
+      referenceDefinitions,
+      boundaryPolicy,
+      itemCache,
+      physicalRecorder
+    ),
+    Object.freeze({ fence: '>>>', openerEnd, closerStart: closer.start })
+  )
+}
+
 function parseBlocksRegion(
   source: string,
   literals: readonly MappedMarkdownLiteral[],
@@ -4906,6 +5081,27 @@ function parseBlocksRegion(
     }
     if (line.blank && !line.containers.some((container) => !container.continued)) {
       lineIndex += 1
+      continue
+    }
+    const fenceCloser = multilineBlockquoteFenceAt(source, lines, lineIndex, literals)
+    if (fenceCloser !== undefined) {
+      const fence = multilineBlockquoteNode(
+        source,
+        literals,
+        lines,
+        lineIndex,
+        fenceCloser,
+        constructs,
+        referenceDefinitions,
+        boundaryPolicy,
+        itemCache,
+        physicalRecorder
+      )
+      blocks.push(fence)
+      lineIndex = fenceCloser + 1
+      while ((literals[literalIndex]?.end ?? Number.POSITIVE_INFINITY) <= fence.range.end) {
+        literalIndex += 1
+      }
       continue
     }
     const containerSequence = parseOrderedContainerSequence(
@@ -5961,6 +6157,7 @@ interface MarkdownAstRegion {
  * emitted once and shared by every selection that reaches it.
  */
 function markdownAstRegions(
+  source: string,
   lines: readonly PlainMarkdownLine[],
   literals: readonly MappedMarkdownLiteral[]
 ): readonly MarkdownAstRegion[] {
@@ -6020,9 +6217,17 @@ function markdownAstRegions(
       literals: overlappingLiterals(start, end)
     }))
   }
+  // A `>>>` fence is one block across its blank lines.
+  let fenceEnd = -1
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
     if (line === undefined) {
+      continue
+    }
+    if (index > fenceEnd && source.charCodeAt(line.start) === 62) {
+      fenceEnd = multilineBlockquoteFenceAt(source, lines, index, literals) ?? fenceEnd
+    }
+    if (index < fenceEnd) {
       continue
     }
     const firstLiteral = literals[firstLiteralEndingAfter(line.start)]
@@ -6139,6 +6344,9 @@ function emitMarkdownAstRegions(
           activeMarkdownGfmEnabled,
           activeMarkdownFootnotesEnabled,
           activeMarkdownSubscriptAndSuperscriptEnabled,
+          activeMarkdownHighlightEnabled,
+          activeMarkdownInlineDiffEnabled,
+          activeMarkdownMultilineBlockquoteEnabled,
           referenceDefinitionsKeyDigest(referenceDefinitions.cacheKey),
           regionSource,
           linesKey,
@@ -6268,6 +6476,9 @@ function withMappedMarkdownIdentity<Value>(
   const previousFootnotesEnabled = activeMarkdownFootnotesEnabled
   const previousSubscriptAndSuperscriptEnabled =
     activeMarkdownSubscriptAndSuperscriptEnabled
+  const previousHighlightEnabled = activeMarkdownHighlightEnabled
+  const previousInlineDiffEnabled = activeMarkdownInlineDiffEnabled
+  const previousMultilineBlockquoteEnabled = activeMarkdownMultilineBlockquoteEnabled
   activeMarkdownSyntaxIdentity = {
     registry: syntaxIdentity.registry,
     sourceAt: syntaxIdentity.sourceAt
@@ -6278,6 +6489,9 @@ function withMappedMarkdownIdentity<Value>(
   activeMarkdownFootnotesEnabled = lane.footnotesEnabled ?? true
   activeMarkdownSubscriptAndSuperscriptEnabled =
     lane.subscriptAndSuperscriptEnabled ?? false
+  activeMarkdownHighlightEnabled = lane.highlightEnabled ?? false
+  activeMarkdownInlineDiffEnabled = lane.inlineDiffEnabled ?? false
+  activeMarkdownMultilineBlockquoteEnabled = lane.multilineBlockquoteEnabled ?? false
   try {
     return emit()
   } finally {
@@ -6288,6 +6502,9 @@ function withMappedMarkdownIdentity<Value>(
     activeMarkdownFootnotesEnabled = previousFootnotesEnabled
     activeMarkdownSubscriptAndSuperscriptEnabled =
       previousSubscriptAndSuperscriptEnabled
+    activeMarkdownHighlightEnabled = previousHighlightEnabled
+    activeMarkdownInlineDiffEnabled = previousInlineDiffEnabled
+    activeMarkdownMultilineBlockquoteEnabled = previousMultilineBlockquoteEnabled
   }
 }
 
@@ -7133,7 +7350,7 @@ function emitIntrinsicForkRegionNodes(
       ? Object.freeze([])
       : emitMarkdownAstRegions(
         lane.source,
-        markdownAstRegions(facts.lines, literals),
+        markdownAstRegions(lane.source, facts.lines, literals),
         facts.referenceDefinitions,
         boundaryPolicy,
         reuseCache,
@@ -7290,6 +7507,18 @@ function editingParagraphNodes(
   const expanded = children.map((node, index) => {
     if (!['list', 'blockquote', 'list-item', 'footnote-definition'].includes(node.kind)) return node
     const nested = Array.from({ length: node.childCount }, (_, index) => node.childAt(index))
+    if (node.kind === 'blockquote' && node.attributes['fence'] === '>>>') {
+      // A `>>>` fence holds its blocks between its two fence lines; an empty
+      // one keeps its caret on the first line inside, as upstream's does.
+      const innerStart = physicalLines[firstLineAtOrAfter(Number(node.attributes['openerEnd']) + 1)]?.start ?? node.range.end
+      const innerEnd = Number(node.attributes['closerStart'])
+      const inner = nested.length === 0
+        ? [createNode('paragraph', Math.min(innerStart, innerEnd), Math.min(innerStart, innerEnd))]
+        : editingParagraphNodes(nested, innerStart, innerEnd, physicalLines, sourceBlankLines, documentEnd, 'container', containerDepth + 1)
+      return inner.length === nested.length && inner.every((child, index) => child === nested[index])
+        ? node
+        : createNode(node.kind, node.range.start, node.range.end, inner, node.attributes)
+    }
     let ownedEnd = node.range.end
     const limit = children[index + 1]?.range.start ?? end
     if (node.kind === 'blockquote' || node.kind === 'list-item') {
@@ -7743,6 +7972,35 @@ function opensRootSuggestion(
       line.contentEnd <= arm.range.start)))
 }
 
+/** A `>>>` line read from its line facts alone: three adjoining quote markers and nothing else. */
+function isMultilineBlockquoteFenceLine(line: PlainMarkdownLine): boolean {
+  return line.blank &&
+    line.containers.length === 3 &&
+    line.containers.every((container, index) =>
+      container.kind === 'blockquote' &&
+      !container.continued &&
+      container.markerRange?.start === line.start + index &&
+      container.markerRange.end === line.start + index + 1)
+}
+
+/** The source between each `>>>` fence line and the next, where no region may start. */
+function multilineBlockquoteFenceSpans(
+  lines: readonly PlainMarkdownLine[]
+): readonly Readonly<{ start: number, end: number }>[] {
+  const spans: Readonly<{ start: number, end: number }>[] = []
+  let opener: PlainMarkdownLine | undefined
+  for (const line of lines) {
+    if (!isMultilineBlockquoteFenceLine(line)) continue
+    if (opener === undefined) {
+      opener = line
+    } else {
+      spans.push(Object.freeze({ start: opener.start, end: line.end }))
+      opener = undefined
+    }
+  }
+  return spans
+}
+
 function forkLaneSafeSourcePoints(
   lane: IntrinsicProfile1ForkLane
 ): readonly number[] {
@@ -7832,7 +8090,10 @@ function forkLaneSafeSourcePoints(
       }
     }
   }
-  return Object.freeze([...points].sort((left, right) => left - right))
+  const fences = multilineBlockquoteFenceSpans(lines)
+  return Object.freeze([...points]
+    .filter((point) => !fences.some((fence) => fence.start < point && point < fence.end))
+    .sort((left, right) => left - right))
 }
 
 function projectedOffsetForCanonicalPoint(
@@ -7976,6 +8237,9 @@ function sliceIntrinsicForkRegionLane(
       footnotesEnabled: lane.footnotesEnabled ?? true,
       subscriptAndSuperscriptEnabled:
         lane.subscriptAndSuperscriptEnabled ?? false,
+      highlightEnabled: lane.highlightEnabled ?? false,
+      inlineDiffEnabled: lane.inlineDiffEnabled ?? false,
+      multilineBlockquoteEnabled: lane.multilineBlockquoteEnabled ?? false,
       canonicalIdentityRuns: Object.freeze(canonicalIdentityRuns),
       matchingScopes: Object.freeze(matchingScopes),
       ...(sourceAt === undefined || lane.syntaxIdentity === undefined
@@ -8742,6 +9006,9 @@ export function createProfile1MarkdownForkParser(
       lane.texMathDoubleBackslashEnabled ?? false,
       lane.footnotesEnabled ?? true,
       lane.subscriptAndSuperscriptEnabled ?? false,
+      lane.highlightEnabled ?? false,
+      lane.inlineDiffEnabled ?? false,
+      lane.multilineBlockquoteEnabled ?? false,
       (lane.matchingScopes ?? []).map(scope => [scope.id, scope.start, scope.end, scope.depth]),
       lane.canonicalIdentityRuns ?? null,
       lane.armTerminationEdits === undefined || lane.armTerminationEdits.length === 0 ? null : lane.armTerminationEdits,

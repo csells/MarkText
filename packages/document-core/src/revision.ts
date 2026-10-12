@@ -144,6 +144,8 @@ export type MarkdownNodeKind =
   | 'emphasis'
   | 'strong'
   | 'strikethrough'
+  | 'mark'
+  | 'inline-diff'
   | 'subscript'
   | 'superscript'
   | 'link'
@@ -438,6 +440,12 @@ export interface MarkdownOptions {
   readonly texMathDoubleBackslash: boolean
   readonly footnotes: boolean
   readonly subscriptAndSuperscript: boolean
+  /** MarkText's `==highlight==` extension. */
+  readonly highlightSyntax: boolean
+  /** GitLab's inline diff: `{+ … +}`, `[+ … +]`, `{- … -}` and `[- … -]`. */
+  readonly inlineDiff: boolean
+  /** GitLab's `>>>` fenced blockquote. */
+  readonly multilineBlockquote: boolean
 }
 
 export interface ExecutionBudgetId {

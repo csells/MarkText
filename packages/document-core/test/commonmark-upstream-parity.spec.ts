@@ -25,7 +25,10 @@ const html = (source: string, gfm = false): string => {
     texMathDollars: false,
     texMathGfm: false,
     footnotes: false,
-    subscriptAndSuperscript: false
+    subscriptAndSuperscript: false,
+    highlightSyntax: false,
+    inlineDiff: false,
+    multilineBlockquote: false
   })
   return canonical(renderPublicMarkdownProjectionToHtml(core.project(revision, 'original')))
 }

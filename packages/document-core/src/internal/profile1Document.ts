@@ -367,7 +367,10 @@ export const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
   texMathSingleBackslash: false,
   texMathDoubleBackslash: false,
   footnotes: false,
-  subscriptAndSuperscript: false
+  subscriptAndSuperscript: false,
+  highlightSyntax: false,
+  inlineDiff: false,
+  multilineBlockquote: false
 })
 const MARKDOWN_OPTION_NAMES = Object.keys(DEFAULT_MARKDOWN_OPTIONS) as ReadonlyArray<keyof MarkdownOptions>
 
@@ -4048,6 +4051,9 @@ function prepareProjection(
         footnotesEnabled: markdownOptions.footnotes,
         subscriptAndSuperscriptEnabled:
           markdownOptions.subscriptAndSuperscript,
+        highlightEnabled: markdownOptions.highlightSyntax,
+        inlineDiffEnabled: markdownOptions.inlineDiff,
+        multilineBlockquoteEnabled: markdownOptions.multilineBlockquote,
         matchingScopes: Object.freeze(matchingScopes),
         canonicalIdentityRuns,
         armTerminationEdits: Object.freeze(armTerminationEdits)
@@ -4118,6 +4124,9 @@ function prepareProjection(
           footnotesEnabled: markdownOptions.footnotes,
           subscriptAndSuperscriptEnabled:
             markdownOptions.subscriptAndSuperscript,
+          highlightEnabled: markdownOptions.highlightSyntax,
+          inlineDiffEnabled: markdownOptions.inlineDiff,
+          multilineBlockquoteEnabled: markdownOptions.multilineBlockquote,
           matchingScopes: retainedMatchingScopes,
           canonicalIdentityRuns: canonicalIdentityRunsFor(boundarySafe.segments)
         }),
@@ -4174,6 +4183,9 @@ function prepareProjection(
         footnotesEnabled: markdownOptions.footnotes,
         subscriptAndSuperscriptEnabled:
           markdownOptions.subscriptAndSuperscript,
+        highlightEnabled: markdownOptions.highlightSyntax,
+        inlineDiffEnabled: markdownOptions.inlineDiff,
+        multilineBlockquoteEnabled: markdownOptions.multilineBlockquote,
         matchingScopes: semanticMatchingScopes,
         canonicalIdentityRuns: canonicalIdentityRunsFor(semanticSafe.segments),
         syntaxIdentity: Object.freeze({
@@ -4211,6 +4223,9 @@ function prepareProjection(
       footnotesEnabled: markdownOptions.footnotes,
       subscriptAndSuperscriptEnabled:
         markdownOptions.subscriptAndSuperscript,
+      highlightEnabled: markdownOptions.highlightSyntax,
+      inlineDiffEnabled: markdownOptions.inlineDiff,
+      multilineBlockquoteEnabled: markdownOptions.multilineBlockquote,
       matchingScopes: retainedMatchingScopes,
       canonicalIdentityRuns: guardedIdentityRuns,
       syntaxIdentity: Object.freeze({

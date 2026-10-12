@@ -148,7 +148,7 @@ export function createTrackedLiteralSourceEdit(
   const { ast, coordinates } = core.project(revision, 'markup').syntax
   let owner: SourceRange | undefined
   const visit = (node: MarkdownAstNode): void => {
-    if (['inline-code', 'code-block', 'inline-math', 'math-block', 'inline-html', 'html-block', 'front-matter', 'diagram'].includes(node.kind)) {
+    if (['inline-code', 'inline-diff', 'code-block', 'inline-math', 'math-block', 'inline-html', 'html-block', 'front-matter', 'diagram'].includes(node.kind)) {
       const start = coordinates.toSource(node.range.start, 'next')
       const end = coordinates.toSource(node.range.end, 'previous')
       if (start <= edit.start && edit.end <= end && (start !== edit.start || end !== edit.end)) {
@@ -189,7 +189,7 @@ function pendingArmOwnsInlineEdge(core: DocumentCore, revision: DocumentRevision
   const edge = syntax.coordinates.toProjected(after ? range.end : range.start, after ? 'previous' : 'next')
   const visit = (node: MarkdownAstNode): boolean => {
     if (after ? node.range.start >= edge || node.range.end < edge : node.range.start > edge || node.range.end <= edge) return false
-    if (['text', 'inline-code', 'inline-math', 'inline-html', 'autolink', 'image', 'footnote-reference'].includes(node.kind)) {
+    if (['text', 'inline-code', 'inline-diff', 'inline-math', 'inline-html', 'autolink', 'image', 'footnote-reference'].includes(node.kind)) {
       const start = syntax.coordinates.toSource(node.range.start, 'next')
       const end = syntax.coordinates.toSource(node.range.end, 'previous')
       return start < range.end && end > range.start

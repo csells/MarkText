@@ -23,7 +23,10 @@ const options = Object.freeze({
   texMathSingleBackslash: false,
   texMathDoubleBackslash: false,
   footnotes: false,
-  subscriptAndSuperscript: true
+  subscriptAndSuperscript: true,
+  highlightSyntax: false,
+  inlineDiff: false,
+  multilineBlockquote: false
 })
 
 describe('Regional window parses', () => {

@@ -22,7 +22,7 @@ export function planParagraphTab(core: DocumentCore, revision: DocumentRevision,
     const visit = (node: MarkdownAstNode): void => {
       if (projected <= node.range.start || projected >= node.range.end) return
       const contentEnd = typeof node.attributes.contentEnd === 'number' ? node.attributes.contentEnd : node.children.at(-1)?.range.end
-      if (['strong', 'emphasis', 'strikethrough', 'inline-code', 'inline-math'].includes(node.kind) && contentEnd === projected) jump = node.range.end
+      if (['strong', 'emphasis', 'strikethrough', 'mark', 'inline-code', 'inline-diff', 'inline-math'].includes(node.kind) && contentEnd === projected) jump = node.range.end
       if ((node.kind === 'link' || node.kind === 'image') && typeof node.attributes.labelEnd === 'number') {
         if ((node.attributes.referenceKind === undefined || node.attributes.referenceKind === 'full') && node.attributes.labelEnd === projected) jump = Math.min(node.range.end, projected + 2)
         if (node.range.end - 1 === projected) jump = node.range.end

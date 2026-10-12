@@ -110,6 +110,8 @@ import type {
   SyntaxDiagnostic
 } from './revision.js'
 
+const MULTILINE_BLOCKQUOTE_LINE = /(?:^|\r\n|\r|\n)>>>[ \t]*(?:\r\n|\r|\n|$)/u
+
 export type { MarkdownOptions }
 
 export type CriticMarkupKind =
@@ -232,6 +234,8 @@ export type MarkdownNodeKind =
   | 'emphasis'
   | 'strong'
   | 'strikethrough'
+  | 'mark'
+  | 'inline-diff'
   | 'subscript'
   | 'superscript'
   | 'link'
@@ -815,6 +819,9 @@ function markdownOptions(
     texMathDoubleBackslash: inherited.texMathDoubleBackslash,
     footnotes: inherited.footnotes,
     subscriptAndSuperscript: inherited.subscriptAndSuperscript,
+    highlightSyntax: inherited.highlightSyntax,
+    inlineDiff: inherited.inlineDiff,
+    multilineBlockquote: inherited.multilineBlockquote,
     ...options
   })
 
@@ -1052,7 +1059,7 @@ function markdownAstOf(
           range: projectedRange({ start: start + from, end: start + to }), value
         }))
       )
-    } else if (task.node.kind === 'inline-code') {
+    } else if (task.node.kind === 'inline-code' || task.node.kind === 'inline-diff') {
       const content = task.node.attributes['content']
       if (typeof content === 'string') {
         attributes.semanticContent = task.inTable
@@ -2480,6 +2487,13 @@ function createDocumentCoreWithExecutionBudget(
   // Whether a source spells no `$` at all, carried from each source to the
   // next so the check below reads no text for documents without math.
   const dollarFreeSources = new WeakMap<CanonicalSourceView, boolean>()
+  const fenceFreeSources = new WeakMap<CanonicalSourceView, boolean>()
+  // One read of a source answers both of the whole-source questions below.
+  const readWholeSource = (source: CanonicalSourceView): void => {
+    const text = source.slice(0, source.length)
+    dollarFreeSources.set(source, !text.includes('$'))
+    fenceFreeSources.set(source, !MULTILINE_BLOCKQUOTE_LINE.test(text))
+  }
   // Where a source spells its first `$$`, or -1: no `$$` line before a
   // window can reach into it when none comes before the window.
   const firstDoubleDollars = new WeakMap<CanonicalSourceView, number>()
@@ -2515,17 +2529,33 @@ function createDocumentCoreWithExecutionBudget(
     }
     return first
   }
+  /**
+   * Whether either source holds a `>>>` line. A fence reads to the next such
+   * line across blank lines, which bound every region and retained pass.
+   */
+  const editsMayMoveFence = (
+    previous: CanonicalSourceView,
+    next: CanonicalSourceView,
+    edits: readonly DocumentSourceEdit[]
+  ): boolean => {
+    const holdsFence = (source: CanonicalSourceView): boolean => {
+      if (!fenceFreeSources.has(source)) readWholeSource(source)
+      return fenceFreeSources.get(source) !== true
+    }
+    if (!holdsFence(previous) && edits.every(edit => !edit.insert.includes('>'))) {
+      fenceFreeSources.set(next, true)
+      return false
+    }
+    return holdsFence(previous) || holdsFence(next)
+  }
   const editsMayRepairMath = (
     previous: CanonicalSourceView,
     next: CanonicalSourceView,
     edits: readonly DocumentSourceEdit[],
     options: MarkdownOptions
   ): boolean => {
-    let dollarFree = dollarFreeSources.get(previous)
-    if (dollarFree === undefined) {
-      dollarFree = !previous.slice(0, previous.length).includes('$')
-      dollarFreeSources.set(previous, dollarFree)
-    }
+    if (!dollarFreeSources.has(previous)) readWholeSource(previous)
+    const dollarFree = dollarFreeSources.get(previous) === true
     dollarFreeSources.set(next, dollarFree && edits.every(edit => !edit.insert.includes('$')))
     // Without a `$` before the edit, every `$$` is in the edited text.
     return options.texMathDollars && !dollarFree && editsMayRepairDollarMath(previous, next, edits)
@@ -4662,6 +4692,8 @@ function createDocumentCoreWithExecutionBudget(
       fallbackReason = 'markdown-options-changed'
     } else if (source.requiresFragmentationRebase) {
       fallbackReason = 'source-fragmentation-rebase'
+    } else if (editsMayMoveFence(previousState.source, source, stableEdits)) {
+      fallbackReason = 'structural-region-ineligible'
     } else if (editsMayRepairMath(previousState.source, source, stableEdits, resolvedOptions) &&
       !mathBlockSubstitution(previousState.source, stableEdits, previousState.regionalInventory) &&
       !inventoryMathReplacement(previousState, stableEdits) && !inventoryDollarsKept(previousState, stableEdits)) {
@@ -5444,7 +5476,8 @@ function createDocumentCoreWithExecutionBudget(
            frontMatter.test(source.slice(0, Math.min(8, source.length))))) {
         return undefined
       }
-      if (editsMayRepairMath(previousState.source, source, stableEdits, resolvedOptions)) {
+      if (editsMayRepairMath(previousState.source, source, stableEdits, resolvedOptions) ||
+          editsMayMoveFence(previousState.source, source, stableEdits)) {
         return undefined
       }
       const retained = products.retainedIntrinsic
@@ -5530,7 +5563,9 @@ function createDocumentCoreWithExecutionBudget(
       rememberPreviewedCandidate(previous, stableEdits, source, written.products)
       return inspect(written.products, source)
     }
-    const reusable = !editsMayRepairMath(state.source, { length: source.length, slice: (start: number, end: number) => source.slice(start, end) }, stableEdits, state.markdownOptions)
+    const candidateSource = { length: source.length, slice: (start: number, end: number) => source.slice(start, end) }
+    const reusable = !editsMayRepairMath(state.source, candidateSource, stableEdits, state.markdownOptions) &&
+      !editsMayMoveFence(state.source, candidateSource, stableEdits)
     // A revision holding its parse lends it to the candidate's; one edited
     // regionally is not parsed for that, as the candidate's parse is whole.
     const retained = reusable && !whole ? state.productStore.withRetained(products => products.retainedIntrinsic) : undefined
@@ -5566,7 +5601,9 @@ function createDocumentCoreWithExecutionBudget(
       rememberPreviewedCandidate(previous, stableEdits, source, () => written.products, written.reader)
       return inspect(written.reader, source, () => written.products)
     }
-    const reusable = !editsMayRepairMath(state.source, { length: source.length, slice: (start: number, end: number) => source.slice(start, end) }, stableEdits, state.markdownOptions)
+    const candidateSource = { length: source.length, slice: (start: number, end: number) => source.slice(start, end) }
+    const reusable = !editsMayRepairMath(state.source, candidateSource, stableEdits, state.markdownOptions) &&
+      !editsMayMoveFence(state.source, candidateSource, stableEdits)
     const retained = reusable ? state.productStore.withRetained(products => products.retainedIntrinsic) : undefined
     const previousPass = retained === undefined ? undefined : { retained, edits: stableEdits }
     inspection.documentParses += 1
@@ -5831,7 +5868,7 @@ function createDocumentCoreWithExecutionBudget(
       syntax: windowSyntax(candidate.sourceStart, candidate.nextProducts, candidate.nextWindow.length, literal),
       lines: editing.markdown.lines,
       enterConversion: (range: SourceRange) =>
-        paragraphEnterConversion(editing.source, range.start, range.end, state.markdownOptions.texMathDollars),
+        paragraphEnterConversion(editing.source, range.start, range.end, state.markdownOptions.texMathDollars, state.markdownOptions.multilineBlockquote),
       // A literal window's own lines are the document's; its opener and
       // closer stand for the block's lines beyond them.
       source: literal === undefined
@@ -6705,7 +6742,7 @@ function createDocumentCoreWithExecutionBudget(
               syntax.coordinates.toSource(node.range.end, 'previous') > arm.range.start
           }
           // Literal spans reaching the edge keep the full planner.
-          if (['inline-code', 'inline-math', 'inline-html', 'autolink', 'image', 'footnote-reference'].includes(node.kind)) return false
+          if (['inline-code', 'inline-diff', 'inline-math', 'inline-html', 'autolink', 'image', 'footnote-reference'].includes(node.kind)) return false
           return node.children.some(reaches)
         }
         if (!reaches(syntax.ast.root)) return undefined
@@ -8619,7 +8656,7 @@ function createDocumentCoreWithExecutionBudget(
         })
       }
       const planned = (regional: boolean) => planInput(core, previous, action, range => state.productStore.withProduct(products =>
-        paragraphEnterConversion(products.editing().source, range.start, range.end, state.markdownOptions.texMathDollars)),
+        paragraphEnterConversion(products.editing().source, range.start, range.end, state.markdownOptions.texMathDollars, state.markdownOptions.multilineBlockquote)),
       () => state.productStore.withProduct(products => products.editing().markdown.lines),
       range => {
         if (!regional) return undefined
@@ -8712,6 +8749,7 @@ function createDocumentCoreWithExecutionBudget(
       const products = parse(source, resolvedOptions)
       const canonical = createPersistentCanonicalSource(source, sourceRecorder)
       dollarFreeSources.set(canonical, !source.includes('$'))
+      fenceFreeSources.set(canonical, !MULTILINE_BLOCKQUOTE_LINE.test(source))
       return publish(canonical, products, resolvedOptions)
     },
 
@@ -8900,7 +8938,9 @@ function createDocumentCoreWithExecutionBudget(
     const cached = previewedCandidate(previous, stableEdits)
     if (cached !== undefined) return cached.reader.criticMarkup.rootCount
     const source = state.source.applyExact(stableEdits, 'Authoring candidate').materialize('fallback')
-    const reusable = !editsMayRepairMath(state.source, { length: source.length, slice: (start: number, end: number) => source.slice(start, end) }, stableEdits, state.markdownOptions)
+    const candidateSource = { length: source.length, slice: (start: number, end: number) => source.slice(start, end) }
+    const reusable = !editsMayRepairMath(state.source, candidateSource, stableEdits, state.markdownOptions) &&
+      !editsMayMoveFence(state.source, candidateSource, stableEdits)
     const retained = reusable ? state.productStore.withRetained(products => products.retainedIntrinsic) : undefined
     return profile1CriticMarkupRootCount(source, executionBudget, state.markdownOptions, physicalRecorder,
       retained === undefined ? undefined : { retained, edits: stableEdits })

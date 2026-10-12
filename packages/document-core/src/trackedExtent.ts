@@ -739,7 +739,7 @@ function partiallyResolvable(
 
 const EOL = /\r\n|\r|\n/u
 
-const LITERAL_KINDS = new Set(['inline-code', 'code-block', 'inline-math', 'math-block', 'inline-html', 'html-block', 'front-matter', 'diagram', 'autolink'])
+const LITERAL_KINDS = new Set(['inline-code', 'inline-diff', 'code-block', 'inline-math', 'math-block', 'inline-html', 'html-block', 'front-matter', 'diagram', 'autolink'])
 /**
  * Spellings a widened search weighs before it gives up. Every search that
  * finds a spelling in the small, 2,000-block, input and delimiter pools

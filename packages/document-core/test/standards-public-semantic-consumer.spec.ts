@@ -301,7 +301,10 @@ describe('document-core public standards semantic consumer', () => {
         texMathDollars: false,
         texMathGfm: false,
         footnotes: false,
-        subscriptAndSuperscript: false
+        subscriptAndSuperscript: false,
+        highlightSyntax: false,
+        inlineDiff: false,
+        multilineBlockquote: false
       })
       const projection = core.project(revision, 'original')
       expect(revision.source, keyOf(semanticCase)).toBe(fixtureRow.markdown)
@@ -445,7 +448,10 @@ describe('document-core public standards semantic consumer', () => {
           texMathDollars: false,
           texMathGfm: false,
           footnotes: false,
-          subscriptAndSuperscript: false
+          subscriptAndSuperscript: false,
+          highlightSyntax: false,
+          inlineDiff: false,
+          multilineBlockquote: false
         })
         expect(renderPublicMarkdownProjectionToHtml(
           commonMarkCore.project(commonMarkRevision, 'original')
