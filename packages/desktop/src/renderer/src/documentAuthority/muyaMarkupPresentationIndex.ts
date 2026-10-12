@@ -194,7 +194,7 @@ export interface MuyaMarkupPresentationPatch {
 }
 
 const restKey = (path: MuyaMarkupPath): string => JSON.stringify(path.slice(1))
-const rootOf = (path: MuyaMarkupPath): number | undefined =>
+const rootIndexOf = (path: MuyaMarkupPath): number | undefined =>
   typeof path[0] === 'number' ? path[0] : undefined
 
 /**
@@ -244,7 +244,7 @@ export function createMuyaMarkupPresentationIndex(
     return entry
   }
   const beforeAt = (path: MuyaMarkupPath): Entry | undefined => {
-    const root = rootOf(path)
+    const root = rootIndexOf(path)
     return root === undefined
       ? before?.others.get(pathKey(path))
       : before?.roots[root]?.get(restKey(path))
@@ -297,7 +297,7 @@ export function createMuyaMarkupPresentationIndex(
   ) {
     const replaced: (Map<string, Entry> | undefined)[] = []
     for (const binding of muyaViewBindingsInRoots(view, patch.start, patch.nextEnd)) {
-      const root = rootOf(binding.path)!
+      const root = rootIndexOf(binding.path)!
       const key = restKey(binding.path)
       // A replaced root is compared with the root it replaces at the same
       // place, as a full index compares leaves at the same path.
@@ -321,7 +321,7 @@ export function createMuyaMarkupPresentationIndex(
     roots = []
     others = new Map()
     for (const binding of view.bindings) {
-      const root = rootOf(binding.path)
+      const root = rootIndexOf(binding.path)
       const entry = entryFor(binding, beforeAt(binding.path))
       if (root === undefined) others.set(pathKey(binding.path), entry)
       else {
@@ -330,7 +330,7 @@ export function createMuyaMarkupPresentationIndex(
       }
     }
     const present = (path: MuyaMarkupPath): boolean => {
-      const root = rootOf(path)
+      const root = rootIndexOf(path)
       return root === undefined
         ? others.has(pathKey(path))
         : roots[root]?.has(restKey(path)) === true
@@ -342,7 +342,7 @@ export function createMuyaMarkupPresentationIndex(
     }
   }
   const lookup = (path: MuyaMarkupPath): Entry | undefined => {
-    const root = rootOf(path)
+    const root = rootIndexOf(path)
     return root === undefined ? others.get(pathKey(path)) : roots[root]?.get(restKey(path))
   }
   /**
