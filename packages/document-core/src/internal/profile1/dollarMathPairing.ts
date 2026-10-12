@@ -11,7 +11,8 @@ interface SourceEdit {
 
 const LINE_PROBE = 256
 
-function lineStartBefore(source: SourceText, offset: number): number {
+/** Where the line holding `offset` starts, read back from `source` in probes. */
+function slicedLineStartBefore(source: SourceText, offset: number): number {
   for (let end = offset; end > 0; end -= LINE_PROBE) {
     const start = Math.max(0, end - LINE_PROBE)
     const chunk = source.slice(start, end)
@@ -46,7 +47,7 @@ export function editsMayRepairDollarMath(
   const touchesDollar = edits.some(edit =>
     edit.insert.includes('$') ||
     previous.slice(
-      lineStartBefore(previous, edit.start),
+      slicedLineStartBefore(previous, edit.start),
       lineEndAfter(previous, edit.end)
     ).includes('$')
   )

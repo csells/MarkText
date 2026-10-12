@@ -31,12 +31,12 @@ export function setextUnderlineLeadingLine(
 ): number | undefined {
   if (rule.kind !== 'thematic-break') return undefined
   const start = syntax.coordinates.toSource(rule.range.start, 'next')
-  const lineStart = lineStartBefore(sourceText, start)
+  const lineStart = readerLineStartBefore(sourceText, start)
   if (lineStart === 0) return undefined
   const end = syntax.coordinates.toSource(rule.range.end, 'previous')
   if (!/^[ \t>]*-+[ \t]*$/u.test(sourceText(lineStart, end))) return undefined
   const previousEnd = lineStart - (sourceText(lineStart - 2, lineStart) === '\r\n' ? 2 : 1)
-  const previous = sourceText(lineStartBefore(sourceText, previousEnd), previousEnd)
+  const previous = sourceText(readerLineStartBefore(sourceText, previousEnd), previousEnd)
   const prefix = sourceText(lineStart, start)
   return /^[ \t>]*$/u.test(previous) && previous.trimEnd() === prefix.trimEnd() ? previousEnd : undefined
 }
@@ -53,7 +53,11 @@ function setextUnderlineAtLeadingLine(
   return rule !== undefined && setextUnderlineLeadingLine(syntax, rule, sourceText) === position ? rule : undefined
 }
 
-function lineStartBefore(sourceText: (start: number, end: number) => string, position: number): number {
+/**
+ * Where the line holding `position` starts, read back through `sourceText`,
+ * which may be a view that leaves hidden delimiters out.
+ */
+function readerLineStartBefore(sourceText: (start: number, end: number) => string, position: number): number {
   let end = position
   while (end > 0) {
     const start = Math.max(0, end - 256)
@@ -94,7 +98,7 @@ export function planEmptiedSetextReset(
   const following = lineEnd + ending.length
   const nextLine = sourceText(following, following + 256).split(/\r\n|\r|\n/u)[0] ?? ''
   if (ending !== '' && following < revision.sourceLength && !/^[ \t>]*$/u.test(nextLine)) {
-    const prefix = sourceText(lineStartBefore(sourceText, caret), caret).trimEnd()
+    const prefix = sourceText(readerLineStartBefore(sourceText, caret), caret).trimEnd()
     edits.push({ start: following, end: following, insert: prefix + ending })
   }
   // The input is prevented, so the native domain is the current source.
