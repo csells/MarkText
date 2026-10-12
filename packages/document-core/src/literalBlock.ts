@@ -11,9 +11,6 @@ const LITERAL_BLOCKS: ReadonlySet<string> = new Set([...SPLITTABLE_LITERAL_BLOCK
 /** Block kinds whose children carry literal values, never inline Markdown. */
 export const isLiteralBlock = (kind: string): boolean => LITERAL_BLOCKS.has(kind)
 
-/** Blocks holding text a caret can land in. */
-export const CARET_TARGET_BLOCKS: ReadonlySet<string> = new Set(['paragraph', 'heading', 'table-cell', 'code-block', 'math-block', 'diagram', 'front-matter'])
-
 /** A line opening or closing a fenced code block or a math block. */
 export const LITERAL_DELIMITER_LINE = /^ {0,3}(?:`{3,}|~{3,}|\$\$)/u
 
