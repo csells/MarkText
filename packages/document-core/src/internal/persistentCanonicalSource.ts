@@ -8,7 +8,7 @@ export type CanonicalSourceMaterializationReason =
 
 export interface PersistentCanonicalSourceRecorder {
   readonly recordNodeVisit: (depth: number) => void
-  readonly recordRootShape: (height: number, pieces: number) => void
+  readonly recordRootShape: (height: number) => void
   readonly recordNodeAllocation: (piece: boolean) => void
   readonly recordCoalesce: () => void
   readonly recordRebalance: () => void
@@ -20,11 +20,7 @@ export interface PersistentCanonicalSourceRecorder {
   ) => void
   readonly recordGetterHit: () => void
   readonly recordGetterMiss: () => void
-  readonly recordCompaction: (
-    pieces: number,
-    retainedUpperBoundReductionUnits: number,
-    fragmentationRebase: boolean
-  ) => void
+  readonly recordCompaction: (fragmentationRebase: boolean) => void
   readonly recordAttemptedRoot: () => void
 }
 
@@ -324,7 +320,7 @@ function createSource(
   initiallyMaterialized?: string
 ): PersistentCanonicalSource {
   const length = root?.length ?? 0
-  recorder.recordRootShape(root?.height ?? 0, root?.pieceCount ?? 0)
+  recorder.recordRootShape(root?.height ?? 0)
   let activeRoot = root
   let activeRetainedBufferUnits = estimatedRetainedBufferUnits
   let materialized = initiallyMaterialized
@@ -429,10 +425,6 @@ function createSource(
     const chunks: string[] = []
     const pieces = appendRange(activeRoot, 0, length, chunks, recorder)
     const fragmentationRebase = requiresFragmentationRebase()
-    const retainedUpperBoundReductionUnits = Math.max(
-      0,
-      activeRetainedBufferUnits - length
-    )
     materialized = chunks.join('')
     recorder.recordMaterialization(reason, pieces, length)
     activeRoot = leaf(
@@ -442,15 +434,8 @@ function createSource(
       recorder
     )
     activeRetainedBufferUnits = length
-    recorder.recordRootShape(
-      activeRoot?.height ?? 0,
-      activeRoot?.pieceCount ?? 0
-    )
-    recorder.recordCompaction(
-      pieces,
-      retainedUpperBoundReductionUnits,
-      fragmentationRebase
-    )
+    recorder.recordRootShape(activeRoot?.height ?? 0)
+    recorder.recordCompaction(fragmentationRebase)
     return materialized
   })
   return Object.freeze({

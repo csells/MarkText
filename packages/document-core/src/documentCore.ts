@@ -81,7 +81,7 @@ import {
   type PersistentCanonicalSource,
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
-import { checksAppliedReadings, checksReaderViews, checksReadingWindows, searchesWithoutBudget, planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
+import { checksAppliedReadings, checksReaderViews, checksReadingWindows, searchesWithoutBudget, planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves, type DocumentCoreInspection } from './internal/documentCoreInspection.js'
 import { annotationsOverlapping, registerAnnotationsAround } from './internal/annotationsAround.js'
 import {
   createRevisionProductStore,
@@ -2107,86 +2107,20 @@ interface RegionalRevisionState {
 
 type RevisionState = FullRevisionState | RegionalRevisionState
 
-interface MutableDocumentCoreInspection {
-  intrinsicSourceUnits: number
-  documentParses: number
-  documentParseSourceUnits: number
-  regionalIntrinsicSourceUnits: number
-  regionalFastApplies: number
-  documentProjectionPreparationUnits: number
-  documentMarkupEventUnits: number
-  documentAstMaterializedNodes: number
-  documentCoordinateSegments: number
-  documentAnnotationMaterializedNodes: number
-  annotationFactTables: number
-  fullProductStoresStrongCurrent: number
-  fullProductStoresStrongPeak: number
-  fullProductStoreReleases: number
-  keystrokesAppliedAsTyped: number
-  canonicalFactIndexUnits: number
-  regionalProjectionPreparationUnits: number
-  regionalMarkupEventUnits: number
-  regionalAstMaterializedNodes: number
-  regionalCoordinateSegments: number
-  regionalCommentProjectionPreparationUnits: number
-  regionalCommentAstMaterializedNodes: number
-  regionalCommentCoordinateSegments: number
-  regionalInventoryBuildUnits: number
-  regionalInventoryLookupComparisons: number
-  regionalInventoryNodesVisited: number
-  regionalInventoryNodesAllocated: number
-  regionalInventoryNodesShared: number
-  regionalInventoryChangedLeaves: number
-  regionalInventoryRootsAttempted: number
-  regionalInventoryRootsCommitted: number
-  regionalInventoryLocalAnnotationMaterializedNodes: number
-  regionalInventoryCandidateRegionParses: number
-  regionalInventoryCandidateRegionParseSourceUnits: number
-  regionalInventoryAnnotationMaterializedNodes: number
-  retainedFactInputStructuralUnits: number
-  retainedFactOutputStructuralUnits: number
-  retainedInitialBuildUnits: number
-  retainedIndexLookupComparisons: number
-  retainedOverlayNodeVisits: number
-  retainedOverlayNodesAllocated: number
-  retainedOverlayNodesReused: number
-  retainedChangedLeafUnits: number
-  retainedCommittedUpdates: number
-  retainedLocalIndexUnitsCopied: number
-  retainedOverlayMaximumDepth: number
-  sourceRopeNodeVisits: number
-  sourceRopeNodesAllocated: number
-  sourceRopePiecesAllocated: number
-  sourceRopeCoalesces: number
-  sourceRopeRebalances: number
-  sourceRopeMaximumDepth: number
-  sourceRopeMaximumHeight: number
-  sourceRopeCurrentHeight: number
-  sourceRopeCurrentPieces: number
-  sourceRopeMaximumPieces: number
-  sourceSliceCalls: number
-  sourceSlicePieces: number
-  sourceSliceUnits: number
-  sourceMaterializations: number
-  sourceMaterializationPieces: number
-  sourceMaterializationOutputUnits: number
-  sourceGetterHits: number
-  sourceGetterMisses: number
-  sourceCompactions: number
-  sourceCompactionInputPieces: number
-  sourceCompactionRetainedUpperBoundReductionUnits: number
-  sourceGetterMaterializations: number
-  sourceGetterMaterializationOutputUnits: number
-  sourceFallbackMaterializations: number
-  sourceFallbackMaterializationOutputUnits: number
-  sourceRebaseMaterializations: number
-  sourceRebaseMaterializationOutputUnits: number
-  sourceProjectionMaterializations: number
-  sourceProjectionMaterializationOutputUnits: number
-  sourceRopeRootsAttempted: number
-  sourceRopeRootsCommitted: number
-  sourceRebases: number
-  sourceCurrentRetainedBufferUnitsUpperBound: number
+/** The reader derives these from the recorders and the current source. */
+type DerivedInspectionKey =
+  | 'intrinsicSourceUnits'
+  | 'regionalIntrinsicSourceUnits'
+  | 'regionalCommentProjectionPreparationUnits'
+  | 'retainedFactInputStructuralUnits'
+  | 'retainedFactOutputStructuralUnits'
+  | 'documentRetainedFactOutputStructuralUnits'
+  | 'sourceRopeCurrentHeight'
+  | 'sourceRopeCurrentPieces'
+  | 'sourceCurrentRetainedBufferUnitsUpperBound'
+
+type MutableDocumentCoreInspection = {
+  -readonly [Key in Exclude<keyof DocumentCoreInspection, DerivedInspectionKey>]: number
 }
 
 export function createDocumentCore(): DocumentCore {
@@ -2723,10 +2657,8 @@ function createDocumentCoreWithExecutionBudget(
   const physicalRecorder = createPhysicalTraversalRecorderV1()
   const regionalPhysicalRecorder = createPhysicalTraversalRecorderV1()
   const inspection: MutableDocumentCoreInspection = {
-    intrinsicSourceUnits: 0,
     documentParses: 0,
     documentParseSourceUnits: 0,
-    regionalIntrinsicSourceUnits: 0,
     regionalFastApplies: 0,
     documentProjectionPreparationUnits: 0,
     documentMarkupEventUnits: 0,
@@ -2743,7 +2675,6 @@ function createDocumentCoreWithExecutionBudget(
     regionalMarkupEventUnits: 0,
     regionalAstMaterializedNodes: 0,
     regionalCoordinateSegments: 0,
-    regionalCommentProjectionPreparationUnits: 0,
     regionalCommentAstMaterializedNodes: 0,
     regionalCommentCoordinateSegments: 0,
     regionalInventoryBuildUnits: 0,
@@ -2758,8 +2689,6 @@ function createDocumentCoreWithExecutionBudget(
     regionalInventoryCandidateRegionParses: 0,
     regionalInventoryCandidateRegionParseSourceUnits: 0,
     regionalInventoryAnnotationMaterializedNodes: 0,
-    retainedFactInputStructuralUnits: 0,
-    retainedFactOutputStructuralUnits: 0,
     retainedInitialBuildUnits: 0,
     retainedIndexLookupComparisons: 0,
     retainedOverlayNodeVisits: 0,
@@ -2776,9 +2705,6 @@ function createDocumentCoreWithExecutionBudget(
     sourceRopeRebalances: 0,
     sourceRopeMaximumDepth: 0,
     sourceRopeMaximumHeight: 0,
-    sourceRopeCurrentHeight: 0,
-    sourceRopeCurrentPieces: 0,
-    sourceRopeMaximumPieces: 0,
     sourceSliceCalls: 0,
     sourceSlicePieces: 0,
     sourceSliceUnits: 0,
@@ -2787,21 +2713,12 @@ function createDocumentCoreWithExecutionBudget(
     sourceMaterializationOutputUnits: 0,
     sourceGetterHits: 0,
     sourceGetterMisses: 0,
-    sourceCompactions: 0,
-    sourceCompactionInputPieces: 0,
-    sourceCompactionRetainedUpperBoundReductionUnits: 0,
-    sourceGetterMaterializations: 0,
-    sourceGetterMaterializationOutputUnits: 0,
     sourceFallbackMaterializations: 0,
-    sourceFallbackMaterializationOutputUnits: 0,
     sourceRebaseMaterializations: 0,
-    sourceRebaseMaterializationOutputUnits: 0,
     sourceProjectionMaterializations: 0,
-    sourceProjectionMaterializationOutputUnits: 0,
     sourceRopeRootsAttempted: 0,
     sourceRopeRootsCommitted: 0,
-    sourceRebases: 0,
-    sourceCurrentRetainedBufferUnitsUpperBound: 0
+    sourceRebases: 0
   }
   const sourceRecorder: PersistentCanonicalSourceRecorder = Object.freeze({
     recordNodeVisit: (depth: number): void => {
@@ -2811,14 +2728,10 @@ function createDocumentCoreWithExecutionBudget(
         depth
       )
     },
-    recordRootShape: (height: number, pieces: number): void => {
+    recordRootShape: (height: number): void => {
       inspection.sourceRopeMaximumHeight = Math.max(
         inspection.sourceRopeMaximumHeight,
         height
-      )
-      inspection.sourceRopeMaximumPieces = Math.max(
-        inspection.sourceRopeMaximumPieces,
-        pieces
       )
     },
     recordNodeAllocation: (piece: boolean): void => {
@@ -2844,18 +2757,12 @@ function createDocumentCoreWithExecutionBudget(
       inspection.sourceMaterializations += 1
       inspection.sourceMaterializationPieces += pieces
       inspection.sourceMaterializationOutputUnits += units
-      if (reason === 'getter') {
-        inspection.sourceGetterMaterializations += 1
-        inspection.sourceGetterMaterializationOutputUnits += units
-      } else if (reason === 'fallback') {
+      if (reason === 'fallback') {
         inspection.sourceFallbackMaterializations += 1
-        inspection.sourceFallbackMaterializationOutputUnits += units
       } else if (reason === 'projection') {
         inspection.sourceProjectionMaterializations += 1
-        inspection.sourceProjectionMaterializationOutputUnits += units
-      } else {
+      } else if (reason === 'rebase') {
         inspection.sourceRebaseMaterializations += 1
-        inspection.sourceRebaseMaterializationOutputUnits += units
       }
     },
     recordGetterHit: (): void => {
@@ -2864,15 +2771,7 @@ function createDocumentCoreWithExecutionBudget(
     recordGetterMiss: (): void => {
       inspection.sourceGetterMisses += 1
     },
-    recordCompaction: (
-      pieces: number,
-      retainedUpperBoundReductionUnits: number,
-      fragmentationRebase: boolean
-    ): void => {
-      inspection.sourceCompactions += 1
-      inspection.sourceCompactionInputPieces += pieces
-      inspection.sourceCompactionRetainedUpperBoundReductionUnits +=
-        retainedUpperBoundReductionUnits
+    recordCompaction: (fragmentationRebase: boolean): void => {
       if (fragmentationRebase) {
         inspection.sourceRebases += 1
       }

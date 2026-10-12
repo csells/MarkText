@@ -60,7 +60,6 @@ export interface DocumentCoreInspection {
   readonly sourceRopeMaximumHeight: number
   readonly sourceRopeCurrentHeight: number
   readonly sourceRopeCurrentPieces: number
-  readonly sourceRopeMaximumPieces: number
   readonly sourceSliceCalls: number
   readonly sourceSlicePieces: number
   readonly sourceSliceUnits: number
@@ -69,18 +68,9 @@ export interface DocumentCoreInspection {
   readonly sourceMaterializationOutputUnits: number
   readonly sourceGetterHits: number
   readonly sourceGetterMisses: number
-  readonly sourceCompactions: number
-  readonly sourceCompactionInputPieces: number
-  /** Reduction in the conservative retained-buffer upper bound. */
-  readonly sourceCompactionRetainedUpperBoundReductionUnits: number
-  readonly sourceGetterMaterializations: number
-  readonly sourceGetterMaterializationOutputUnits: number
   readonly sourceFallbackMaterializations: number
-  readonly sourceFallbackMaterializationOutputUnits: number
   readonly sourceRebaseMaterializations: number
-  readonly sourceRebaseMaterializationOutputUnits: number
   readonly sourceProjectionMaterializations: number
-  readonly sourceProjectionMaterializationOutputUnits: number
   readonly sourceRopeRootsAttempted: number
   readonly sourceRopeRootsCommitted: number
   readonly sourceRebases: number
