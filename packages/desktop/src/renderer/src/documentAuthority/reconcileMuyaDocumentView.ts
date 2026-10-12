@@ -330,9 +330,14 @@ export function restoreMuyaDocumentSelection(
       cellSelection === undefined &&
       modelTextSelection === undefined
     ) {
-      // Resolve through text so the caret stays on the line that follows.
-      const shown = modelPointToText(projectSourcePoint(inputSelection.start))
-      anchor = focus = shown === undefined ? undefined : (muya.editor.selection.getDOMPoint(shown) ?? undefined)
+      // Resolve through text so the caret stays on the line that follows. A
+      // boundary after an annotation's hidden closer, as typing its last
+      // marker character leaves the caret, has a DOM point but no text.
+      const projected = projectSourcePoint(inputSelection.start)
+      const shown = modelPointToText(projected)
+      anchor = focus = shown === undefined
+        ? modelPointToDOM(projected, undefined, true)
+        : (muya.editor.selection.getDOMPoint(shown) ?? undefined)
     }
     if (anchor === undefined || focus === undefined) {
       throw new Error('The accepted model selection has no rendered native boundary')
