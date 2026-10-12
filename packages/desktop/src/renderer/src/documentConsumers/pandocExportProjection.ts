@@ -20,7 +20,7 @@ import { semanticTextPieces, type SemanticTextPiece } from './semanticTextPieces
 export const PANDOC_NEUTRAL_AUTHOR = 'unknown'
 
 /** Pandoc writer whose output carries suggestions and comments natively. */
-export const PANDOC_TRACKED_TARGET = 'docx'
+const PANDOC_TRACKED_TARGET = 'docx'
 
 type Wrap = 'mark' | 'insertion' | 'deletion'
 // Insertion outside deletion is how Word spells text inserted and then deleted.

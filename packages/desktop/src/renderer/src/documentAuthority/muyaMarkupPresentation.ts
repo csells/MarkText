@@ -538,7 +538,7 @@ const COMMENT_NAME_LIMIT = 200
  * A comment marker has no visible text, so its accessible name carries the
  * comment itself; long comments are shortened for announcement.
  */
-export function commentMarkerName(label: string, text: string | undefined): string {
+function commentMarkerName(label: string, text: string | undefined): string {
   const words = text?.replace(/\s+/gu, ' ').trim() ?? ''
   if (words === '') return label
   const characters = Array.from(words)

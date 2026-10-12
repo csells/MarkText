@@ -55,9 +55,6 @@ export const getHash = async(
   return toHex(digest)
 }
 
-export const getContentHash = (content: string | Uint8Array | ArrayBuffer): Promise<string> =>
-  getHash(content, 'utf8', 'sha1')
-
 // Muya exposes clipboard bitmaps as data URLs; insertion preferences operate on
 // files. Decode without fetch so the renderer's network CSP stays unchanged.
 export const normalizeImageInput = (image: string | File): string | File => {

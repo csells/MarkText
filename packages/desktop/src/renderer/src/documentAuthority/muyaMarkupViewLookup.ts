@@ -32,7 +32,7 @@ function inRootOrder(items: readonly { readonly path: MuyaMarkupPath }[]): boole
 }
 
 /** The items whose path starts at root `root`, in list order. */
-export function muyaItemsAtRoot<Item extends { readonly path: MuyaMarkupPath }>(
+function muyaItemsAtRoot<Item extends { readonly path: MuyaMarkupPath }>(
   items: readonly Item[],
   root: number
 ): readonly Item[] {
@@ -50,7 +50,7 @@ export function muyaItemsAtRoot<Item extends { readonly path: MuyaMarkupPath }>(
 }
 
 /** The items whose path starts at a root in `[start, end)`, in list order. */
-export function muyaItemsInRoots<Item extends { readonly path: MuyaMarkupPath }>(
+function muyaItemsInRoots<Item extends { readonly path: MuyaMarkupPath }>(
   items: readonly Item[],
   start: number,
   end: number
@@ -72,7 +72,7 @@ export function muyaItemsInRoots<Item extends { readonly path: MuyaMarkupPath }>
 }
 
 /** The items at exactly `path`, in list order. */
-export function muyaItemsAtPath<Item extends { readonly path: MuyaMarkupPath }>(
+function muyaItemsAtPath<Item extends { readonly path: MuyaMarkupPath }>(
   items: readonly Item[],
   path: MuyaMarkupPath
 ): Item[] {
