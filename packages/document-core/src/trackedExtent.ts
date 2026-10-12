@@ -8,6 +8,7 @@ import { positionAfter } from './sourcePosition.js'
 import { FENCED_LITERAL_BLOCKS, LITERAL_DELIMITER_LINE, SPLITTABLE_LITERAL_BLOCKS } from './literalBlock.js'
 import { isPositionalMarkdownAttribute } from './markdownPositions.js'
 import { commonAffixes } from './textAffixes.js'
+import { firstLineEnding } from './sourceLines.js'
 import { CRITIC_MARKER_ALTERNATION, completeTrailingEscape, spellSuggestion, spellSuggestionPair } from './internal/profile1/sourceTape.js'
 
 type Preview = (edits: readonly DocumentSourceEdit[]) => DocumentRevision
@@ -1629,7 +1630,7 @@ export function draftTrackedSourceEdit(
   const accepted = [Object.freeze({ ...owner.range, insert: content })]
   const oracle = createTrackedOracle(core, previous, accepted, preview)
   if (oracle === undefined) return undefined
-  const eol = (content.match(EOL) ?? core.sourceSlice(previous, { start: 0, end: previous.sourceLength }).match(EOL))?.[0] ?? '\n'
+  const eol = content.match(EOL)?.[0] ?? firstLineEnding(core, previous, 0, previous.sourceLength) ?? '\n'
   const suffixes: string[] = []
   if (completeTrailingEscape(content) !== content) suffixes.push('\\')
   if (!EOL.test(content.at(-1) ?? '\n')) suffixes.push(eol)

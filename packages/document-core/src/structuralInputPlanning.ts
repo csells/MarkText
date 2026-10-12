@@ -13,7 +13,7 @@ import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSo
 import type { DocumentInputAction, DocumentSourceInputPlan } from './inputPlanning.js'
 import { resolveTableCell } from './tableSelection.js'
 import { positionAfter } from './sourcePosition.js'
-import { lineEndAt, lineStartAt, lineStartBefore, physicalLineAt } from './sourceLines.js'
+import { firstLineEnding, lineEndAt, lineStartAt, lineStartBefore, physicalLineAt } from './sourceLines.js'
 import { materializeTableCellEdit, tableRowCompletion } from './tableCellEditing.js'
 import { paragraphPrefixPosition, paragraphImageRange } from './paragraphBoundary.js'
 import { literalJoinParagraphText, tableJoinParagraphText, emptyParagraphJoinContainer, paragraphJoinBlock, paragraphJoinAdjacent, paragraphJoinTrailingEdits, paragraphLeadingLineJoin } from './paragraphJoinPlanning.js'
@@ -238,8 +238,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     }
   }
   const rawRange = 'range' in action ? action.range : { start, end: start }
-  const preceding = core.sourceSlice(revision, { start: 0, end: start })
-  const lineEnding = preceding.match(/\r\n|\r|\n/u)?.[0] ?? core.sourceSlice(revision, { start, end: revision.sourceLength }).match(/\r\n|\r|\n/u)?.[0] ?? '\n'
+  const lineEnding = firstLineEnding(core, revision, 0, start) ?? firstLineEnding(core, revision, start, revision.sourceLength) ?? '\n'
   if (start === end && ('kind' in action ? action.command === 'changeBlock' && action.change.type === 'reset' && action.change.at === undefined : inputType === 'insertParagraph')) {
     const reset = planEmptiedSetextReset(core, revision, projection, start)
     if (reset !== undefined) return reset
@@ -1112,8 +1111,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     const body = core.sourceSlice(revision, { start: from, end: to })
     if (fence.attributes.provider === 'indented-code') {
       // Each line of indented code repeats its line's indentation and containers.
-      const line = core.sourceSlice(revision, { start: 0, end: start })
-      const prefix = /^[ \t>]*/u.exec(line.slice(Math.max(line.lastIndexOf('\n'), line.lastIndexOf('\r')) + 1))?.[0] ?? ''
+      const prefix = /^[ \t>]*/u.exec(core.sourceSlice(revision, { start: lineStartAt(core, revision, start), end: start }))?.[0] ?? ''
       const insert = lineEnding + prefix
       return result([{ start, end, insert }], { start: start + insert.length, end: start + insert.length })
     }
