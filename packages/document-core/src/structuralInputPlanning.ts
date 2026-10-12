@@ -22,7 +22,8 @@ import { annotationsAround, annotationsOverlapping } from './internal/annotation
 import { planEmptiedSetextReset } from './setextTrailingLine.js'
 import { mergeAdjacentEdits, planEmptiedParagraph } from './emptiedParagraphPlanning.js'
 import { blockCommandTarget, planBlockCommand } from './blockCommandPlanning.js'
-import { CARET_TARGET_BLOCKS, isLiteralBlock, literalParagraphSpelling } from './literalBlock.js'
+import { CARET_TARGET_BLOCKS } from './blockKinds.js'
+import { isLiteralBlock, literalParagraphSpelling } from './literalBlock.js'
 
 /** Shared sparse removal for native table commands and rectangular selections. */
 export function planTableRemoval(
