@@ -5,6 +5,7 @@ import type {
 } from './documentCore.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import { positionAfter } from './sourcePosition.js'
+import { CRITIC_MARKER_ALTERNATION } from './internal/profile1/sourceTape.js'
 
 type Preview = (edits: readonly DocumentSourceEdit[]) => DocumentRevision
 
@@ -582,7 +583,8 @@ function resolvedText(source: string, annotation: CriticMarkupAnnotation, decisi
   return range === undefined ? '' : source.slice(range.start, range.end)
 }
 
-const MARKER_TOKEN = /^(?:\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\})/u
+const MARKER_TOKEN = new RegExp(`^(?:${CRITIC_MARKER_ALTERNATION})`, 'u')
+const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'u')
 /**
  * Offsets in `typed` before which `accepted` adds a backslash escaping a
  * marker spelling, where the two texts differ only so far; the texts are
@@ -1622,7 +1624,7 @@ export function draftTrackedSourceEdit(
     ? !RAW_HTML_OPENER.test(opener) && !typedLines.some(line => line.trim() === '')
     : literal === 'code-block' && indented
       // Lines that keep their indentation stay its text; markers there read as markers.
-      ? typedLines.every(line => line.trim() === '' || /^(?: {4}|\t)/u.test(line)) && !/\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/u.test(edit.insert)
+      ? typedLines.every(line => line.trim() === '' || /^(?: {4}|\t)/u.test(line)) && !CRITIC_MARKER.test(edit.insert)
       : literal !== undefined && delimiterLine(opener) && !onDelimiterLine
   if (onDelimiterLine || joinsFenceLine || inArmLiteral) {
     const extended = preview([edit])

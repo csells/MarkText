@@ -22,6 +22,13 @@ import type { Profile1PhysicalTraversalRecorderV1 } from './physicalTraversalAcc
 import type { MappedProjectionSegment } from './syntaxGraph.js'
 import { markdownReferenceDefinitionLabel, normalizeMarkdownReferenceLabel } from './markdownLaneState.js'
 import {
+  CRITIC_CLOSER_BY_OPENER,
+  CRITIC_FORM_BY_CLOSER,
+  CRITIC_FORM_BY_OPENER,
+  CRITIC_FORM_SPELLING,
+  CRITIC_MARKER_ALTERNATION
+} from './sourceTape.js'
+import {
   createPlainParagraphRetainedIndex,
   type PlainParagraphIndexRecorder,
   type PlainParagraphRetainedIndex
@@ -1137,22 +1144,6 @@ const FORM_BIT: Readonly<Record<CriticMarkupNode['kind'], number>> = Object.free
   comment: 16
 })
 
-const OPENER_FORM: Readonly<Record<string, CriticMarkupNode['kind']>> = Object.freeze({
-  '{++': 'addition',
-  '{--': 'deletion',
-  '{~~': 'substitution',
-  '{==': 'highlight',
-  '{>>': 'comment'
-})
-
-const CLOSER_FORM: Readonly<Record<string, CriticMarkupNode['kind']>> = Object.freeze({
-  '++}': 'addition',
-  '--}': 'deletion',
-  '~~}': 'substitution',
-  '==}': 'highlight',
-  '<<}': 'comment'
-})
-
 function diagnosticCapsules(
   diagnostics: readonly SyntaxDiagnostic[],
   sourceStart: number
@@ -1209,7 +1200,7 @@ function unterminatedFormsOf(
   let forms = 0
   for (const diagnostic of diagnostics) {
     if (diagnostic.code !== 'CM_UNTERMINATED_OPENER') continue
-    const form = OPENER_FORM[canonicalText(products, diagnostic.range.start, diagnostic.range.end) ?? '']
+    const form = CRITIC_FORM_BY_OPENER[canonicalText(products, diagnostic.range.start, diagnostic.range.end) ?? '']
     // An unfinished opener whose spelling cannot be read back fails closed.
     forms |= form === undefined ? ALL_FORMS : FORM_BIT[form]
   }
@@ -2458,7 +2449,8 @@ function strayMarkersUnchanged(previousWindow: string, nextWindow: string): bool
     markerSpellingSequence(previousWindow) === markerSpellingSequence(nextWindow)
 }
 
-const MARKER_SPELLING = /(?=(\{\+\+|\{--|\{~~|\{==|\{>>|~>|\+\+\}|--\}|~~\}|==\}|<<\}))/gu
+const MARKER_SPELLING = new RegExp(`(?=(${CRITIC_MARKER_ALTERNATION}))`, 'gu')
+const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'gu')
 
 /** The marker spellings of `text` in order, overlapping spellings each read. */
 function markerSpellingSequence(text: string): string {
@@ -2484,14 +2476,14 @@ function addedCloserForms(previousWindow: string, nextWindow: string): number {
     const result = new Map<string, number>()
     for (const match of text.matchAll(MARKER_SPELLING)) {
       const spelling = match[1] ?? ''
-      if (CLOSER_FORM[spelling] !== undefined) result.set(spelling, (result.get(spelling) ?? 0) + 1)
+      if (CRITIC_FORM_BY_CLOSER[spelling] !== undefined) result.set(spelling, (result.get(spelling) ?? 0) + 1)
     }
     return result
   }
   const before = counts(previousWindow)
   let forms = 0
   for (const [spelling, count] of counts(nextWindow)) {
-    const form = CLOSER_FORM[spelling]
+    const form = CRITIC_FORM_BY_CLOSER[spelling]
     if (form !== undefined && count > (before.get(spelling) ?? 0)) forms |= FORM_BIT[form]
   }
   return forms
@@ -2502,7 +2494,7 @@ function spelledCloserForms(text: string): number {
   let forms = 0
   for (const match of text.matchAll(MARKER_SPELLING)) {
     const spelling = match[1] ?? ''
-    const form = spelling === '~>' ? 'substitution' : CLOSER_FORM[spelling]
+    const form = spelling === '~>' ? 'substitution' : CRITIC_FORM_BY_CLOSER[spelling]
     if (form !== undefined) forms |= FORM_BIT[form]
   }
   return forms
@@ -4035,10 +4027,6 @@ function backtickRunsFenced(products: Profile1DocumentProducts, text: string): b
   return true
 }
 
-const MARKER_CLOSER: Readonly<Record<string, string>> = Object.freeze({
-  '{++': '++}', '{--': '--}', '{~~': '~~}', '{==': '==}', '{>>': '<<}'
-})
-
 /**
  * Whether `edit` removes only whole suggestions, or markers it spells again,
  * and inserts only whole suggestions: openers and closers that pair with each
@@ -4077,7 +4065,7 @@ function balancedInsertion(previousSource: CanonicalSourceView, edit: RetainedPa
   const first = spellings[0]
   const last = spellings.at(-1)
   const split = spellings.length > 1 && first !== undefined && last !== undefined && first !== '~~}' &&
-    Object.values(MARKER_CLOSER).includes(first) && MARKER_CLOSER[last] === first
+    Object.values(CRITIC_CLOSER_BY_OPENER).includes(first) && CRITIC_CLOSER_BY_OPENER[last] === first
   return wholeSuggestions(split ? spellings.slice(1, -1) : spellings)
 }
 
@@ -4085,7 +4073,7 @@ function balancedInsertion(previousSource: CanonicalSourceView, edit: RetainedPa
 function wholeSuggestions(spellings: readonly string[]): boolean {
   const open: string[] = []
   for (const spelling of spellings) {
-    const closer = MARKER_CLOSER[spelling]
+    const closer = CRITIC_CLOSER_BY_OPENER[spelling]
     if (closer !== undefined) open.push(closer)
     else if (spelling === '~>') {
       if (open.at(-1) !== '~~}') return false
@@ -4121,7 +4109,7 @@ function unprotectedSpellings(text: string): number[] {
 
 /** Positions where a CriticMarkup marker is spelled, overlapping spellings each counted. */
 function markerSpellings(text: string): number {
-  return [...text.matchAll(/(?=\{\+\+|\{--|\{~~|\{==|\{>>|~>|\+\+\}|--\}|~~\}|==\}|<<\})/gu)].length
+  return [...text.matchAll(MARKER_SPELLING)].length
 }
 
 function leavesOf(root: RegionTree): RegionLeaf[] {
@@ -4484,7 +4472,7 @@ function firstTextLine(source: CanonicalSourceView, offset: number): number {
  */
 function oneEmptyLineBefore(source: CanonicalSourceView, offset: number): boolean {
   const start = Math.max(0, offset - 4096)
-  const text = source.slice(start, offset).replace(/\{\+\+|\{--|\{~~|\{==|\{>>|~>|\+\+\}|--\}|~~\}|==\}|<<\}/gu, '')
+  const text = source.slice(start, offset).replace(CRITIC_MARKER, '')
   return start === 0 && text.length === 0 ? true : afterEmptyLine(text, text.length)
 }
 
@@ -5534,14 +5522,6 @@ function editedShapeOf(blocks: readonly LeafBlock[], start: number, end: number)
     : undefined
 }
 
-const MARKER_FORM_SPELLING: Readonly<Record<CriticMarkupNode['kind'], Readonly<{ open: string, close: string }>>> = Object.freeze({
-  addition: Object.freeze({ open: '{++', close: '++}' }),
-  deletion: Object.freeze({ open: '{--', close: '--}' }),
-  substitution: Object.freeze({ open: '{~~', close: '~~}' }),
-  highlight: Object.freeze({ open: '{==', close: '==}' }),
-  comment: Object.freeze({ open: '{>>', close: '<<}' })
-})
-
 /**
  * Whether the window's markers are those it held before but for whole
  * suggestions, which now read as literal text, as a `$$` line the edit opens
@@ -5578,7 +5558,7 @@ function wholeSuggestionsRemoved(
   const removed = previous.flatMap((marker, ordinal) => {
     if (kept.has(ordinal)) return []
     if (marker.role === 'separator') return ['~>']
-    return [MARKER_FORM_SPELLING[marker.kind][marker.role === 'open' ? 'open' : 'close']]
+    return [CRITIC_FORM_SPELLING[marker.kind][marker.role === 'open' ? 'open' : 'close']]
   })
   return wholeSuggestions(removed)
 }

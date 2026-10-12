@@ -6,13 +6,16 @@ import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations as annotationTree, markupReplacementRange } from './markupEditOwnership.js'
 import { historyInsertionPoint, substitutionBeforeDeletion, substitutionDraftInsertionPoint, trackedEditableSpans, trackedPartsSeparate, withinHistory } from './trackedHistoryEditing.js'
 import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
+import { CRITIC_MARKER_ALTERNATION } from './internal/profile1/sourceTape.js'
 import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, escapesLiteralContent, isWindowCompileCore, markUnresolvedDraft, reachesWindowEdge, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
+
+const CRITIC_MARKER = new RegExp(CRITIC_MARKER_ALTERNATION, 'g')
 
 /** Protective spelling retains exactly where the language compiler inserts escapes. */
 export const nativeCriticSpelling = (value: string): Readonly<{ text: string, escapes: readonly number[] }> => {
   const escapes: number[] = []
   const text = value.replace(
-    /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/g,
+    CRITIC_MARKER,
     (token, offset: number) => {
       escapes.push(offset)
       return `\\${token}`
@@ -133,7 +136,7 @@ function withinBlockLiteral(core: DocumentCore, revision: DocumentRevision, edit
     text.startsWith('    ', lineStart) && local.start - lineStart >= 4
 }
 
-const ESCAPED_MARKER = /\\(?:\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\})/u
+const ESCAPED_MARKER = new RegExp(String.raw`\\(?:${CRITIC_MARKER_ALTERNATION})`, 'u')
 
 /** Literal payloads cannot contain active CM; suggest a replacement of their owned syntax. */
 export function createTrackedLiteralSourceEdit(

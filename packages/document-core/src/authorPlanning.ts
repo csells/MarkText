@@ -1,4 +1,4 @@
-import { commentPayloadCandidates } from './commentSpelling.js'
+import { CRITIC_TOKENS, commentPayloadCandidates } from './commentSpelling.js'
 import { highlightCommentLayout, type HighlightCommentLayout, type HighlightCommentPair } from './commentedSpans.js'
 import { protectNativeCriticText } from './trackedAuthoring.js'
 import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, SourceRange } from './documentCore.js'
@@ -252,10 +252,7 @@ export const planAuthor = (
     }
     return undefined
   }
-  const protectedText = request.text.replace(
-    /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<</g,
-    (token) => `\\${token}`
-  )
+  const protectedText = request.text.replace(CRITIC_TOKENS, (token) => `\\${token}`)
   if (protectedText === request.text) return undefined
   return planned(candidateFor(protectedSelected, protectedText), protectedSelected, protectedText)
 }
