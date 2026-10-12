@@ -31,6 +31,8 @@ import {
 import { FENCED_LITERAL_BLOCKS, SPLITTABLE_LITERAL_BLOCKS, isLiteralBlock } from '../../literalBlock.js'
 import { lineStartBefore } from '../../sourceLines.js'
 import { isPositionalMarkdownAttribute } from '../../markdownPositions.js'
+import { shiftResourceDiagnostic } from './regionalWindow.js'
+import { sourceRange } from './sourceRanges.js'
 import {
   createPlainParagraphRetainedIndex,
   type PlainParagraphIndexRecorder,
@@ -490,25 +492,6 @@ function range(start: number, end: number): Readonly<{
   readonly end: number
 }> {
   return Object.freeze({ start, end })
-}
-
-function internalRange(start: number, end: number): SourceRange {
-  return range(start, end) as SourceRange
-}
-
-function shiftResourceDiagnostic(
-  diagnostic: ResourceDiagnostic,
-  sourceDelta: number
-): ResourceDiagnostic {
-  return Object.freeze({
-    kind: diagnostic.kind,
-    code: diagnostic.code,
-    range: internalRange(
-      diagnostic.range.start + sourceDelta,
-      diagnostic.range.end + sourceDelta
-    ),
-    metadata: diagnostic.metadata
-  })
 }
 
 function nodeRanges(
@@ -5922,7 +5905,7 @@ export function materializeRegionalInventoryDiagnostics(
       for (const diagnostic of node.diagnostics) {
         diagnostics.push(Object.freeze({
           code: diagnostic.code,
-          range: internalRange(sourceStart + diagnostic.start, sourceStart + diagnostic.end),
+          range: sourceRange(sourceStart + diagnostic.start, sourceStart + diagnostic.end),
           metadata: diagnostic.metadata
         }))
       }

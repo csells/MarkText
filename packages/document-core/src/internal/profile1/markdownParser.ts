@@ -1,6 +1,7 @@
 import { emojiAt, frontMatterPolicy } from '@marktext/input-policy'
 import { htmlTagAttributes } from './htmlTagAttributes.js'
 import { imageSizeAttributes, type ImageSizeOmission } from './imageSizeAttributes.js'
+import { isPositionalMarkdownAttribute } from '../../markdownPositions.js'
 import type {
   MarkdownDocument,
   MarkdownLineIndex,
@@ -5335,10 +5336,6 @@ function retainFragmentEntry<Value>(
   budget.valueBytes += valueBytes
   budget.queue.push({ cache, key, keyBytes, valueBytes })
 }
-
-// Public AST *Start/*End scalar facts are projection coordinates everywhere,
-// including retained fragment identities and incremental coordinate shifts.
-const isPositionalMarkdownAttribute = (key: string): boolean => /(?:Start|End)$/.test(key)
 
 function shiftedMarkdownAttributes(
   attributes: Readonly<Record<string, string | number | boolean>>,
