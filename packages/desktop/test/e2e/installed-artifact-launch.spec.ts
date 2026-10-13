@@ -47,9 +47,10 @@ test('the shipped artifact launches with its inspect fuse off and renders the ed
   let browser: Browser | undefined
   try {
     child = spawn(artifact!, [`--remote-debugging-port=${port}`, '--user-data-dir', path.join(userDataDir, 'profile'), document], {
-      env: defaultCoreLaunchEnvironment({ MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_ERROR_INTERACTION: '1' }),
+      // Hidden takes both flags (`isHiddenE2eWindow`).
+      env: defaultCoreLaunchEnvironment({ PERF_TESTING: 'true', MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_ERROR_INTERACTION: '1' }),
       stdio: 'ignore',
-      // Its own process group, so the whole app stops with it.
+      // Its own process group, so helpers it leaves can be reaped.
       detached: true
     })
     await expect.poll(async() => {
@@ -66,19 +67,35 @@ test('the shipped artifact launches with its inspect fuse off and renders the ed
   } finally {
     // The connection first: the app does not quit while a debugger holds it.
     await Promise.race([browser?.close().catch(() => {}), new Promise(resolve => setTimeout(resolve, 5000))])
-    if (child?.pid !== undefined && child.exitCode === null) {
-      const pid = child.pid
-      const exited = new Promise(resolve => child!.once('exit', () => resolve(true)))
-      const quit = (signal: NodeJS.Signals): Promise<unknown> => {
-        try {
-          process.kill(-pid, signal)
-        } catch {
-          return Promise.resolve(true)
-        }
-        return Promise.race([exited, new Promise(resolve => setTimeout(() => resolve(false), 10000))])
-      }
-      if (await quit('SIGTERM') !== true) await quit('SIGKILL')
-    }
+    if (child?.pid !== undefined) await quitApp(child, child.pid)
     fs.rmSync(userDataDir, { recursive: true, force: true })
   }
 })
+
+/**
+ * Quits the app as a user quit does. SIGTERM to the main process alone makes
+ * Electron quit, closing its windows so each renderer exits cleanly; a signal
+ * to the whole group would kill the renderers first, a crash the app reports.
+ * Only once the main process is gone are any of its helpers left reaped.
+ */
+async function quitApp(child: ChildProcess, pid: number): Promise<void> {
+  const exited = child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve(true)
+    : new Promise<boolean>(resolve => child.once('exit', () => resolve(true)))
+  const within = (milliseconds: number) => Promise.race([exited, new Promise<boolean>(resolve => setTimeout(() => resolve(false), milliseconds))])
+  const signal = (target: number, name: NodeJS.Signals): void => {
+    try {
+      process.kill(target, name)
+    } catch {
+      // Already gone.
+    }
+  }
+  signal(pid, 'SIGTERM')
+  // A main process that cannot quit is stopped outright: with it gone no
+  // renderer crash can be reported.
+  if (!await within(15000)) {
+    signal(pid, 'SIGKILL')
+    await within(5000)
+  }
+  signal(-pid, 'SIGKILL')
+}

@@ -9,6 +9,7 @@ import type Accessor from '../app/accessor'
 import { ensureWindowPosition, zoomIn, zoomOut } from './utils'
 import { TITLE_BAR_HEIGHT, editorWinOptions, isLinux, isOsx } from '../config'
 import { isHiddenE2eWindow } from './windowActivationPolicy'
+import { recordHiddenRendererGone } from './hiddenModeDialogs'
 import { showEditorContextMenu } from '../contextMenu/editor'
 import { requestReviewContext } from '../contextMenu/editor/reviewContext'
 import { beepForDisabledReviewShortcut } from '../menu/actions/review'
@@ -255,6 +256,12 @@ class EditorWindow extends BaseWindow {
 
       const msg = `The renderer process has crashed unexpected or is killed (${reason}).`
       log.error(msg)
+      // A hidden test run puts no window on screen, so it records the reason
+      // for the test instead of asking what to do with the window.
+      if (hiddenE2eWindow) {
+        recordHiddenRendererGone(reason)
+        return
+      }
 
       if (reason === 'abnormal-exit') {
         return
