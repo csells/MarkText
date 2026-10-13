@@ -1,5 +1,6 @@
 import { verifyPackagedApp } from '../../../../scripts/verifyPackagedApp'
 import { requiredExpectedBuildCommit } from './installedArtifactProvenance'
+import { PACKAGED_ARTIFACT_ENV, prepareInstalledTestCopy } from './installedTestCopy'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -11,6 +12,12 @@ export default async function globalSetup(): Promise<void> {
   if (executable) {
     requiredExpectedBuildCommit(process.env.MARKTEXT_EXPECTED_COMMIT)
     verifyPackagedApp(executable)
+    // Workers launch the copy; the artifact launch spec reads the original.
+    process.env[PACKAGED_ARTIFACT_ENV] = path.resolve(executable)
+    process.env.MARKTEXT_PACKAGED_APP = prepareInstalledTestCopy(
+      executable,
+      path.join(__dirname, '../../test-results/installed-test-copy')
+    )
   }
   // Workers inherit this variable; globalTeardown reads the file and removes it.
   const legacyMarkdownLog = path.join(

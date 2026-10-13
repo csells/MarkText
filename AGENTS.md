@@ -204,6 +204,12 @@ pnpm run test          # All unit tests (Vitest)
 pnpm run test:unit     # Unit tests only
 pnpm run test:e2e      # Unpacked E2E project, with serial execution and global setup
 pnpm run test:e2e:installed # Installed project; requires MARKTEXT_PACKAGED_APP and MARKTEXT_EXPECTED_COMMIT
+# The shipped app keeps Electron's EnableNodeCliInspectArguments fuse off (#5643),
+# which Playwright's Electron launcher needs on. Global setup therefore copies
+# MARKTEXT_PACKAGED_APP's app into test-results/installed-test-copy/, turns only
+# that fuse on, re-signs the copy ad hoc, checks its app.asar matches the
+# artifact's, and runs the suite against the copy. installed-artifact-launch.spec.ts
+# launches the artifact itself, fuse off, over --remote-debugging-port.
 pnpm run lint          # ESLint (run before committing; CI enforces)
 pnpm run typecheck     # vue-tsc --noEmit (CI enforces)
 
