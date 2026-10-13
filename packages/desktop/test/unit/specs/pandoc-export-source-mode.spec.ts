@@ -52,8 +52,7 @@ function onFlushCommit(store: ReturnType<typeof useEditorStore>) {
 
 const sentPayload = (sendSpy: { mock: { calls: unknown[][] } }) =>
   sendSpy.mock.calls.find((c) => c[0] === 'mt::response-pandoc-export')?.[1] as
-    | PandocExportPayload
-    | undefined
+    PandocExportPayload | undefined
 
 const str = (c: string) => ({ t: 'Str', c })
 

@@ -3,10 +3,7 @@
     class="editor-with-tabs"
     :style="{ 'max-width': `calc(100vw - ${effectiveSideBarWidth}px)` }"
   >
-    <tabs
-      v-if="currentFile"
-      v-show="showTabBar"
-    />
+    <tabs v-if="currentFile" v-show="showTabBar" />
     <CoreDraftRecoveryPanel
       :drafts="coreRecoveryDrafts"
       :error="coreDraftBackupError"
@@ -17,10 +14,7 @@
       @retry="retryCoreDraftBackup"
     />
     <recent v-if="!currentFile" />
-    <div
-      v-else
-      class="container"
-    >
+    <div v-else class="container">
       <editor
         v-if="!coreCloseInputsRetired"
         ref="coreEditor"
@@ -51,11 +45,7 @@
         :initial-view-state="coreSourceViewState"
         @core-fault="handleCoreViewFault"
       />
-      <div
-        v-if="coreViewState === 'reconciling'"
-        class="core-view-handoff"
-        aria-busy="true"
-      />
+      <div v-if="coreViewState === 'reconciling'" class="core-view-handoff" aria-busy="true" />
     </div>
     <tab-notifications v-if="currentFile" />
   </div>
@@ -291,9 +281,7 @@ const wysiwygCoreLease = computed(() =>
     ? coreLease.value
     : undefined
 )
-const coreSourceVisible = computed(
-  () => props.sourceCode || coreViewState.value !== 'wysiwyg'
-)
+const coreSourceVisible = computed(() => props.sourceCode || coreViewState.value !== 'wysiwyg')
 const coreTestCrashCoreOwner = computed<(() => void) | undefined>(() => {
   const documentId = coreLease.value?.documentId
   if (!coreLaunchPolicy.testControlsEnabled || documentId === undefined) return undefined
@@ -497,11 +485,11 @@ watch(
       file === null
         ? undefined
         : Object.freeze({
-          id: file.id,
-          source: file.markdown,
-          cursor: props.muyaIndexCursor,
-          lineEnding: canonicalCoreLineEnding(file.lineEnding)
-        })
+            id: file.id,
+            source: file.markdown,
+            cursor: props.muyaIndexCursor,
+            lineEnding: canonicalCoreLineEnding(file.lineEnding)
+          })
     const liveDocumentIds = new Set(editorStore.tabs.map((tab) => tab.id))
     const retireClosedDocuments = async (): Promise<void> => {
       const retiringDocumentIds = [...openedCoreDocuments].filter(
@@ -842,10 +830,7 @@ const unregisterCoreClose = coreDocumentSaveAuthority.registerClose(
       await nextTick()
       const target = currentFile.value?.id
       const view = props.sourceCode ? coreSourceEditor.value : coreEditor.value
-      if (
-        target !== undefined &&
-        (coreLease.value?.documentId !== target || view === undefined)
-      ) {
+      if (target !== undefined && (coreLease.value?.documentId !== target || view === undefined)) {
         coreClosePending.value = true
         coreCloseInputsRetired.value = true
         await nextTick()
@@ -877,7 +862,7 @@ const unregisterCoreClose = coreDocumentSaveAuthority.registerClose(
     return {
       ready: work,
       pendingReviewInput: [...commentComposers.values()].some((composer) => composer.open),
-      async resume (): Promise<void> {
+      async resume(): Promise<void> {
         if (!held) return
         await coreTransition
         await restoreInput()
