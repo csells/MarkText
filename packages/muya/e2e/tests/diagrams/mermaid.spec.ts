@@ -176,16 +176,18 @@ test.describe('diagram via quick-insert menu', () => {
         await expect(page.locator(editor.diagramBlock)).toHaveCount(1);
         await slowType(page, MERMAID_BODY);
 
+        // The fence language round-trips back to ```mermaid carrying the body,
+        // once the last key reaches the state; an earlier key's partial body
+        // (`graph TD\nA`) can already draw an <svg>.
+        await expect.poll(() => page.evaluate(() => window.muya!.getMarkdown())).toContain('A-->B');
+        const md = await page.evaluate(() => window.muya!.getMarkdown());
+        expect(md).toContain('```mermaid');
+        expect(md).toContain('graph TD');
+
         // The preview updates live on input; allow generous time for the async
         // mermaid render (dynamic import + parse + run).
         const svg = page.locator(`${editor.diagramPreview} svg`).first();
         await expect(svg).toBeVisible({ timeout: 15_000 });
-
-        // The fence language round-trips back to ```mermaid carrying the body.
-        const md = await page.evaluate(() => window.muya!.getMarkdown());
-        expect(md).toContain('```mermaid');
-        expect(md).toContain('graph TD');
-        expect(md).toContain('A-->B');
     });
 
     test('inserting a vega-lite diagram from the slash menu renders an <svg>', async ({ page }) => {
