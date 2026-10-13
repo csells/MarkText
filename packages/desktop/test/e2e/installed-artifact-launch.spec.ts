@@ -8,6 +8,8 @@ import * as path from 'node:path'
 import { assertInstalledBuildCommit, defaultCoreLaunchEnvironment, requiredExpectedBuildCommit } from './installedArtifactProvenance'
 import { PACKAGED_ARTIFACT_ENV } from './installedTestCopy'
 
+const TEXT = 'Shipped artifact text'
+
 // The rest of the installed suite drives a copy with Node's inspect fuse on
 // (see installedTestCopy.ts). This launches the artifact as shipped, fuse off,
 // and reads it over the Chromium debugging protocol, which that fuse leaves
@@ -38,11 +40,13 @@ test('the shipped artifact launches with its inspect fuse off and renders the ed
   test.skip(artifact === undefined, 'Runs against MARKTEXT_PACKAGED_APP in the installed projects')
   const expected = requiredExpectedBuildCommit(process.env.MARKTEXT_EXPECTED_COMMIT)
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'marktext-artifact-launch-'))
+  const document = path.join(userDataDir, 'artifact.md')
+  fs.writeFileSync(document, `# Artifact\n\n${TEXT}\n`)
   const port = await freePort()
   let child: ChildProcess | undefined
   let browser: Browser | undefined
   try {
-    child = spawn(artifact!, [`--remote-debugging-port=${port}`, '--user-data-dir', userDataDir], {
+    child = spawn(artifact!, [`--remote-debugging-port=${port}`, '--user-data-dir', path.join(userDataDir, 'profile'), document], {
       env: defaultCoreLaunchEnvironment({ MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_ERROR_INTERACTION: '1' }),
       stdio: 'ignore',
       // Its own process group, so the whole app stops with it.
@@ -57,19 +61,23 @@ test('the shipped artifact launches with its inspect fuse off and renders the ed
       }
     }, { timeout: 20000 }).toBe(true)
     const page = await editorPage(browser!)
-    await expect(page.locator('.editor-component .mu-paragraph-content').first()).toBeAttached({ timeout: 15000 })
-    await expect.poll(() => page.evaluate(() => window.__marktextDocumentCore !== undefined)).toBe(true)
+    await expect(page.locator('.editor-component .mu-paragraph-content', { hasText: TEXT })).toBeAttached({ timeout: 15000 })
     assertInstalledBuildCommit(expected, await page.evaluate(() => window.electron.buildCommit))
   } finally {
-    await browser?.close().catch(() => {})
+    // The connection first: the app does not quit while a debugger holds it.
+    await Promise.race([browser?.close().catch(() => {}), new Promise(resolve => setTimeout(resolve, 5000))])
     if (child?.pid !== undefined && child.exitCode === null) {
-      const exited = new Promise(resolve => child!.once('exit', resolve))
-      try {
-        process.kill(-child.pid, 'SIGTERM')
-        await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 10000))])
-      } catch {
-        // Already exited.
+      const pid = child.pid
+      const exited = new Promise(resolve => child!.once('exit', () => resolve(true)))
+      const quit = (signal: NodeJS.Signals): Promise<unknown> => {
+        try {
+          process.kill(-pid, signal)
+        } catch {
+          return Promise.resolve(true)
+        }
+        return Promise.race([exited, new Promise(resolve => setTimeout(() => resolve(false), 10000))])
       }
+      if (await quit('SIGTERM') !== true) await quit('SIGKILL')
     }
     fs.rmSync(userDataDir, { recursive: true, force: true })
   }

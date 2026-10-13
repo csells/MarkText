@@ -1271,6 +1271,9 @@ test.describe('installed editorial pass: exports', () => {
     fs.mkdirSync(out)
     const { app, page } = await launch(path.join(root, 'profile'), [annotated, ordinary])
     try {
+      // Upstream (#5513) moved Pandoc conversion to its own File submenu,
+      // shown only with this preference on.
+      await page.evaluate(() => window.electron.ipcRenderer.send('mt::set-user-preference', { showPandocConvert: true }))
       await app.evaluate(({ dialog }, directory) => {
         ;(dialog as unknown as { showSaveDialog: unknown }).showSaveDialog = async(
           _owner: unknown,
@@ -1291,7 +1294,7 @@ test.describe('installed editorial pass: exports', () => {
         await exportPrinted('Export as PDF')
         const pdfPath = path.join(out, `${stem}.pdf`)
         await expect.poll(() => fs.existsSync(pdfPath) && fs.statSync(pdfPath).size > 1000, { timeout: 30_000 }).toBe(true)
-        await menu(app, 'File', 'Export', 'Convert with Pandoc', 'Word (.docx)')
+        await menu(app, 'File', 'Convert with Pandoc', 'Word (.docx)')
         const docxPath = path.join(out, `${stem}.docx`)
         await expect.poll(() => fs.existsSync(docxPath) && spawnSync('unzip', ['-t', docxPath]).status === 0, { timeout: 60_000 }).toBe(true)
         return {
