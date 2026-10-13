@@ -3,16 +3,22 @@ import type { ElectronApplication } from 'playwright'
 import { launchWithMarkdown } from './helpers'
 
 // A hidden run (PERF_TESTING with MARKTEXT_E2E_HIDDEN_WINDOW) must put nothing
-// on the user's screen. A renderer that dies there records its reason rather
-// than showing upstream's "MarkText has crashed" sheet, and any native dialog
-// no test stubbed is answered as its Cancel without being shown.
+// on the user's screen and launch nothing. A renderer that dies there records
+// its reason rather than showing upstream's "MarkText has crashed" sheet; any
+// native dialog, context menu or shell action no test stubbed is recorded
+// instead of shown or performed.
 
 const recorded = (app: ElectronApplication) => app.evaluate(() => {
   const scope = globalThis as typeof globalThis & {
     __marktextHiddenDialogs?: Array<{ method: string, message: string }>
     __marktextRendererGone?: string[]
   }
-  return { dialogs: scope.__marktextHiddenDialogs ?? [], gone: scope.__marktextRendererGone ?? [] }
+  return {
+    dialogs: scope.__marktextHiddenDialogs ?? [],
+    gone: scope.__marktextRendererGone ?? [],
+    popups: (scope as typeof scope & { __marktextHiddenMenuPopups?: Array<{ method: string, detail: string }> }).__marktextHiddenMenuPopups ?? [],
+    shell: (scope as typeof scope & { __marktextHiddenShellCalls?: Array<{ method: string, detail: string }> }).__marktextHiddenShellCalls ?? []
+  }
 })
 
 const windowVisible = (app: ElectronApplication) =>
@@ -53,6 +59,43 @@ test('a native dialog no test stubbed is answered as Cancel without showing', as
       save: { canceled: true, filePath: '' }
     })
     expect((await recorded(app)).dialogs.map(entry => entry.method)).toEqual(['showMessageBox', 'showOpenDialog', 'showSaveDialog'])
+    expect(await windowVisible(app)).toBe(false)
+  } finally {
+    await app.close()
+  }
+})
+
+test('an unstubbed context menu is recorded and not shown', async() => {
+  const { app } = await launchWithMarkdown('Hidden\n', { env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' } })
+  try {
+    const dismissed = await app.evaluate(({ BrowserWindow, Menu }) => new Promise<boolean>((resolve) => {
+      const menu = Menu.buildFromTemplate([{ label: 'First' }, { label: 'Second' }])
+      menu.popup({ window: BrowserWindow.getAllWindows()[0]!, callback: () => resolve(true) })
+      menu.closePopup()
+    }))
+    expect(dismissed).toBe(true)
+    expect((await recorded(app)).popups).toEqual([
+      { method: 'popup', detail: 'First | Second' },
+      { method: 'closePopup', detail: '' }
+    ])
+    expect(await windowVisible(app)).toBe(false)
+  } finally {
+    await app.close()
+  }
+})
+
+test('a shell action launches nothing and leaves the window hidden', async() => {
+  const { app } = await launchWithMarkdown('Hidden\n', { env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' } })
+  try {
+    const answers = await app.evaluate(async({ shell }) => ({
+      external: await shell.openExternal('https://example.com/hidden-run'),
+      path: await shell.openPath('/tmp')
+    }))
+    expect(answers).toEqual({ external: undefined, path: '' })
+    expect((await recorded(app)).shell).toEqual([
+      { method: 'openExternal', detail: 'https://example.com/hidden-run' },
+      { method: 'openPath', detail: '/tmp' }
+    ])
     expect(await windowVisible(app)).toBe(false)
   } finally {
     await app.close()

@@ -1,4 +1,4 @@
-import { dialog, type MessageBoxOptions } from 'electron'
+import { dialog, Menu, shell, type MessageBoxOptions, type PopupOptions } from 'electron'
 import log from 'electron-log'
 import { isHiddenE2eWindow } from './windowActivationPolicy'
 
@@ -8,8 +8,16 @@ export interface HiddenModeDialog {
   readonly message: string
 }
 
+/** A native menu or shell action a hidden test run asked for, which was not performed. */
+export interface HiddenModeCall {
+  readonly method: string
+  readonly detail: string
+}
+
 type HiddenModeGlobal = typeof globalThis & {
   __marktextHiddenDialogs?: HiddenModeDialog[]
+  __marktextHiddenMenuPopups?: HiddenModeCall[]
+  __marktextHiddenShellCalls?: HiddenModeCall[]
   __marktextRendererGone?: string[]
 }
 
@@ -33,10 +41,11 @@ const messageBoxOptions = (args: readonly unknown[]): MessageBoxOptions =>
   (args.length > 1 ? args[1] : args[0]) as MessageBoxOptions
 
 /**
- * A hidden test run (`isHiddenE2eWindow`) never shows a native dialog or
- * sheet, which would put a window on the user's screen: each one is logged,
- * recorded and answered as its Cancel. A test that needs another answer
- * replaces the method, as the specs' stubs do.
+ * A hidden test run (`isHiddenE2eWindow`) puts nothing on the user's screen
+ * and launches nothing: each native dialog, sheet, context menu and shell
+ * action is logged and recorded instead. A dialog is answered as its Cancel,
+ * a menu as dismissed, and a shell action as done. A test that needs another
+ * answer replaces the method, as the specs' stubs do.
  */
 export const installHiddenModeDialogGuard = (): void => {
   if (!isHiddenE2eWindow()) return
@@ -77,5 +86,32 @@ export const installHiddenModeDialogGuard = (): void => {
   }
   target.showCertificateTrustDialog = async() => {
     answer('showCertificateTrustDialog', '')
+  }
+  const perform = (key: '__marktextHiddenMenuPopups' | '__marktextHiddenShellCalls', method: string, detail: string): void => {
+    log.warn(`Hidden run did not perform ${method}: ${detail}`)
+    hiddenModeGlobal[key] ??= []
+    hiddenModeGlobal[key].push({ method, detail })
+  }
+  Menu.prototype.popup = function(this: Menu, options?: PopupOptions) {
+    perform('__marktextHiddenMenuPopups', 'popup', this.items.map((item) => item.label).filter(Boolean).join(' | '))
+    // The menu closes at once, as when dismissed.
+    if (options?.callback !== undefined) setImmediate(options.callback)
+  }
+  Menu.prototype.closePopup = function() {
+    perform('__marktextHiddenMenuPopups', 'closePopup', '')
+  }
+  const shellTarget = shell as unknown as Record<string, unknown>
+  shellTarget.openExternal = async(url: string) => {
+    perform('__marktextHiddenShellCalls', 'openExternal', url)
+  }
+  shellTarget.openPath = async(path: string) => {
+    perform('__marktextHiddenShellCalls', 'openPath', path)
+    return ''
+  }
+  shellTarget.showItemInFolder = (path: string) => {
+    perform('__marktextHiddenShellCalls', 'showItemInFolder', path)
+  }
+  shellTarget.beep = () => {
+    perform('__marktextHiddenShellCalls', 'beep', '')
   }
 }
