@@ -292,3 +292,33 @@ describe('diagramPreview — accessible name', () => {
         expect(preview.domNode!.getAttribute('aria-label')).toBeNull();
     });
 });
+
+// Each key redraws the preview, and an earlier key's partial code can finish
+// rendering after the next key's: the code last asked for is what shows.
+describe('diagramPreview — renders out of order', () => {
+    it('shows the latest code even when an earlier render finishes later', async () => {
+        const renderer = {
+            parse: (code: string) => {
+                if (code === 'Alice->')
+                    throw new Error('partial code');
+                return {
+                    drawSVG: (target: HTMLElement) => {
+                        target.innerHTML = '<svg id="latest"></svg>';
+                    },
+                };
+            },
+        };
+        loadRendererMock
+            .mockImplementationOnce(() => new Promise(resolve => setTimeout(resolve, 20, renderer)))
+            .mockImplementation(async () => renderer);
+        const { preview } = makePreview('', 'sequence');
+
+        const first = preview.update('Alice->');
+        // Let the first render start before the next key asks for another.
+        await new Promise(resolve => setTimeout(resolve, 0));
+        await Promise.all([first, preview.update('Alice->Bob: Hi')]);
+
+        expect(preview.domNode!.querySelector('svg#latest')).not.toBeNull();
+        expect(preview.domNode!.querySelector('.mu-diagram-error')).toBeNull();
+    });
+});

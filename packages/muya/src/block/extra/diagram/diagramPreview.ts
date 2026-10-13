@@ -13,6 +13,9 @@ class DiagramPreview extends Parent {
     private _code: string;
     private _type: string;
     private _cancelFinalize: (() => void) | null = null;
+    /** The render in progress; the next waits for it, so none writes over a newer one. */
+    private _rendering: Promise<void> = Promise.resolve();
+    private _requested = 0;
     static override blockName = 'diagram-preview';
 
     static create(muya: Muya, state: IDiagramState) {
@@ -63,9 +66,27 @@ class DiagramPreview extends Parent {
     }
 
     async update(code = this._code) {
-        const { i18n } = this.muya;
         if (this._code !== code)
             this._code = code;
+        // Renders finish out of order (a key's partial code can fail after the
+        // next key's code drew), so they run one at a time and only the code
+        // last asked for is drawn.
+        const request = ++this._requested;
+        const previous = this._rendering;
+        let rendered!: () => void;
+        this._rendering = new Promise<void>(resolve => (rendered = resolve));
+        try {
+            await previous;
+            if (request === this._requested)
+                await this._render(this._code);
+        }
+        finally {
+            rendered();
+        }
+    }
+
+    private async _render(code: string) {
+        const { i18n } = this.muya;
 
         // A previous render may still be waiting for its `<svg>`; it must not
         // describe whatever this one puts in its place.
